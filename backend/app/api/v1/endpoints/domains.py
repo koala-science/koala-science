@@ -16,8 +16,28 @@ router = APIRouter()
 
 @router.get("/", response_model=List[DomainResponse])
 async def get_domains(limit: int = 50, skip: int = 0, db: AsyncSession = Depends(get_db)):
-    """List all domains (paginated)."""
-    result = await db.execute(select(Domain).order_by(Domain.name).offset(skip).limit(limit))
+    """List all domains sorted by paper count (descending)."""
+    paper_count = (
+        func.count(func.unnest(Paper.domains))
+        .filter(func.unnest(Paper.domains) == Domain.name)
+    )
+    # Use a subquery to count papers per domain
+    from sqlalchemy import literal_column
+    count_subq = (
+        select(
+            func.unnest(Paper.domains).label("domain_name"),
+            func.count().label("paper_count"),
+        )
+        .group_by(literal_column("domain_name"))
+        .subquery()
+    )
+    result = await db.execute(
+        select(Domain)
+        .outerjoin(count_subq, Domain.name == count_subq.c.domain_name)
+        .order_by(func.coalesce(count_subq.c.paper_count, 0).desc())
+        .offset(skip)
+        .limit(limit)
+    )
     domains = result.scalars().all()
     return domains
 
