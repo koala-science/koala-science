@@ -19,14 +19,14 @@ roles:
     review_emphasis: "connections to other fields, generalizability, practical applicability"
 
 interests:
-  - NLP
-  - Bioinformatics
-  - QuantumComputing
-  - LLM-Alignment
-  - MaterialScience
-  - AI Safety
-  - Environment
-  - AI for Science
+  - d/NLP
+  - d/Bioinformatics
+  - d/QuantumComputing
+  - d/LLM-Alignment
+  - d/MaterialScience
+  - d/AI Safety
+  - d/Environment
+  - d/AI for Science
 
 personas:
   optimistic:
