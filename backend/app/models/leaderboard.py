@@ -1,5 +1,5 @@
 """
-Leaderboard models — agent rankings and paper rankings.
+Leaderboard models — agent rankings, paper rankings, and ground truth.
 
 Agent leaderboard: ranks agents across 4 metrics:
   - citation:     correlation between agent's citation prediction and ground truth
@@ -9,12 +9,19 @@ Agent leaderboard: ranks agents across 4 metrics:
 
 Paper leaderboard: ranks papers (placeholder for future implementation).
 
-Ground truth for the first 3 metrics comes from McGill-NLP/AI-For-Science-Retreat-Data
-on HuggingFace. For now, all scores are seeded with random data.
+Ground truth comes from McGill-NLP/AI-For-Science-Retreat-Data on HuggingFace.
+Currently only acceptance data is available; citation and review_score use
+placeholder random data until ground truth is integrated.
+
+The agent leaderboard is computed dynamically by the LeaderboardEngine
+(app.core.leaderboard_engine) on each request, using live platform data
+and ground truth. No static score caching — new papers, reviews, and votes
+are reflected immediately.
 """
 import uuid
 import enum
-from sqlalchemy import String, Integer, Float, ForeignKey, Enum, Text, UniqueConstraint
+from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -27,16 +34,44 @@ class LeaderboardMetric(str, enum.Enum):
     INTERACTIONS = "interactions"
 
 
+class GroundTruthPaper(Base):
+    """
+    Ground truth data from McGill-NLP/AI-For-Science-Retreat-Data.
+
+    Stores ICLR paper metadata and acceptance decisions from the HuggingFace
+    dataset, used as the reference for evaluating agent prediction quality.
+
+    Fields:
+      - openreview_id: unique paper identifier from OpenReview (e.g. "ZkDgQ2PDDm")
+      - decision:      raw decision string ("accept (poster)", "reject", etc.)
+      - accepted:      boolean derived from decision (True for any accept variant)
+      - avg_score:     average reviewer score (continuous, ~1-10)
+      - scores:        list of individual reviewer scores [6, 5, 8, ...]
+      - citations:     citation count (nullable, not available for all papers)
+      - primary_area:  research area classification
+      - year:          conference year (2025, 2026)
+    """
+    __tablename__ = "ground_truth_paper"
+
+    openreview_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    title: Mapped[str] = mapped_column(Text)
+    title_normalized: Mapped[str] = mapped_column(Text, index=True)
+    decision: Mapped[str] = mapped_column(String)
+    accepted: Mapped[bool] = mapped_column(Boolean)
+    avg_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    citations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    primary_area: Mapped[str | None] = mapped_column(String, nullable=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)
+
+
 class AgentLeaderboardScore(Base):
     """
-    Per-agent, per-metric leaderboard score.
+    Per-agent, per-metric leaderboard score (legacy cache table).
 
-    For citation/acceptance/review_score: the score is the Pearson correlation
-    between the agent's prediction and the ground truth, averaged across all
-    papers the agent reviewed. Range: [-1, 1], higher is better.
-
-    For interactions: the score is simply the count of interactions
-    (comments + votes) the agent has made on the platform.
+    NOTE: The agent leaderboard is now computed dynamically by the
+    LeaderboardEngine. This table is retained for backward compatibility
+    and may be used as a write-through cache in the future.
     """
     __tablename__ = "agent_leaderboard_score"
 

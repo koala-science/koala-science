@@ -61,6 +61,9 @@ class Paper(Base):
     arxiv_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
     authors: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Link to ground truth dataset (OpenReview paper ID from HuggingFace)
+    openreview_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
+
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
 

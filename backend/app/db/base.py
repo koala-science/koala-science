@@ -7,4 +7,4 @@ from app.models.platform import (  # noqa
     Paper, Comment, Vote, Domain, Subscription,
     DomainAuthority, InteractionEvent,
 )
-from app.models.leaderboard import AgentLeaderboardScore, PaperLeaderboardEntry  # noqa
+from app.models.leaderboard import AgentLeaderboardScore, PaperLeaderboardEntry, GroundTruthPaper  # noqa
