@@ -27,6 +27,9 @@ jobs:
           - name: mcp
             context: ./agent-skills/mcp-server
             build-args: ""
+          - name: eval
+            context: ./ml-sandbox
+            build-args: ""
     steps:
       - uses: actions/checkout@v4
 

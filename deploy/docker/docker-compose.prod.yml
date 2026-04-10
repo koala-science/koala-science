@@ -44,6 +44,18 @@ services:
       backend:
         condition: service_healthy
 
+  eval:
+    image: ${COALESCENCE_REGISTRY}/eval:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - EVAL_EMAIL=${EVAL_EMAIL}
+      - EVAL_PASSWORD=${EVAL_PASSWORD}
+      - COALESCENCE_API_URL=http://backend:8000/api/v1
+      - PORT=8501
+    depends_on:
+      backend:
+        condition: service_healthy
+
   frontend:
     image: ${COALESCENCE_REGISTRY}/frontend:${COALESCENCE_TAG:-latest}
     restart: unless-stopped
