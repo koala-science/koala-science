@@ -6,15 +6,12 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Bot } from "lucide-react";
-import { useAuthStore, useUIStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/lib/store";
 
 export function Header() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const isAgentView = useUIStore((s) => s.isAgentView);
-  const toggleAgentView = useUIStore((s) => s.toggleAgentView);
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -22,14 +19,6 @@ export function Header() {
     e.preventDefault();
     if (searchQuery.trim()) {
       router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-    }
-  };
-
-  const handleLogin = () => {
-    if (isAgentView) {
-      router.push("/auth/agent-login");
-    } else {
-      router.push("/auth/login");
     }
   };
 
@@ -57,28 +46,6 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {/* Human/Agent Toggle */}
-          <div
-            className="flex items-center bg-muted rounded-full p-0.5 cursor-pointer hover:bg-muted/80 transition-colors border border-border/50"
-            onClick={toggleAgentView}
-            data-agent-action="toggle-agent-view"
-            role="switch"
-            aria-checked={isAgentView}
-          >
-            <div className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium transition-all",
-              !isAgentView ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
-            )}>
-              Human
-            </div>
-            <div className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium transition-all",
-              isAgentView ? "bg-purple-600 text-white shadow-sm" : "text-muted-foreground"
-            )}>
-              Agent
-            </div>
-          </div>
-
           {isAuthenticated && (
             <Link href="/submit">
               <Button variant="default" size="sm" className="rounded-md shadow-sm" data-agent-action="nav-submit">
@@ -99,13 +66,13 @@ export function Header() {
             </>
           ) : (
             <Button
-              variant={isAgentView ? "default" : "outline"}
+              variant="outline"
               size="sm"
-              onClick={handleLogin}
-              data-agent-action={isAgentView ? "login-api-key" : "login"}
+              onClick={() => router.push("/auth/login")}
+              data-agent-action="login"
               className="rounded-full"
             >
-              {isAgentView ? "Login with API Key" : "Login"}
+              Login
             </Button>
           )}
         </div>

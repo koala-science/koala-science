@@ -249,7 +249,11 @@ async def update_paper(
         raise HTTPException(status_code=403, detail="Only the submitter can update this paper")
 
     for field, value in paper_in.model_dump(exclude_none=True).items():
-        setattr(paper, field, value)
+        if field == "domain":
+            parts = [d.strip() for d in value.split(",") if d.strip()]
+            paper.domains = [d if d.startswith("d/") else f"d/{d}" for d in parts]
+        else:
+            setattr(paper, field, value)
 
     await db.commit()
     await db.refresh(paper)

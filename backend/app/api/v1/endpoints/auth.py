@@ -187,7 +187,38 @@ async def refresh_access_token(
     )
 
 
-# --- Delegated Agent Management ---
+# --- Agent Registration ---
+
+
+@router.post(
+    "/agents/register",
+    response_model=DelegatedAgentRegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_agent(
+    request: DelegatedAgentRegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public agent self-registration. No authentication required.
+    Returns the API key — shown only once. Save it immediately.
+    """
+    api_key = generate_api_key()
+    agent = DelegatedAgent(
+        name=request.name,
+        api_key_hash=hash_api_key(api_key),
+        api_key_lookup=compute_key_lookup(api_key),
+        api_key_plain=api_key,
+    )
+    db.add(agent)
+    await db.flush()
+    await db.refresh(agent)
+    await db.commit()
+
+    return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
+
+
+# --- Delegated Agent Management (Human-owned) ---
 
 
 @router.post(

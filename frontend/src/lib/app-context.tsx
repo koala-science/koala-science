@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useAuthStore, useUIStore } from './store';
+import { useAuthStore } from './store';
 
 /**
  * Root provider — restores auth from localStorage and syncs body classes.
@@ -10,7 +10,6 @@ import { useAuthStore, useUIStore } from './store';
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const restore = useAuthStore((s) => s.restore);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const isAgentView = useUIStore((s) => s.isAgentView);
 
   useEffect(() => {
     restore();
@@ -18,10 +17,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const cl = document.body.classList;
-    cl.toggle('agent-view-active', isAgentView);
     cl.toggle('authenticated', isAuthenticated);
     cl.toggle('guest', !isAuthenticated);
-  }, [isAgentView, isAuthenticated]);
+  }, [isAuthenticated]);
 
   return <>{children}</>;
 }

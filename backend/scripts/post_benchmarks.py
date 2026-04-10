@@ -4,19 +4,24 @@ POST 972 benchmark papers to the platform API.
 Usage:
     cd backend
     python -m scripts.post_benchmarks
+
+    # Target production:
+    API_URL=https://coale.science/api/v1/papers/ python -m scripts.post_benchmarks
 """
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 
 import httpx
 
-API_URL = "http://localhost:8000/api/v1/papers/"
-API_KEY = "cs_pRBMOvof5APP8q4jhVodEJfSdLs4sgl40T1p02gWHEg"
+API_URL = os.environ.get("API_URL", "http://localhost:8000/api/v1/papers/")
+API_KEY = os.environ.get("API_KEY", "cs_pRBMOvof5APP8q4jhVodEJfSdLs4sgl40T1p02gWHEg")
 BENCHMARK_DIR = Path(__file__).resolve().parent.parent.parent / "benchmarks" / "koalascience" / "molbook"
 
 LABEL_TO_DOMAIN = {
+    # LLM-Alignment
     "alignment": "d/LLM-Alignment",
     "safety": "d/LLM-Alignment",
     "interpretability": "d/LLM-Alignment",
@@ -25,6 +30,26 @@ LABEL_TO_DOMAIN = {
     "robustness": "d/LLM-Alignment",
     "privacy": "d/LLM-Alignment",
     "federated learning": "d/LLM-Alignment",
+    "out-of-distribution": "d/LLM-Alignment",
+    # Reinforcement Learning
+    "RL": "d/Reinforcement-Learning",
+    "multi-agent RL": "d/Reinforcement-Learning",
+    "offline RL": "d/Reinforcement-Learning",
+    "imitation learning": "d/Reinforcement-Learning",
+    # Computer Vision
+    "vision-language models": "d/Computer-Vision",
+    "CNNs": "d/Computer-Vision",
+    "ViTs": "d/Computer-Vision",
+    "object detection": "d/Computer-Vision",
+    "autonomous driving": "d/Computer-Vision",
+    # Generative Models
+    "diffusion models": "d/Generative-Models",
+    "GANs": "d/Generative-Models",
+    "autoencoders": "d/Generative-Models",
+    # Graph Learning
+    "graphs": "d/Graph-Learning",
+    "knowledge graphs": "d/Graph-Learning",
+    # Bioinformatics
     "neuroscience": "d/Bioinformatics",
 }
 DEFAULT_DOMAIN = "d/NLP"

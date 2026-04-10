@@ -145,65 +145,68 @@ async def _vector_search_threads(
 async def _text_search_papers(
     db: AsyncSession, q: str, domain, after_dt, before_dt, limit
 ) -> list[dict]:
-    # Try FTS first, then ILIKE
-    for use_fts in (True, False):
-        query = select(Paper).options(joinedload(Paper.submitter))
-
-        if use_fts:
-            query = query.where(
-                func.to_tsvector("english", Paper.title + " " + Paper.abstract).match(q)
+    # Try FTS first, fall back to ILIKE if FTS errors or returns nothing
+    try:
+        query = (
+            select(Paper)
+            .options(joinedload(Paper.submitter))
+            .where(
+                func.to_tsvector("english", Paper.title + " " + Paper.abstract).op("@@")(
+                    func.websearch_to_tsquery("english", q)
+                )
             )
-        else:
-            query = query.where(
-                or_(Paper.title.ilike(f"%{q}%"), Paper.abstract.ilike(f"%{q}%"))
-            )
-
+        )
         query = _apply_paper_filters(query, domain, after_dt, before_dt)
         query = query.limit(limit)
-
         result = await db.execute(query)
         papers = result.scalars().unique().all()
-
         if papers:
             return [
-                SearchResultPaper(
-                    score=0.5 if use_fts else 0.3,  # Lower score for text fallback
-                    paper=_paper_response(p),
-                ).model_dump()
+                SearchResultPaper(score=0.5, paper=_paper_response(p)).model_dump()
                 for p in papers
             ]
+    except Exception:
+        await db.rollback()
 
-    return []
+    # ILIKE fallback
+    query = (
+        select(Paper)
+        .options(joinedload(Paper.submitter))
+        .where(or_(Paper.title.ilike(f"%{q}%"), Paper.abstract.ilike(f"%{q}%")))
+    )
+    query = _apply_paper_filters(query, domain, after_dt, before_dt)
+    query = query.limit(limit)
+    result = await db.execute(query)
+    papers = result.scalars().unique().all()
+    return [
+        SearchResultPaper(score=0.3, paper=_paper_response(p)).model_dump()
+        for p in papers
+    ]
 
 
 async def _text_search_threads(
     db: AsyncSession, q: str, domain, after_dt, before_dt, limit
 ) -> list[dict]:
-    # Search comment content, then group by root thread
-    for use_fts in (True, False):
+    # Try FTS first, fall back to ILIKE if FTS errors or returns nothing
+    try:
         query = (
             select(Comment)
             .options(joinedload(Comment.author), joinedload(Comment.paper))
-            .where(Comment.parent_id.is_(None))  # Root comments only
-        )
-
-        if use_fts:
-            query = query.where(
-                func.to_tsvector("english", Comment.content_markdown).match(q)
+            .where(Comment.parent_id.is_(None))
+            .where(
+                func.to_tsvector("english", Comment.content_markdown).op("@@")(
+                    func.websearch_to_tsquery("english", q)
+                )
             )
-        else:
-            query = query.where(Comment.content_markdown.ilike(f"%{q}%"))
-
+        )
         query = _apply_thread_filters(query, domain, after_dt, before_dt)
         query = query.limit(limit)
-
         result = await db.execute(query)
         comments = result.scalars().unique().all()
-
         if comments:
             return [
                 SearchResultThread(
-                    score=0.5 if use_fts else 0.3,
+                    score=0.5,
                     paper_id=c.paper_id,
                     paper_title=c.paper.title if c.paper else "",
                     paper_domains=c.paper.domains if c.paper else [],
@@ -211,8 +214,30 @@ async def _text_search_threads(
                 ).model_dump()
                 for c in comments
             ]
+    except Exception:
+        await db.rollback()
 
-    return []
+    # ILIKE fallback
+    query = (
+        select(Comment)
+        .options(joinedload(Comment.author), joinedload(Comment.paper))
+        .where(Comment.parent_id.is_(None))
+        .where(Comment.content_markdown.ilike(f"%{q}%"))
+    )
+    query = _apply_thread_filters(query, domain, after_dt, before_dt)
+    query = query.limit(limit)
+    result = await db.execute(query)
+    comments = result.scalars().unique().all()
+    return [
+        SearchResultThread(
+            score=0.3,
+            paper_id=c.paper_id,
+            paper_title=c.paper.title if c.paper else "",
+            paper_domains=c.paper.domains if c.paper else [],
+            root_comment=_comment_response(c),
+        ).model_dump()
+        for c in comments
+    ]
 
 
 # ---- Filter helpers ----

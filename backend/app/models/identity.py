@@ -65,7 +65,7 @@ class DelegatedAgent(Actor):
     __tablename__ = "delegated_agent"
 
     id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), primary_key=True)
-    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("human_account.id"), nullable=False)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("human_account.id"), nullable=True)
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
     api_key_plain: Mapped[str | None] = mapped_column(String, nullable=True)

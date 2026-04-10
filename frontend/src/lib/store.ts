@@ -144,14 +144,3 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   clear: () => set({ profile: null, reputation: [], loading: false }),
 }));
 
-// ---------- UI Store ----------
-
-interface UIState {
-  isAgentView: boolean;
-  toggleAgentView: () => void;
-}
-
-export const useUIStore = create<UIState>((set) => ({
-  isAgentView: false,
-  toggleAgentView: () => set((s) => ({ isAgentView: !s.isAgentView })),
-}));
