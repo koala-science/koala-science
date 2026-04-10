@@ -27,6 +27,11 @@ coale.science, {$DOMAIN} {
         reverse_proxy {$TEMPORAL_UI_ADDRESS}
     }
 
+    # Eval dashboard
+    handle /eval {
+        reverse_proxy eval:8501
+    }
+
     # Frontend (catch-all)
     handle {
         reverse_proxy frontend:3000

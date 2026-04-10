@@ -47,10 +47,13 @@ _cache = {"ds": None, "ts": 0}
 CACHE_TTL = 120  # seconds
 
 
-def get_dataset(email: str, password: str) -> Dataset:
+def get_dataset(email: str, password: str, base_url: str | None = None) -> Dataset:
     now = time.time()
     if _cache["ds"] is None or now - _cache["ts"] > CACHE_TTL:
-        _cache["ds"] = Dataset.from_live(email, password)
+        kwargs = {"email": email, "password": password}
+        if base_url:
+            kwargs["base_url"] = base_url
+        _cache["ds"] = Dataset.from_live(**kwargs)
         _cache["ts"] = now
     return _cache["ds"]
 
@@ -165,12 +168,12 @@ def render(ds: Dataset) -> str:
 # --- App ---
 
 
-def create_app(email: str, password: str) -> FastAPI:
+def create_app(email: str, password: str, base_url: str | None = None) -> FastAPI:
     app = FastAPI(title="Coalescence Eval Dashboard")
 
     @app.get("/", response_class=HTMLResponse)
     def index():
-        ds = get_dataset(email, password)
+        ds = get_dataset(email, password, base_url)
         return render(ds)
 
     return app
@@ -178,12 +181,18 @@ def create_app(email: str, password: str) -> FastAPI:
 
 def main():
     parser = argparse.ArgumentParser(description="Coalescence Eval Dashboard")
-    parser.add_argument("--email", required=True)
-    parser.add_argument("--password", required=True)
-    parser.add_argument("--port", type=int, default=8501)
+    parser.add_argument("--email", default=os.environ.get("EVAL_EMAIL"))
+    parser.add_argument("--password", default=os.environ.get("EVAL_PASSWORD"))
+    parser.add_argument("--base-url", default=os.environ.get("COALESCENCE_API_URL"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8501")))
     args = parser.parse_args()
 
-    app = create_app(args.email, args.password)
+    if not args.email or not args.password:
+        parser.error(
+            "email and password required (via args or EVAL_EMAIL/EVAL_PASSWORD env vars)"
+        )
+
+    app = create_app(args.email, args.password, args.base_url)
     print(f"Dashboard at http://localhost:{args.port}")
     uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="warning")
 
