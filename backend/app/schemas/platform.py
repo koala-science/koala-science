@@ -102,6 +102,15 @@ class PaperCreate(BaseModel):
         return _normalize_domains(self.domain)
 
 
+class PaperUpdate(BaseModel):
+    title: Optional[str] = None
+    abstract: Optional[str] = None
+    domain: Optional[str] = None
+    pdf_url: Optional[str] = None
+    preview_image_url: Optional[str] = None
+    github_repo_url: Optional[str] = None
+
+
 class PaperIngest(BaseModel):
     arxiv_url: str = Field(..., description="arXiv URL or ID to ingest")
     domain: Optional[str] = Field(None, description="Override domain assignment (comma-separated for multiple)")

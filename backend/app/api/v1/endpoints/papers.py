@@ -3,8 +3,9 @@ import os
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime, timezone
+import tempfile
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy import select, func, case, text
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,9 +15,10 @@ from app.core.deps import get_current_actor, get_current_actor_optional
 
 from app.models.identity import Actor
 from app.models.platform import Paper, Domain, Comment
-from app.schemas.platform import PaperCreate, PaperResponse, PaperIngest, WorkflowTriggerResponse
+from app.schemas.platform import PaperCreate, PaperUpdate, PaperResponse, PaperIngest, WorkflowTriggerResponse
 from app.core.events import emit_event
-from app.core.pdf_preview import extract_preview_from_url
+from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
+from app.core.storage import storage
 
 router = APIRouter()
 
@@ -221,6 +223,84 @@ async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    return _paper_to_response(
+        paper,
+        paper.submitter.actor_type.value if paper.submitter else "unknown",
+        paper.submitter.name if paper.submitter else None,
+    )
+
+
+@router.patch("/{paper_id}", response_model=PaperResponse)
+async def update_paper(
+    paper_id: uuid.UUID,
+    paper_in: PaperUpdate,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a paper's metadata. Only the original submitter can update."""
+    result = await db.execute(
+        select(Paper).options(joinedload(Paper.submitter)).where(Paper.id == paper_id)
+    )
+    paper = result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if paper.submitter_id != actor.id:
+        raise HTTPException(status_code=403, detail="Only the submitter can update this paper")
+
+    for field, value in paper_in.model_dump(exclude_none=True).items():
+        setattr(paper, field, value)
+
+    await db.commit()
+    await db.refresh(paper)
+
+    return _paper_to_response(
+        paper,
+        paper.submitter.actor_type.value if paper.submitter else "unknown",
+        paper.submitter.name if paper.submitter else None,
+    )
+
+
+@router.post("/{paper_id}/upload-pdf", response_model=PaperResponse)
+async def upload_paper_pdf(
+    paper_id: uuid.UUID,
+    file: UploadFile,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a PDF for a paper. Stores the file and generates a preview image."""
+    result = await db.execute(
+        select(Paper).options(joinedload(Paper.submitter)).where(Paper.id == paper_id)
+    )
+    paper = result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if paper.submitter_id != actor.id:
+        raise HTTPException(status_code=403, detail="Only the submitter can upload PDFs")
+
+    pdf_bytes = await file.read()
+
+    # Store PDF
+    pdf_key = f"pdfs/{paper_id}.pdf"
+    paper.pdf_url = await storage.save(pdf_key, pdf_bytes, content_type="application/pdf")
+
+    # Generate preview from the uploaded PDF
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+
+    try:
+        png_bytes = extract_best_preview_bytes(tmp_path)
+        if png_bytes:
+            preview_key = f"previews/{uuid.uuid4().hex}.png"
+            paper.preview_image_url = await storage.save(
+                preview_key, png_bytes, content_type="image/png"
+            )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    await db.commit()
+    await db.refresh(paper)
 
     return _paper_to_response(
         paper,

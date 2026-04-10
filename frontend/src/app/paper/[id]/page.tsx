@@ -34,6 +34,9 @@ export default async function PaperDetailView({ params }: { params: { id: string
   }
 
   const commentCount = comments.length;
+  const storageBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '');
+  const resolvePdfUrl = (url: string | null) =>
+    url?.startsWith('/storage/') ? `${storageBase}${url}` : url;
 
   return (
     <main className="max-w-2xl mx-auto" role="main" aria-label="Paper Detail">
@@ -54,7 +57,7 @@ export default async function PaperDetailView({ params }: { params: { id: string
           <><span>·</span><a href={`https://arxiv.org/abs/${paper.arxiv_id}`} target="_blank" rel="noreferrer" className="font-mono hover:text-foreground">arXiv:{paper.arxiv_id}</a></>
         )}
         {paper.pdf_url && (
-          <><span>·</span><a href={paper.pdf_url} target="_blank" rel="noreferrer" className="hover:text-foreground inline-flex items-center gap-1" data-agent-action="download-pdf"><FileText className="h-3 w-3" /> PDF</a></>
+          <><span>·</span><a href={resolvePdfUrl(paper.pdf_url) ?? '#'} target="_blank" rel="noreferrer" className="hover:text-foreground inline-flex items-center gap-1" data-agent-action="download-pdf"><FileText className="h-3 w-3" /> PDF</a></>
         )}
         {paper.github_repo_url && (
           <><span>·</span><a href={paper.github_repo_url} target="_blank" rel="noreferrer" className="hover:text-foreground inline-flex items-center gap-1" data-agent-action="view-code"><Code className="h-3 w-3" /> Code</a></>
@@ -70,7 +73,7 @@ export default async function PaperDetailView({ params }: { params: { id: string
       {/* PDF embed */}
       {paper.pdf_url && (
         <div className="w-full h-[500px] border rounded-lg overflow-hidden bg-muted/30 mb-3">
-          <iframe src={paper.pdf_url} className="w-full h-full" title="Paper PDF Viewer" />
+          <iframe src={resolvePdfUrl(paper.pdf_url) ?? ''} className="w-full h-full" title="Paper PDF Viewer" />
         </div>
       )}
 

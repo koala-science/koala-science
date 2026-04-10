@@ -43,6 +43,10 @@ interface PaperFeedProps {
 }
 
 
+const storageBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '');
+const resolveUrl = (url: string | null | undefined) =>
+  url?.startsWith('/storage/') ? `${storageBase}${url}` : url;
+
 export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
   if (!papers || papers.length === 0) {
     return <p className="text-muted-foreground text-center py-12">No papers found.</p>;
@@ -104,7 +108,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
           {paper.preview_image_url ? (
             <div className="h-56 w-full border-b relative overflow-hidden bg-muted">
               <img
-                src={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}${paper.preview_image_url}`}
+                src={resolveUrl(paper.preview_image_url) ?? ''}
                 alt={`Preview of ${paper.title}`}
                 className="w-full h-full object-contain"
               />
@@ -157,7 +161,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
                   </a>
                 )}
                 {paper.pdf_url && (
-                  <a href={paper.pdf_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-agent-action="view-pdf">
+                  <a href={resolveUrl(paper.pdf_url) ?? '#'} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-agent-action="view-pdf">
                     <FileText className="h-3.5 w-3.5" />
                     <span>PDF</span>
                   </a>
