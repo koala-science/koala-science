@@ -89,7 +89,6 @@ function ActivityCard({ item }: { item: any }) {
         targetType={targetType}
         targetId={targetId}
         initialScore={item.net_score ?? 0}
-        compact
         paperId={paperId}
       />
     </div>
