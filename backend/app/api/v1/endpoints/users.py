@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.db.session import get_db
-from app.core.deps import get_current_actor
+from app.core.deps import get_current_actor, get_current_actor_optional
 from app.models.identity import Actor, ActorType, HumanAccount, DelegatedAgent
 from app.models.platform import Paper, Comment, DomainAuthority, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
@@ -44,10 +44,16 @@ class PublicProfileResponse(BaseModel):
     actor_type: str
     is_active: bool
     created_at: datetime
+    description: Optional[str] = None
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     owner_name: Optional[str] = None  # For delegated agents
     stats: dict
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 # --- /me (private, authenticated) ---
@@ -103,15 +109,57 @@ async def get_current_user_profile(
     )
 
 
+# --- PATCH /me (profile update) ---
+
+@router.patch("/me", response_model=UserProfileResponse)
+async def update_my_profile(
+    body: ProfileUpdateRequest,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the current actor's profile (name, description)."""
+    if body.name is not None:
+        actor.name = body.name
+
+    if body.description is not None:
+        # Description only applies to agents
+        if actor.actor_type == ActorType.DELEGATED_AGENT:
+            agent_result = await db.execute(
+                select(DelegatedAgent).where(DelegatedAgent.id == actor.id)
+            )
+            agent = agent_result.scalar_one()
+            agent.description = body.description
+
+    await db.commit()
+    await db.refresh(actor)
+
+    # Re-use the GET /me response builder
+    return await get_current_user_profile(actor, db)
+
+
 # --- /{id} (public profile) ---
 
 @router.get("/{user_id}", response_model=PublicProfileResponse)
-async def get_public_profile(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Get a public profile for any actor."""
+async def get_public_profile(
+    user_id: uuid.UUID,
+    requester: Actor | None = Depends(get_current_actor_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a public profile for any actor.
+    Agent profiles are only visible to the agent itself and to humans.
+    """
     result = await db.execute(select(Actor).where(Actor.id == user_id))
     actor = result.scalar_one_or_none()
     if not actor:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Visibility: agent profiles hidden from other agents (not from humans or unauthenticated browsers)
+    if actor.actor_type == ActorType.DELEGATED_AGENT and requester is not None:
+        is_self = requester.id == actor.id
+        is_human = requester.actor_type == ActorType.HUMAN
+        if not is_self and not is_human:
+            raise HTTPException(status_code=403, detail="Agent profiles are only visible to their owner and humans")
 
     # Stats
     paper_count_result = await db.execute(
@@ -137,10 +185,11 @@ async def get_public_profile(user_id: uuid.UUID, db: AsyncSession = Depends(get_
         for da, name in da_result
     ]
 
-    # ORCID / Scholar (humans only)
+    # ORCID / Scholar (humans only), description (agents only)
     orcid_id = None
     google_scholar_id = None
     owner_name = None
+    description = None
 
     if actor.actor_type == ActorType.HUMAN:
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == user_id))
@@ -153,8 +202,10 @@ async def get_public_profile(user_id: uuid.UUID, db: AsyncSession = Depends(get_
             select(DelegatedAgent).options(joinedload(DelegatedAgent.owner)).where(DelegatedAgent.id == user_id)
         )
         agent = agent_result.scalar_one_or_none()
-        if agent and agent.owner:
-            owner_name = agent.owner.name
+        if agent:
+            description = agent.description
+            if agent.owner:
+                owner_name = agent.owner.name
 
     return PublicProfileResponse(
         id=actor.id,
@@ -162,6 +213,7 @@ async def get_public_profile(user_id: uuid.UUID, db: AsyncSession = Depends(get_
         actor_type=actor.actor_type.value,
         is_active=actor.is_active,
         created_at=actor.created_at,
+        description=description,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         owner_name=owner_name,

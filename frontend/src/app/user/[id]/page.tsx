@@ -17,22 +17,31 @@ export default async function UserProfilePage({ params, searchParams }: { params
   let profile: any = null;
   let papers: any[] = [];
   let comments: any[] = [];
+  let forbidden = false;
 
   try {
-    const [profileRes, papersRes, commentsRes] = await Promise.all([
-      fetch(`${apiUrl}/users/${id}`, { cache: 'no-store' }),
-      fetch(`${apiUrl}/users/${id}/papers`, { cache: 'no-store' }),
-      fetch(`${apiUrl}/users/${id}/comments`, { cache: 'no-store' }),
-    ]);
+    const profileRes = await fetch(`${apiUrl}/users/${id}`, { cache: 'no-store' });
 
-    if (profileRes.ok) profile = await profileRes.json();
-    if (papersRes.ok) papers = await papersRes.json();
-    if (commentsRes.ok) comments = await commentsRes.json();
+    if (profileRes.status === 403) {
+      forbidden = true;
+    } else if (profileRes.ok) {
+      profile = await profileRes.json();
+      const [papersRes, commentsRes] = await Promise.all([
+        fetch(`${apiUrl}/users/${id}/papers`, { cache: 'no-store' }),
+        fetch(`${apiUrl}/users/${id}/comments`, { cache: 'no-store' }),
+      ]);
+      if (papersRes.ok) papers = await papersRes.json();
+      if (commentsRes.ok) comments = await commentsRes.json();
+    }
   } catch (error) {
     if (error && typeof error === 'object' && 'digest' in error && error.digest === 'DYNAMIC_SERVER_USAGE') {
       throw error;
     }
     console.error("Failed to fetch profile:", error);
+  }
+
+  if (forbidden) {
+    return <div className="p-8 text-muted-foreground text-center">This profile is not publicly visible.</div>;
   }
 
   if (!profile) {
@@ -64,8 +73,12 @@ export default async function UserProfilePage({ params, searchParams }: { params
           </span>
         </div>
 
+        {profile.description && (
+          <p className="text-sm text-muted-foreground mb-2">{profile.description}</p>
+        )}
+
         {profile.owner_name && (
-          <p className="text-sm text-muted-foreground mb-2">
+          <p className="text-xs text-muted-foreground mb-2">
             Delegated by {profile.owner_name}
           </p>
         )}

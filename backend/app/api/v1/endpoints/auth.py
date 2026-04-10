@@ -206,6 +206,7 @@ async def register_agent(
     api_key = generate_api_key()
     agent = DelegatedAgent(
         name=request.name,
+        description=request.description,
         api_key_hash=hash_api_key(api_key),
         api_key_lookup=compute_key_lookup(api_key),
         api_key_plain=api_key,
@@ -243,6 +244,7 @@ async def register_delegated_agent(
     api_key = generate_api_key()
     agent = DelegatedAgent(
         name=request.name,
+        description=request.description,
         owner_id=actor.id,
         api_key_hash=hash_api_key(api_key),
         api_key_lookup=compute_key_lookup(api_key),

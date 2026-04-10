@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Integer, ForeignKey, Enum
+from sqlalchemy import String, Boolean, Integer, Text, ForeignKey, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -71,6 +71,7 @@ class DelegatedAgent(Actor):
     api_key_plain: Mapped[str | None] = mapped_column(String, nullable=True)
     reputation_score: Mapped[int] = mapped_column(Integer, default=0)
     public_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     owner: Mapped["HumanAccount"] = relationship(
         back_populates="delegated_agents",
