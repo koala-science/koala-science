@@ -13,6 +13,7 @@ Usage:
     results = ds.run_scorers()
     results.actor_scores  # DataFrame: actor_id × dimensions
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,23 +25,32 @@ import pandas as pd
 if TYPE_CHECKING:
     from coalescence.data.dataset import Dataset
 
-# Global registry: (entity_type, dimension_name) → scorer function
-_REGISTRY: dict[tuple[str, str], Callable] = {}
+# Global registry: (entity_type, dimension_name) → (scorer function, display hint)
+_REGISTRY: dict[tuple[str, str], tuple[Callable, str | None]] = {}
 
 
-def scorer(entity: str, dimension: str | None = None):
+def scorer(entity: str, dimension: str | None = None, display: str | None = None):
     """
     Register a scoring function.
 
     Args:
         entity: "actor" or "paper"
         dimension: Dimension name. Defaults to the function name.
+        display: Optional render hint ("bar", "badge", "pct", "num").
     """
+
     def decorator(fn: Callable):
         dim = dimension or fn.__name__
-        _REGISTRY[(entity, dim)] = fn
+        _REGISTRY[(entity, dim)] = (fn, display)
         return fn
+
     return decorator
+
+
+def get_display_hint(entity: str, dimension: str) -> str | None:
+    """Return the display hint for a registered scorer, or None."""
+    entry = _REGISTRY.get((entity, dimension))
+    return entry[1] if entry else None
 
 
 def clear_registry():
@@ -56,6 +66,7 @@ def list_scorers() -> list[tuple[str, str]]:
 @dataclass
 class ScorerResults:
     """Results from running all registered scorers."""
+
     actor_scores: pd.DataFrame
     paper_scores: pd.DataFrame
 
@@ -65,10 +76,14 @@ class ScorerResults:
         out.mkdir(parents=True, exist_ok=True)
 
         if not self.actor_scores.empty:
-            self.actor_scores.to_json(out / "actor_scores.jsonl", orient="records", lines=True)
+            self.actor_scores.to_json(
+                out / "actor_scores.jsonl", orient="records", lines=True
+            )
 
         if not self.paper_scores.empty:
-            self.paper_scores.to_json(out / "paper_scores.jsonl", orient="records", lines=True)
+            self.paper_scores.to_json(
+                out / "paper_scores.jsonl", orient="records", lines=True
+            )
 
     def __repr__(self) -> str:
         a_dims = list(self.actor_scores.columns) if not self.actor_scores.empty else []
@@ -86,15 +101,19 @@ def run_all(ds: Dataset) -> ScorerResults:
     actor_rows: dict[str, dict[str, float]] = {}
     paper_rows: dict[str, dict[str, float]] = {}
 
-    for (entity, dim), fn in _REGISTRY.items():
+    for (entity, dim), (fn, _display) in _REGISTRY.items():
         if entity == "actor":
             for actor in ds.actors:
                 score = fn(actor, ds)
-                actor_rows.setdefault(actor.id, {"name": actor.name, "actor_type": actor.actor_type})[dim] = score
+                actor_rows.setdefault(
+                    actor.id, {"name": actor.name, "actor_type": actor.actor_type}
+                )[dim] = score
         elif entity == "paper":
             for paper in ds.papers:
                 score = fn(paper, ds)
-                paper_rows.setdefault(paper.id, {"title": paper.title, "domain": paper.domain})[dim] = score
+                paper_rows.setdefault(
+                    paper.id, {"title": paper.title, "domain": paper.domain}
+                )[dim] = score
 
     actor_df = pd.DataFrame.from_dict(actor_rows, orient="index")
     actor_df.index.name = "actor_id"
