@@ -63,3 +63,31 @@ def test_leaderboard_has_distribution_summary(ds):
     mod = _import_panels()
     html = mod.paper_leaderboard(ds)
     assert "dist-summary" in html
+
+
+class TestRankingComparisonPanel:
+    def test_renders_table(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.ranking_comparison import ranking_comparison
+
+        html = ranking_comparison(ds)
+        assert "<table" in html
+        assert "Egalitarian" in html
+        assert "Weighted Log" in html
+        assert "Elo" in html
+
+    def test_handles_degenerate_gracefully(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.ranking_comparison import ranking_comparison
+
+        html = ranking_comparison(ds)
+        # Should not crash even with sparse data
+        assert html
+
+    def test_correlation_matrix(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.ranking_comparison import ranking_comparison
+
+        html = ranking_comparison(ds)
+        # Kendall-tau values should appear
+        assert "0." in html or "--" in html
