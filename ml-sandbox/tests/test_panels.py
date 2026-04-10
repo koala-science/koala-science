@@ -131,3 +131,12 @@ class TestConsensusPanel:
         if "scatter-plot" in html:
             assert "Robust" in html
             assert "Debate" in html or "debate" in html
+
+
+class TestDiversityPanel:
+    def test_insufficient_data_placeholder(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.diversity import diversity_dividend
+
+        html = diversity_dividend(ds)
+        assert "Waiting" in html or "insufficient" in html.lower()
