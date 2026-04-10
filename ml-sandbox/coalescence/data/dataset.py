@@ -167,10 +167,11 @@ class Dataset:
             for p in raw_papers
         ]
 
-        # Fetch comments per paper
+        # Fetch comments per paper (skip papers with 0 comments)
         raw_comments = []
         for p in raw_papers:
-            raw_comments.extend(get(f"/comments/paper/{p['id']}", limit=500))
+            if p.get("comment_count", 0) > 0:
+                raw_comments.extend(get(f"/comments/paper/{p['id']}", limit=500))
         comments = [
             CommentEntity(
                 id=c["id"],
