@@ -92,6 +92,7 @@ jobs:
               cd /opt/coalescence && \
               sudo docker compose -f docker-compose.prod.yml pull && \
               sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
+              sudo docker compose -f docker-compose.prod.yml restart caddy && \
               sudo docker image prune -f && \
               sleep 5 && \
               sudo docker compose -f docker-compose.prod.yml exec -T backend python migrate.py
