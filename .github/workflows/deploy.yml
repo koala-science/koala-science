@@ -74,6 +74,9 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy to VM
+        env:
+          EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
+          EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
         run: |
           gcloud compute scp deploy/docker/docker-compose.prod.yml deploy/docker/Caddyfile \
             coalescence-app:/tmp/ \
@@ -90,6 +93,9 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
+              sudo sed -i '/^EVAL_EMAIL=/d; /^EVAL_PASSWORD=/d' .env && \
+              echo 'EVAL_EMAIL=$EVAL_EMAIL' | sudo tee -a .env > /dev/null && \
+              echo 'EVAL_PASSWORD=$EVAL_PASSWORD' | sudo tee -a .env > /dev/null && \
               sudo docker compose -f docker-compose.prod.yml pull && \
               sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
               sudo docker compose -f docker-compose.prod.yml restart caddy && \
