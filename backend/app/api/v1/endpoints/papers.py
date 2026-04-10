@@ -12,10 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
-
+from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
-from app.models.platform import Paper, Domain, Comment
-from app.schemas.platform import PaperCreate, PaperUpdate, PaperResponse, PaperIngest, WorkflowTriggerResponse
+from app.models.platform import Paper, PaperRevision, Domain, Comment
+from app.schemas.platform import (
+    PaperCreate,
+    PaperUpdate,
+    PaperResponse,
+    PaperIngest,
+    PaperRevisionCreate,
+    PaperRevisionResponse,
+    WorkflowTriggerResponse,
+)
 from app.core.events import emit_event
 from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
 from app.core.storage import storage
@@ -62,6 +70,62 @@ async def get_paper_count(db: AsyncSession = Depends(get_db)):
     """Return the total number of papers on the platform."""
     result = await db.execute(select(func.count()).select_from(Paper))
     return {"count": result.scalar() or 0}
+
+
+def _revision_to_response(
+    revision: PaperRevision,
+    created_by_type: str | None = None,
+    created_by_name: str | None = None,
+) -> PaperRevisionResponse:
+    return PaperRevisionResponse(
+        id=revision.id,
+        paper_id=revision.paper_id,
+        version=revision.version,
+        created_by_id=revision.created_by_id,
+        created_by_type=created_by_type or (revision.created_by.actor_type.value if revision.created_by else "unknown"),
+        created_by_name=created_by_name if created_by_name is not None else (revision.created_by.name if revision.created_by else None),
+        title=revision.title,
+        abstract=revision.abstract,
+        pdf_url=revision.pdf_url,
+        github_repo_url=revision.github_repo_url,
+        preview_image_url=revision.preview_image_url,
+        changelog=revision.changelog,
+        created_at=revision.created_at,
+        updated_at=revision.updated_at,
+    )
+
+
+async def _extract_preview(pdf_url: str | None) -> str | None:
+    if not pdf_url:
+        return None
+    return await extract_preview_from_url(pdf_url)
+
+
+def _apply_revision_to_paper(paper: Paper, revision_in: PaperRevisionCreate, preview_image_url: str | None) -> None:
+    paper.title = revision_in.title
+    paper.abstract = revision_in.abstract
+    paper.pdf_url = revision_in.pdf_url
+    paper.github_repo_url = revision_in.github_repo_url
+    paper.preview_image_url = preview_image_url
+
+
+async def _trigger_paper_embedding_refresh(paper_id: uuid.UUID, text: str) -> None:
+    if not text:
+        return
+
+    try:
+        from temporalio.client import Client
+        from app.core.config import settings
+
+        temporal_client = await Client.connect(settings.TEMPORAL_HOST)
+        await temporal_client.start_workflow(
+            "EmbeddingGenerationWorkflow",
+            args=[str(paper_id), text],
+            id=f"paper-embed-{paper_id.hex[:8]}-{uuid.uuid4().hex[:6]}",
+            task_queue="coalescence-workflows",
+        )
+    except Exception:
+        pass  # Non-critical — text search still works from the synced paper snapshot
 
 
 @router.get("/", response_model=List[PaperResponse])
@@ -136,6 +200,7 @@ async def create_paper(
 ):
     """Create a new paper. Accepts comma-separated domains (e.g. 'NLP, Vision')."""
     domains = paper_in.to_domains()
+    preview_image_url = await _extract_preview(paper_in.pdf_url)
     paper = Paper(
         title=paper_in.title,
         abstract=paper_in.abstract,
@@ -143,16 +208,24 @@ async def create_paper(
         pdf_url=paper_in.pdf_url,
         github_repo_url=paper_in.github_repo_url,
         submitter_id=actor.id,
+        preview_image_url=preview_image_url,
     )
-    # Extract preview image from PDF (non-blocking — if it fails, paper still gets created)
-    if paper_in.pdf_url:
-        preview_path = await extract_preview_from_url(paper_in.pdf_url)
-        if preview_path:
-            paper.preview_image_url = f"/storage/previews/{Path(preview_path).name}"
 
     db.add(paper)
     await db.flush()
-    await db.refresh(paper)
+
+    db.add(
+        PaperRevision(
+            paper_id=paper.id,
+            version=1,
+            created_by_id=actor.id,
+            title=paper.title,
+            abstract=paper.abstract,
+            pdf_url=paper.pdf_url,
+            github_repo_url=paper.github_repo_url,
+            preview_image_url=paper.preview_image_url,
+        )
+    )
 
     # Resolve domain_id for event (use first domain)
     domain_obj = None
@@ -176,6 +249,8 @@ async def create_paper(
         },
     )
     await db.commit()
+    await db.refresh(paper)
+    await _trigger_paper_embedding_refresh(paper.id, paper_in.abstract)
 
     return _paper_to_response(paper, actor.actor_type.value, actor.name)
 
@@ -218,6 +293,116 @@ async def ingest_from_arxiv(
             status_code=503,
             detail=f"Could not start ingestion workflow: {str(e)}",
         )
+
+
+@router.get("/{paper_id}/revisions", response_model=list[PaperRevisionResponse])
+async def get_paper_revisions(
+    paper_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """List revisions for a paper, newest first."""
+    paper_result = await db.execute(
+        select(Paper).options(joinedload(Paper.submitter)).where(Paper.id == paper_id)
+    )
+    paper = paper_result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    result = await db.execute(
+        select(PaperRevision)
+        .options(joinedload(PaperRevision.created_by))
+        .where(PaperRevision.paper_id == paper_id)
+        .order_by(PaperRevision.version.desc())
+    )
+    revisions = result.scalars().unique().all()
+
+    if revisions:
+        return [_revision_to_response(revision) for revision in revisions]
+
+    synthetic_revision = PaperRevision(
+        id=paper.id,
+        paper_id=paper.id,
+        version=1,
+        created_by_id=paper.submitter_id,
+        created_by=paper.submitter,
+        title=paper.title,
+        abstract=paper.abstract,
+        pdf_url=paper.pdf_url,
+        github_repo_url=paper.github_repo_url,
+        preview_image_url=paper.preview_image_url,
+        changelog=None,
+        created_at=paper.created_at,
+        updated_at=paper.updated_at,
+    )
+    return [_revision_to_response(synthetic_revision)]
+
+
+@router.post("/{paper_id}/revisions", response_model=PaperRevisionResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(PAPER_SUBMIT_RATE_LIMIT)
+async def create_paper_revision(
+    paper_id: uuid.UUID,
+    request: Request,
+    revision_in: PaperRevisionCreate,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new revision for an existing paper."""
+    paper_result = await db.execute(
+        select(Paper).options(joinedload(Paper.submitter)).where(Paper.id == paper_id)
+    )
+    paper = paper_result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if paper.submitter_id != actor.id:
+        raise HTTPException(status_code=403, detail="Only the original submitter can create revisions")
+
+    latest_version = await db.scalar(
+        select(func.max(PaperRevision.version)).where(PaperRevision.paper_id == paper_id)
+    )
+    next_version = (latest_version or 0) + 1
+    preview_image_url = await _extract_preview(revision_in.pdf_url)
+
+    revision = PaperRevision(
+        paper_id=paper_id,
+        version=next_version,
+        created_by_id=actor.id,
+        title=revision_in.title,
+        abstract=revision_in.abstract,
+        pdf_url=revision_in.pdf_url,
+        github_repo_url=revision_in.github_repo_url,
+        preview_image_url=preview_image_url,
+        changelog=revision_in.changelog,
+    )
+    db.add(revision)
+
+    _apply_revision_to_paper(paper, revision_in, preview_image_url)
+    await db.flush()
+    await db.refresh(revision)
+
+    domain_result = await db.execute(select(Domain).where(Domain.name == paper.domain))
+    domain_obj = domain_result.scalar_one_or_none()
+
+    await emit_event(
+        db,
+        event_type="PAPER_REVISED",
+        actor_id=actor.id,
+        target_id=paper.id,
+        target_type="PAPER",
+        domain_id=domain_obj.id if domain_obj else None,
+        payload={
+            "paper_id": str(paper.id),
+            "version": revision.version,
+            "title": revision.title,
+            "domain": paper.domain,
+            "changelog_length": len(revision.changelog) if revision.changelog else 0,
+        },
+    )
+    await db.commit()
+    await db.refresh(revision)
+    await _trigger_paper_embedding_refresh(paper.id, revision_in.abstract)
+
+    return _revision_to_response(revision, actor.actor_type.value, actor.name)
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)

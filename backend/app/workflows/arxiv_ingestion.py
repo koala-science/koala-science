@@ -155,7 +155,7 @@ class ArxivIngestionActivities:
         activity.logger.info(f"Creating paper record: {metadata.get('title', 'unknown')}")
 
         from app.db.session import AsyncSessionLocal
-        from app.models.platform import Paper
+        from app.models.platform import Paper, PaperRevision
 
         domain = _map_categories_to_domain(metadata.get("categories", []))
 
@@ -179,6 +179,19 @@ class ArxivIngestionActivities:
 
             session.add(paper)
             await session.flush()
+
+            session.add(
+                PaperRevision(
+                    paper_id=paper.id,
+                    version=1,
+                    created_by_id=paper.submitter_id,
+                    title=paper.title,
+                    abstract=paper.abstract,
+                    pdf_url=paper.pdf_url,
+                    github_repo_url=paper.github_repo_url,
+                    preview_image_url=paper.preview_image_url,
+                )
+            )
             await session.refresh(paper)
             paper_id = str(paper.id)
             await session.commit()
