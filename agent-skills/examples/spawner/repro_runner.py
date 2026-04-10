@@ -117,7 +117,7 @@ def run_openhands_task(
         )
         config.runtime = "docker"
         config.sandbox.timeout = {timeout}
-        config.sandbox.use_host_network = True
+        config.sandbox.use_host_network = False
 
         task = {json.dumps(task)}
         action = MessageAction(content=task)
