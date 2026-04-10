@@ -18,9 +18,11 @@ import uvicorn
 
 from coalescence.data import Dataset
 from coalescence.scorer.registry import scorer
-from coalescence.scorer import builtins as _builtins  # noqa: F401 — registers built-in scorers
+from coalescence.scorer import builtins as _builtins  # noqa: F401
+from coalescence.dashboard.registry import render_all
+import coalescence.dashboard.panels as _panels  # noqa: F401
 
-# --- Custom scorers ---
+# --- Custom scorers (auto-appear in leaderboard panels) ---
 
 
 @scorer(entity="actor")
@@ -53,167 +55,18 @@ def get_dataset(email: str, password: str) -> Dataset:
     return _cache["ds"]
 
 
-# --- HTML rendering ---
-
-
-def bar(value: float, max_val: float, color: str = "#6366f1") -> str:
-    pct = min(100, (value / max_val * 100)) if max_val > 0 else 0
-    return f'<div class="bar-bg"><div class="bar-fill" style="width:{pct:.0f}%;background:{color}"></div></div>'
-
-
-def score_badge(val: float, thresholds=(0, 3, 7)) -> str:
-    if val >= thresholds[2]:
-        cls = "badge-green"
-    elif val >= thresholds[1]:
-        cls = "badge-blue"
-    elif val > thresholds[0]:
-        cls = "badge-gray"
-    else:
-        cls = "badge-red"
-    return (
-        f'<span class="badge {cls}">{val:+.0f}</span>'
-        if isinstance(val, (int, float))
-        else f'<span class="badge {cls}">{val}</span>'
-    )
-
-
-def type_pill(actor_type: str) -> str:
-    cls = "pill-agent" if "agent" in actor_type else "pill-human"
-    label = "Agent" if "agent" in actor_type else "Human"
-    return f'<span class="pill {cls}">{label}</span>'
-
-
-def domain_tag(domain: str) -> str:
-    colors = {
-        "NLP": "#3b82f6",
-        "Bioinformatics": "#10b981",
-        "QuantumComputing": "#8b5cf6",
-        "LLM-Alignment": "#f59e0b",
-        "MaterialScience": "#ef4444",
-        "AI Safety": "#ec4899",
-        "Environment": "#22c55e",
-        "AI for Science": "#06b6d4",
-        "ML-Research": "#6366f1",
-    }
-    name = domain.replace("d/", "").replace("#", "")
-    color = colors.get(name, "#6b7280")
-    return f'<span class="domain-tag" style="background:{color}15;color:{color};border:1px solid {color}40">{name}</span>'
+# --- Render ---
 
 
 def render(ds: Dataset) -> str:
-    import pandas as pd
-
-    results = ds.run_scorers()
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-
     n_papers = len(ds.papers)
     n_comments = len(ds.comments)
     n_votes = len(ds.votes)
     n_humans = len(ds.actors.humans)
     n_agents = len(ds.actors.agents)
 
-    # Paper leaderboard (only papers with activity)
-    pdf = (
-        results.paper_scores[results.paper_scores["engagement"] > 0]
-        .sort_values("engagement", ascending=False)
-        .head(15)
-    )
-    max_eng = pdf["engagement"].max() if not pdf.empty else 1
-    paper_rows_html = ""
-    for rank, (pid, row) in enumerate(pdf.iterrows(), 1):
-        p = ds.papers.get(pid)
-        score = p.net_score if p else 0
-        eng = row.get("engagement", 0)
-        cont = row.get("controversy", 0)
-        paper_rows_html += f"""<tr>
-            <td class="rank">#{rank}</td>
-            <td class="title-cell">{row.get("title", "?")[:55]}</td>
-            <td>{domain_tag(row.get("domain", ""))}</td>
-            <td>{bar(eng, max_eng, "#6366f1")}<span class="bar-label">{eng:.0f}</span></td>
-            <td>{score_badge(score)}</td>
-            <td><span class="controversy" style="opacity:{0.3 + cont * 0.7:.1f}">{cont:.0%}</span></td>
-        </tr>"""
-
-    # Actor leaderboard
-    adf = (
-        results.actor_scores[results.actor_scores["activity"] > 0]
-        .sort_values("community_trust", ascending=False)
-        .head(15)
-    )
-    max_trust = adf["community_trust"].max() if not adf.empty else 1
-    actor_rows_html = ""
-    for rank, (aid, row) in enumerate(adf.iterrows(), 1):
-        trust = row.get("community_trust", 0)
-        quality = row.get("review_quality", 0)
-        quality_color = (
-            "#10b981" if quality > 1.0 else "#6b7280" if quality > 0 else "#ef4444"
-        )
-        actor_rows_html += f"""<tr>
-            <td class="rank">#{rank}</td>
-            <td><strong>{row.get("name", "?")}</strong></td>
-            <td>{type_pill(row.get("actor_type", ""))}</td>
-            <td>{bar(trust, max_trust, "#10b981")}<span class="bar-label">{trust:.0f}</span></td>
-            <td><span style="color:{quality_color};font-weight:600">{quality:.2f}</span></td>
-            <td class="num">{row.get("domain_breadth", 0):.0f}</td>
-            <td class="num">{row.get("activity", 0):.0f}</td>
-        </tr>"""
-
-    # Agent persona analysis
-    agent_data = []
-    for actor in ds.actors.agents:
-        parts = actor.name.rsplit("-", 2)
-        if len(parts) == 3:
-            role, interest, persona = parts
-        else:
-            role, interest, persona = "other", "other", "other"
-        comments = ds.comments.by_author(actor.id)
-        votes = ds.votes.by_voter(actor.id)
-        agent_data.append(
-            {
-                "role": role,
-                "persona": persona,
-                "comments": len(comments),
-                "avg_len": sum(c.content_length for c in comments) / len(comments)
-                if comments
-                else 0,
-                "upvotes_recv": sum(c.net_score for c in comments),
-                "avg_vote": sum(v.vote_value for v in votes) / len(votes)
-                if votes
-                else 0,
-            }
-        )
-
-    persona_html = ""
-    role_html = ""
-    if agent_data:
-        adf2 = pd.DataFrame(agent_data)
-        for label, group_col, target_id in [
-            ("Persona", "persona", "persona"),
-            ("Role", "role", "role"),
-        ]:
-            grouped = adf2.groupby(group_col)[
-                ["comments", "avg_len", "upvotes_recv", "avg_vote"]
-            ].mean()
-            rows_html = ""
-            for name, row in grouped.iterrows():
-                vote_color = (
-                    "#10b981"
-                    if row["avg_vote"] > 0
-                    else "#ef4444"
-                    if row["avg_vote"] < 0
-                    else "#6b7280"
-                )
-                rows_html += f"""<tr>
-                    <td><strong>{name}</strong></td>
-                    <td class="num">{row["comments"]:.1f}</td>
-                    <td class="num">{row["avg_len"]:.0f}</td>
-                    <td class="num">{row["upvotes_recv"]:.1f}</td>
-                    <td><span style="color:{vote_color};font-weight:600">{row["avg_vote"]:+.2f}</span></td>
-                </tr>"""
-            if target_id == "persona":
-                persona_html = rows_html
-            else:
-                role_html = rows_html
+    panels_html = render_all(ds)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -239,10 +92,10 @@ def render(ds: Dataset) -> str:
   .stat-label {{ font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }}
 
   .section {{ margin-bottom: 32px; }}
-  h2 {{ font-size: 18px; font-weight: 600; color: #f1f5f9; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }}
-  h2 .icon {{ font-size: 20px; }}
+  h2 {{ font-size: 18px; font-weight: 600; color: #f1f5f9; margin-bottom: 12px; }}
+  h3 {{ font-size: 14px; color: #94a3b8; margin-bottom: 8px; }}
 
-  table {{ width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; }}
+  table {{ width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; margin-bottom: 16px; }}
   th {{ background: #1e293b; color: #94a3b8; padding: 10px 14px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #334155; }}
   td {{ padding: 10px 14px; border-bottom: 1px solid #1e293b; font-size: 13px; color: #cbd5e1; }}
   tr {{ background: #0f172a; }}
@@ -267,10 +120,14 @@ def render(ds: Dataset) -> str:
 
   .domain-tag {{ display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500; }}
 
-  .controversy {{ font-weight: 600; color: #f59e0b; }}
+  .dist-summary {{ display: block; font-size: 10px; color: #475569; font-weight: 400; text-transform: none; letter-spacing: 0; margin-top: 2px; }}
 
-  .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
-  @media (max-width: 800px) {{ .stats-grid {{ grid-template-columns: repeat(3, 1fr); }} .grid-2 {{ grid-template-columns: 1fr; }} }}
+  .scatter-dot {{ position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, 50%); opacity: 0.8; cursor: default; }}
+  .scatter-dot:hover {{ opacity: 1; transform: translate(-50%, 50%) scale(1.5); }}
+
+  .panel-error {{ padding: 12px; background: #450a0a; border-radius: 8px; font-size: 13px; }}
+
+  @media (max-width: 800px) {{ .stats-grid {{ grid-template-columns: repeat(3, 1fr); }} }}
 </style>
 </head>
 <body>
@@ -293,38 +150,7 @@ def render(ds: Dataset) -> str:
     <div class="stat-card"><div class="stat-num">{n_agents}</div><div class="stat-label">Agents</div></div>
 </div>
 
-<div class="section">
-<h2>Paper Leaderboard</h2>
-<table>
-<thead><tr><th></th><th>Title</th><th>Domain</th><th>Engagement</th><th>Score</th><th>Controversy</th></tr></thead>
-<tbody>{paper_rows_html}</tbody>
-</table>
-</div>
-
-<div class="section">
-<h2>Reviewer Leaderboard</h2>
-<table>
-<thead><tr><th></th><th>Name</th><th>Type</th><th>Community Trust</th><th>Quality</th><th>Domains</th><th>Activity</th></tr></thead>
-<tbody>{actor_rows_html}</tbody>
-</table>
-</div>
-
-<div class="grid-2">
-<div class="section">
-<h2>By Persona</h2>
-<table>
-<thead><tr><th>Persona</th><th>Comments</th><th>Avg Len</th><th>Upvotes</th><th>Avg Vote</th></tr></thead>
-<tbody>{persona_html}</tbody>
-</table>
-</div>
-<div class="section">
-<h2>By Role</h2>
-<table>
-<thead><tr><th>Role</th><th>Comments</th><th>Avg Len</th><th>Upvotes</th><th>Avg Vote</th></tr></thead>
-<tbody>{role_html}</tbody>
-</table>
-</div>
-</div>
+{panels_html}
 
 </div>
 </body>
