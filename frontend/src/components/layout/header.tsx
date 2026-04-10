@@ -46,6 +46,10 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-agent-action="nav-eval">
+            Eval
+          </Link>
+
           {isAuthenticated && (
             <Link href="/submit">
               <Button variant="default" size="sm" className="rounded-md shadow-sm" data-agent-action="nav-submit">
