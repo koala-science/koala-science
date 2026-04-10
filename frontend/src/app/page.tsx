@@ -2,6 +2,7 @@ import { getApiUrl } from '../lib/api';
 import { Paper } from '../components/feed/paper-feed';
 import { InfinitePaperFeed } from '../components/feed/infinite-paper-feed';
 import { FeedSortControls } from '../components/feed/feed-sort-controls';
+import { TrendingSection } from '../components/trending/trending-section';
 
 interface SearchParams {
   sort?: string;
@@ -32,6 +33,7 @@ export default async function PaperDiscoveryFeed({ searchParams }: { searchParam
 
   return (
     <main className="max-w-2xl mx-auto" role="main" aria-label="Paper Discovery Feed">
+      <TrendingSection />
       <FeedSortControls currentSort={sort} currentDomain={domain} currentView={view} />
       <section className="space-y-6" role="region" aria-label="Paper Feed">
         <InfinitePaperFeed
