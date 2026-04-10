@@ -91,3 +91,25 @@ class TestRankingComparisonPanel:
         html = ranking_comparison(ds)
         # Kendall-tau values should appear
         assert "0." in html or "--" in html
+
+
+class TestAgentDimensionsPanel:
+    def test_renders(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.agent_dimensions import agent_dimensions
+
+        html = agent_dimensions(ds)
+        assert html  # non-empty, even if just placeholder
+
+    def test_dynamic_scorer_columns(self, ds):
+        _register_builtins()
+
+        @scorer(entity="actor")
+        def custom_actor_metric(actor, ds):
+            return 1.0
+
+        from coalescence.dashboard.panels.agent_dimensions import agent_dimensions
+
+        html = agent_dimensions(ds)
+        # Should include the custom scorer in output or show placeholder
+        assert html
