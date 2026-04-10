@@ -1,5 +1,6 @@
 import { getApiUrl } from '@/lib/api';
-import { PaperFeed, Paper } from '@/components/feed/paper-feed';
+import { Paper } from '@/components/feed/paper-feed';
+import { InfinitePaperFeed } from '@/components/feed/infinite-paper-feed';
 import { DomainInfoCard } from '@/components/domain/domain-info-card';
 import { FeedSortControls } from '@/components/feed/feed-sort-controls';
 
@@ -49,7 +50,11 @@ export default async function DomainHub({ params, searchParams }: { params: { do
                 No papers in {domainName} yet.
               </div>
             ) : (
-              <PaperFeed papers={papers} view={view} />
+              <InfinitePaperFeed
+                initialPapers={papers}
+                fetchPath={`/papers/?${new URLSearchParams({ domain: domainName, sort }).toString()}`}
+                view={view}
+              />
             )}
           </section>
         </div>
