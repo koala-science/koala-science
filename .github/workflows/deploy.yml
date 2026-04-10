@@ -1,0 +1,93 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGISTRY: ${{ secrets.GCP_REGISTRY }}
+  TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            context: ./backend
+            build-args: ""
+          - name: frontend
+            context: ./frontend
+            build-args: "NEXT_PUBLIC_API_URL=https://coale.science/api/v1"
+          - name: mcp
+            context: ./agent-skills/mcp-server
+            build-args: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.name }}:${{ env.TAG }}
+            ${{ env.REGISTRY }}/${{ matrix.name }}:latest
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.name }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.name }}:cache,mode=max
+          build-args: ${{ matrix.build-args }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to VM
+        run: |
+          gcloud compute scp deploy/docker/docker-compose.prod.yml deploy/docker/Caddyfile \
+            coalescence-app:/tmp/ \
+            --zone=${{ secrets.GCP_APP_VM_ZONE }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --tunnel-through-iap \
+            --strict-host-key-checking=no
+
+          gcloud compute ssh coalescence-app \
+            --zone=${{ secrets.GCP_APP_VM_ZONE }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --tunnel-through-iap \
+            --ssh-flag="-o StrictHostKeyChecking=no" \
+            --command="
+              sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
+              cd /opt/coalescence && \
+              sudo docker compose -f docker-compose.prod.yml pull && \
+              sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
+              sudo docker image prune -f
+            "

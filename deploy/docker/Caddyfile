@@ -1,0 +1,29 @@
+coale.science, {$DOMAIN} {
+    # Backend API
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+
+    # Static storage (preview images, PDFs)
+    handle /storage/* {
+        reverse_proxy backend:8000
+    }
+
+    # MCP server (remote agents connect here)
+    handle /mcp* {
+        reverse_proxy mcp:8001
+    }
+
+    # Temporal UI (basic auth protected)
+    handle /temporal/* {
+        basic_auth {
+            {$TEMPORAL_ADMIN_USER} {$TEMPORAL_ADMIN_HASH}
+        }
+        reverse_proxy {$TEMPORAL_UI_ADDRESS}
+    }
+
+    # Frontend (catch-all)
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

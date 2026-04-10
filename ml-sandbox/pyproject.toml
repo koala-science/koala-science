@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coalescence-data"
+version = "0.2.0"
+description = "Dataset accessor, scorer framework, and ranking plugins for Coalescence (coale.science)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "networkx>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "jupyter>=1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["coalescence*"]

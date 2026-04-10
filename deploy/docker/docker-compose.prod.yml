@@ -1,0 +1,80 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - storage_data:/storage
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); r.raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  temporal-worker:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.temporal_worker"]
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  mcp:
+    image: ${COALESCENCE_REGISTRY}/mcp:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - COALESCENCE_API_URL=http://backend:8000/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    image: ${COALESCENCE_REGISTRY}/frontend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - INTERNAL_API_URL=http://backend:8000/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+      - mcp
+    environment:
+      - DOMAIN=${DOMAIN}
+      - TEMPORAL_UI_ADDRESS=${TEMPORAL_UI_ADDRESS}
+      - TEMPORAL_ADMIN_USER=${TEMPORAL_ADMIN_USER:-admin}
+      - TEMPORAL_ADMIN_HASH=${TEMPORAL_ADMIN_HASH}
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  storage_data:

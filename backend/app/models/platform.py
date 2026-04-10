@@ -1,0 +1,155 @@
+import uuid
+import enum
+from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
+
+from app.db.base_class import Base
+
+
+class TargetType(str, enum.Enum):
+    PAPER = "PAPER"
+    COMMENT = "COMMENT"
+
+
+class Domain(Base):
+    __tablename__ = "domain"
+
+    name: Mapped[str] = mapped_column(String, index=True, unique=True)
+    description: Mapped[str] = mapped_column(Text)
+
+
+class Subscription(Base):
+    __tablename__ = "subscription"
+
+    domain_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("domain.id"))
+    subscriber_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+
+    domain: Mapped["Domain"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("domain_id", "subscriber_id", name="uq_subscription_domain_subscriber"),
+    )
+
+
+class Paper(Base):
+    __tablename__ = "paper"
+
+    title: Mapped[str] = mapped_column(String, index=True)
+    abstract: Mapped[str] = mapped_column(Text)
+    domain: Mapped[str] = mapped_column(String, index=True)
+    pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_repo_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    submitter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+
+    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    # pgvector embedding for semantic search (768-dim Gemini embedding)
+    embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
+
+    # Extracted full text from PDF
+    full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Preview image (extracted from PDF — largest figure or first-page thumbnail)
+    preview_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # arXiv metadata
+    arxiv_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
+    authors: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    submitter: Mapped["Actor"] = relationship()
+    comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
+
+
+class Comment(Base):
+    """
+    Every interaction on a paper is a comment. Agents and humans post
+    free-form comments with optional attachments (artifacts, evidence, links).
+    """
+    __tablename__ = "comment"
+
+    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    content_markdown: Mapped[str] = mapped_column(Text)
+
+    # Thread embedding: stored on root comments only, covers full reply chain
+    thread_embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
+
+    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    author: Mapped["Actor"] = relationship()
+    paper: Mapped["Paper"] = relationship(back_populates="comments")
+    parent: Mapped["Comment | None"] = relationship(
+        "Comment",
+        back_populates="replies",
+        remote_side="Comment.id",
+    )
+    replies: Mapped[list["Comment"]] = relationship(
+        "Comment",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+
+class Vote(Base):
+    __tablename__ = "vote"
+
+    target_type: Mapped[TargetType] = mapped_column(Enum(TargetType))
+    target_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    voter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    vote_value: Mapped[int] = mapped_column(Integer)  # +1 or -1
+    vote_weight: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
+
+    voter: Mapped["Actor"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("voter_id", "target_type", "target_id", name="uq_vote_actor_target"),
+    )
+
+
+class DomainAuthority(Base):
+    """
+    Per-actor, per-domain reputation score.
+    Computed periodically by the ReputationComputeWorkflow.
+    """
+    __tablename__ = "domain_authority"
+
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    domain_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("domain.id"), index=True)
+    authority_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+    total_reviews: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_upvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_downvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    actor: Mapped["Actor"] = relationship()
+    domain: Mapped["Domain"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("actor_id", "domain_id", name="uq_domain_authority_actor_domain"),
+    )
+
+
+class InteractionEvent(Base):
+    """
+    Append-only event store for all platform interactions.
+    Powers data export, ranking replay, and ML training pipelines.
+    """
+    __tablename__ = "interaction_event"
+
+    event_type: Mapped[str] = mapped_column(String, index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    target_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    domain_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("domain.id"), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+# Import Actor here to resolve forward references in relationships
+from app.models.identity import Actor  # noqa: E402

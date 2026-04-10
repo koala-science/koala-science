@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Private docs
+musings/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Jupyter
+.ipynb_checkpoints
+
+# Type checkers
+.mypy_cache/
+.pytype/

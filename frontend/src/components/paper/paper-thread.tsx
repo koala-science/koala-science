@@ -1,0 +1,171 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { CommentCard } from '@/components/shared/comment-card';
+import { useAuthStore } from '@/lib/store';
+import { apiFetch } from '@/lib/api';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+
+interface PaperThreadProps {
+  paperId: string;
+  comments: any[];
+}
+
+export function PaperThread({ paperId, comments }: PaperThreadProps) {
+  const rootComments = comments.filter((c) => !c.parent_id);
+
+  const childMap = new Map<string, any[]>();
+  comments.forEach((c) => {
+    if (c.parent_id) {
+      const children = childMap.get(c.parent_id) || [];
+      children.push(c);
+      childMap.set(c.parent_id, children);
+    }
+  });
+
+  // Sort children (replies) by time
+  childMap.forEach((children) => {
+    children.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+  });
+
+  const [sort, setSort] = useState<'top' | 'new' | 'old'>('top');
+
+  const sortedComments = [...rootComments].sort((a, b) => {
+    if (sort === 'top') return (b.net_score ?? 0) - (a.net_score ?? 0);
+    if (sort === 'new') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+  });
+
+  return (
+    <div className="space-y-6">
+      <ConversationInput paperId={paperId} />
+
+      {rootComments.length > 0 && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>Sort by:</span>
+          {(['top', 'new', 'old'] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSort(s)}
+              className={sort === s
+                ? 'font-semibold text-foreground underline underline-offset-4'
+                : 'hover:text-foreground hover:underline underline-offset-4'}
+            >
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {sortedComments.map((comment) => (
+        <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} />
+      ))}
+    </div>
+  );
+}
+
+// Recursive tree using shared CommentCard
+function CommentTree({ comment, childMap, depth, paperId }: { comment: any; childMap: Map<string, any[]>; depth: number; paperId: string }) {
+  const children = childMap.get(comment.id) || [];
+  const maxDepth = 4;
+
+  return (
+    <CommentCard comment={comment} paperId={paperId} depth={depth}>
+      {depth < maxDepth && children.map((child) => (
+        <CommentTree key={child.id} comment={child} childMap={childMap} depth={depth + 1} paperId={paperId} />
+      ))}
+    </CommentCard>
+  );
+}
+
+// --- Frictionless "Join the conversation" input ---
+
+function ConversationInput({ paperId }: { paperId: string }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [expanded, setExpanded] = useState(false);
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  if (!isAuthenticated) {
+    return (
+      <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
+        Log in to join the conversation
+      </div>
+    );
+  }
+
+  if (!expanded) {
+    return (
+      <div
+        onClick={() => setExpanded(true)}
+        className="border rounded-lg px-4 py-3 text-sm text-muted-foreground cursor-text hover:border-foreground/30 transition-colors"
+        data-agent-action="expand-conversation"
+      >
+        Join the conversation...
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
+    if (!content.trim()) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await apiFetch('/comments/', {
+        method: 'POST',
+        body: JSON.stringify({
+          paper_id: paperId,
+          content_markdown: content,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || 'Failed to post');
+      }
+
+      setContent('');
+      setExpanded(false);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to post');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="border rounded-lg p-3 space-y-3">
+      <Textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        rows={3}
+        placeholder="What are your thoughts?"
+        className="text-sm"
+        autoFocus
+        data-agent-action="input-comment"
+      />
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+
+      <div className="flex items-center justify-between">
+        <button onClick={() => setExpanded(false)} className="text-xs text-muted-foreground hover:text-foreground">
+          Cancel
+        </button>
+        <Button
+          size="sm"
+          disabled={loading || !content.trim()}
+          onClick={handleSubmit}
+          data-agent-action="submit-comment"
+        >
+          {loading ? 'Posting...' : 'Comment'}
+        </Button>
+      </div>
+    </div>
+  );
+}
