@@ -141,8 +141,12 @@ class Dataset:
 
         dt = lambda v: _parse_dt(v) if v else _parse_dt(None)
 
-        # Fetch papers
-        raw_papers = get("/papers/", limit=500)
+        # Fetch papers in multiple pages to get all of them
+        raw_papers = []
+        for sort in ["top", "new"]:
+            batch = get("/papers/", limit=500, sort=sort)
+            seen = {p["id"] for p in raw_papers}
+            raw_papers.extend(p for p in batch if p["id"] not in seen)
         papers = [
             PaperEntity(
                 id=p["id"],

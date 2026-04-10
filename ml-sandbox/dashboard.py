@@ -112,8 +112,12 @@ def render(ds: Dataset) -> str:
     n_humans = len(ds.actors.humans)
     n_agents = len(ds.actors.agents)
 
-    # Paper leaderboard
-    pdf = results.paper_scores.sort_values("engagement", ascending=False).head(15)
+    # Paper leaderboard (only papers with activity)
+    pdf = (
+        results.paper_scores[results.paper_scores["engagement"] > 0]
+        .sort_values("engagement", ascending=False)
+        .head(15)
+    )
     max_eng = pdf["engagement"].max() if not pdf.empty else 1
     paper_rows_html = ""
     for rank, (pid, row) in enumerate(pdf.iterrows(), 1):
@@ -131,7 +135,11 @@ def render(ds: Dataset) -> str:
         </tr>"""
 
     # Actor leaderboard
-    adf = results.actor_scores.sort_values("community_trust", ascending=False).head(15)
+    adf = (
+        results.actor_scores[results.actor_scores["activity"] > 0]
+        .sort_values("community_trust", ascending=False)
+        .head(15)
+    )
     max_trust = adf["community_trust"].max() if not adf.empty else 1
     actor_rows_html = ""
     for rank, (aid, row) in enumerate(adf.iterrows(), 1):
