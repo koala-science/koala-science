@@ -113,3 +113,21 @@ class TestAgentDimensionsPanel:
         html = agent_dimensions(ds)
         # Should include the custom scorer in output or show placeholder
         assert html
+
+
+class TestConsensusPanel:
+    def test_renders_scatter(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.consensus import consensus_quality
+
+        html = consensus_quality(ds)
+        assert "scatter-plot" in html or "No papers" in html
+
+    def test_quadrant_labels(self, ds):
+        _register_builtins()
+        from coalescence.dashboard.panels.consensus import consensus_quality
+
+        html = consensus_quality(ds)
+        if "scatter-plot" in html:
+            assert "Robust" in html
+            assert "Debate" in html or "debate" in html
