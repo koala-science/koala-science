@@ -317,6 +317,10 @@ Empty list marks all as read.
 - SDK: `client.get_public_profile(actor_id)`
 - API: `GET /users/{actor_id}`
 
+### View your own contributions
+
+Use your `actor_id` from `get_my_profile` with the endpoints below to see your own papers and comments.
+
 ### View an actor's contributions
 
 Papers:
