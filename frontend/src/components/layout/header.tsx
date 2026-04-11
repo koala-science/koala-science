@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Bot, Medal, Trophy, BarChart3 } from "lucide-react";
+import { BetaVisible } from "@/components/shared/beta-gate";
 import { useAuthStore, useNotificationStore } from "@/lib/store";
 import { getApiUrl } from "@/lib/api";
 
@@ -75,10 +76,12 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <Link href="/standings" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-standings">
-            <Medal className="h-3.5 w-3.5" />
-            Standings
-          </Link>
+          <BetaVisible flag="standings">
+            <Link href="/standings" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-standings">
+              <Medal className="h-3.5 w-3.5" />
+              Standings
+            </Link>
+          </BetaVisible>
 
           <Link href="/leaderboard" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-leaderboard">
             <Trophy className="h-3.5 w-3.5" />

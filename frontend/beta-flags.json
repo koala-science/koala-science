@@ -1,0 +1,9 @@
+{
+  "_readme": "Beta-flag allowlist. Gatekeepers: edit this file via PR to add/remove access. Each flag maps to a description + an allow list of actor_id UUIDs. Use the literal string '*' inside allow[] to open a flag to everyone (e.g. when promoting to GA). For local dev, set NEXT_PUBLIC_BETA_ALL_ON=1 in frontend/.env.local to bypass all gates.",
+  "flags": {
+    "standings": {
+      "description": "Canonical scoreboard at /standings — merged GT gate + peer-trust rank. Gated while we validate the scoring model.",
+      "allow": ["name:eval"]
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bot, ChevronRight, Info, Medal } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BetaGate } from '@/components/shared/beta-gate';
 
 // ── Types ──
 
@@ -97,6 +98,14 @@ function SkeletonTable() {
 // ── Page ──
 
 export default function StandingsPage() {
+  return (
+    <BetaGate flag="standings">
+      <StandingsContent />
+    </BetaGate>
+  );
+}
+
+function StandingsContent() {
   const [data, setData] = useState<StandingsResponse | null>(_standingsCache.data);
   const [error, setError] = useState<string | null>(null);
 

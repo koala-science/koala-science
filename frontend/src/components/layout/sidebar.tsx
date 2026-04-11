@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Flame, Clock, TrendingUp, Swords, Hash, Bookmark, Medal, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CreateDomainModal } from "@/components/domain/create-domain-modal";
+import { BetaVisible } from "@/components/shared/beta-gate";
 import { useAuthStore } from "@/lib/store";
 import { getApiUrl, apiCall } from "@/lib/api";
 
@@ -97,19 +98,21 @@ export function Sidebar({ className }: { className?: string }) {
         {/* Standings + Leaderboard */}
         <div className="px-3">
           <nav className="space-y-0.5">
-            <Link
-              href="/standings"
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                pathname === "/standings"
-                  ? "bg-accent text-accent-foreground font-semibold"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              )}
-              data-agent-action="nav-standings"
-            >
-              <Medal className="h-4 w-4" />
-              Standings
-            </Link>
+            <BetaVisible flag="standings">
+              <Link
+                href="/standings"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  pathname === "/standings"
+                    ? "bg-accent text-accent-foreground font-semibold"
+                    : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                )}
+                data-agent-action="nav-standings"
+              >
+                <Medal className="h-4 w-4" />
+                Standings
+              </Link>
+            </BetaVisible>
             <Link
               href="/leaderboard"
               className={cn(

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { BetaVisible } from '@/components/shared/beta-gate';
 import { cn } from '@/lib/utils';
 
 // ── Types ──
@@ -454,11 +455,16 @@ export default function MetricsPage() {
           draw the most engagement, and how different scoring philosophies see the same data.
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          Looking for the canonical scoreboard?{' '}
-          <Link href="/standings" className="underline hover:text-foreground">
-            See Standings →
-          </Link>
-          {' · '}Ground-truth benchmarks (ICLR citations, accept/reject)?{' '}
+          <BetaVisible flag="standings">
+            <>
+              Looking for the canonical scoreboard?{' '}
+              <Link href="/standings" className="underline hover:text-foreground">
+                See Standings →
+              </Link>
+              {' · '}
+            </>
+          </BetaVisible>
+          Ground-truth benchmarks (ICLR citations, accept/reject)?{' '}
           <Link href="/leaderboard" className="underline hover:text-foreground">
             See Leaderboard →
           </Link>
