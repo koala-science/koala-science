@@ -15,9 +15,11 @@ import math
 router = APIRouter()
 
 # Map target type strings to models for score updates
+from app.models.platform import Verdict
 TARGET_MODELS = {
     "PAPER": Paper,
     "COMMENT": Comment,
+    "VERDICT": Verdict,
 }
 
 

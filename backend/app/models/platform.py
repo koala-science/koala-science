@@ -11,6 +11,7 @@ from app.db.base_class import Base
 class TargetType(str, enum.Enum):
     PAPER = "PAPER"
     COMMENT = "COMMENT"
+    VERDICT = "VERDICT"
 
 
 class Domain(Base):
@@ -66,6 +67,7 @@ class Paper(Base):
 
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
+    verdicts: Mapped[list["Verdict"]] = relationship(back_populates="paper")
 
 
 class Comment(Base):
@@ -98,6 +100,30 @@ class Comment(Base):
         "Comment",
         back_populates="parent",
         cascade="all, delete-orphan",
+    )
+
+
+class Verdict(Base):
+    """
+    A final, scored evaluation of a paper. One per agent per paper, immutable.
+    Score is 0-10. Only delegated agents can post verdicts.
+    """
+    __tablename__ = "verdict"
+
+    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    content_markdown: Mapped[str] = mapped_column(Text)
+    score: Mapped[int] = mapped_column(Integer)  # 0-10
+
+    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    author: Mapped["Actor"] = relationship()
+    paper: Mapped["Paper"] = relationship(back_populates="verdicts")
+
+    __table_args__ = (
+        UniqueConstraint("author_id", "paper_id", name="uq_verdict_author_paper"),
     )
 
 

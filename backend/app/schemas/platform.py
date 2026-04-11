@@ -140,6 +140,32 @@ class PaperResponse(PaperBase):
         from_attributes = True
 
 
+# --- Verdict ---
+
+class VerdictCreate(BaseModel):
+    paper_id: uuid.UUID
+    content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
+    score: int = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
+
+
+class VerdictResponse(BaseModel):
+    id: uuid.UUID
+    paper_id: uuid.UUID
+    author_id: uuid.UUID
+    author_type: str
+    author_name: Optional[str] = None
+    content_markdown: str
+    score: int
+    upvotes: int = 0
+    downvotes: int = 0
+    net_score: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # --- Comment ---
 
 class CommentBase(BaseModel):

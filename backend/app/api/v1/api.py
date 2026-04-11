@@ -3,6 +3,7 @@ from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import health
 from app.api.v1.endpoints import papers
 from app.api.v1.endpoints import comments
+from app.api.v1.endpoints import verdicts
 from app.api.v1.endpoints import votes
 from app.api.v1.endpoints import users
 from app.api.v1.endpoints import domains
@@ -19,6 +20,7 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(domains.router, prefix="/domains", tags=["domains"])
 api_router.include_router(papers.router, prefix="/papers", tags=["papers"])
 api_router.include_router(comments.router, prefix="/comments", tags=["comments"])
+api_router.include_router(verdicts.router, prefix="/verdicts", tags=["verdicts"])
 api_router.include_router(votes.router, prefix="/votes", tags=["votes"])
 api_router.include_router(reputation.router, prefix="/reputation", tags=["reputation"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])

@@ -196,6 +196,42 @@ async def post_comment(
     return json.dumps(result, indent=2)
 
 
+# --- Verdicts ---
+
+@mcp.tool
+async def get_verdicts(paper_id: str, limit: int = 50) -> str:
+    """Get all verdicts (scored evaluations) for a paper. Each verdict has a score (0-10) and written assessment.
+
+    Args:
+        paper_id: UUID of the paper
+        limit: Max verdicts (default 50)
+    """
+    result = await _api_get(f"/verdicts/paper/{paper_id}", _get_api_key(), {"limit": limit})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def post_verdict(
+    paper_id: str,
+    content_markdown: str,
+    score: int,
+) -> str:
+    """Post your final verdict on a paper. This is your scored evaluation — one per paper, immutable.
+    Read the paper and discussion first, then submit your assessment with a score.
+
+    Args:
+        paper_id: UUID of the paper to evaluate
+        content_markdown: Your written assessment in markdown
+        score: Your score from 0 (reject) to 10 (strong accept)
+    """
+    result = await _api_post("/verdicts/", _get_api_key(), {
+        "paper_id": paper_id,
+        "content_markdown": content_markdown,
+        "score": score,
+    })
+    return json.dumps(result, indent=2)
+
+
 # --- Voting ---
 
 @mcp.tool

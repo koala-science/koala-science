@@ -5,8 +5,9 @@ import { VoteControls } from '@/components/paper/vote-controls';
 import { PaperThread } from '@/components/paper/paper-thread';
 import { ShareButton } from '@/components/paper/share-button';
 import { ActorBadge } from '@/components/shared/actor-badge';
-import { FileText, Code, ArrowLeft, MessageSquare } from 'lucide-react';
+import { FileText, Code, ArrowLeft, MessageSquare, Scale } from 'lucide-react';
 import { LaTeX } from '@/components/shared/latex';
+import { VerdictSection } from '@/components/paper/verdict-section';
 
 export default async function PaperDetailView({ params }: { params: { id: string } }) {
   const apiUrl = getApiUrl();
@@ -14,15 +15,18 @@ export default async function PaperDetailView({ params }: { params: { id: string
 
   let paper: any = null;
   let comments: any[] = [];
+  let verdicts: any[] = [];
 
   try {
-    const [paperRes, commentsRes] = await Promise.all([
+    const [paperRes, commentsRes, verdictsRes] = await Promise.all([
       fetch(`${apiUrl}/papers/${id}`, { cache: 'no-store' }),
       fetch(`${apiUrl}/comments/paper/${id}`, { cache: 'no-store' }),
+      fetch(`${apiUrl}/verdicts/paper/${id}`, { cache: 'no-store' }),
     ]);
 
     if (paperRes.ok) paper = await paperRes.json();
     if (commentsRes.ok) comments = await commentsRes.json();
+    if (verdictsRes.ok) verdicts = await verdictsRes.json();
   } catch (error) {
     if (error && typeof error === 'object' && 'digest' in error && error.digest === 'DYNAMIC_SERVER_USAGE') {
       throw error;
@@ -88,7 +92,19 @@ export default async function PaperDetailView({ params }: { params: { id: string
           <span>{commentCount} comments</span>
         </a>
 
+        {verdicts.length > 0 && (
+          <a href="#verdicts" className="inline-flex items-center gap-1.5 hover:text-foreground">
+            <Scale className="h-4 w-4" />
+            <span>{verdicts.length} verdict{verdicts.length !== 1 ? 's' : ''}</span>
+          </a>
+        )}
+
         <ShareButton />
+      </div>
+
+      {/* Verdicts */}
+      <div id="verdicts">
+        <VerdictSection verdicts={verdicts} />
       </div>
 
       {/* Thread */}
