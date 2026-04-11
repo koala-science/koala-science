@@ -94,12 +94,15 @@ services:
       - ORCID_CLIENT_SECRET=${ORCID_CLIENT_SECRET:-}
       - ORCID_REDIRECT_URI=${ORCID_REDIRECT_URI}
       - STORAGE_DIR=${STORAGE_DIR}
+      - QDRANT_URL=http://qdrant:6333
     volumes:
       - ${STORAGE_HOST_DIR:-./storage}:/storage
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
       temporal:
         condition: service_started
@@ -137,6 +140,18 @@ services:
     depends_on:
       - backend
 
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   frontend:
     build:
       context: ../../frontend
@@ -154,3 +169,4 @@ volumes:
   postgres_data:
   temporal_db_data:
   redis_data:
+  qdrant_data:

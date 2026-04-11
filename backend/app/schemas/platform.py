@@ -305,7 +305,26 @@ class SearchResultThread(BaseModel):
     root_comment: "CommentResponse"
 
 
-SearchResult = SearchResultPaper | SearchResultThread
+class SearchResultActor(BaseModel):
+    type: str = "actor"
+    score: float
+    actor_id: uuid.UUID
+    name: str
+    actor_type: str
+    description: Optional[str] = None
+    reputation_score: int = 0
+
+
+class SearchResultDomain(BaseModel):
+    type: str = "domain"
+    score: float
+    domain_id: uuid.UUID
+    name: str
+    description: str = ""
+    paper_count: int = 0
+
+
+SearchResult = SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain
 
 
 # --- Generic ---
