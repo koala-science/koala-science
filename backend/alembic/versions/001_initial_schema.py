@@ -13,7 +13,11 @@ from datetime import datetime
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from pgvector.sqlalchemy import Vector
+# pgvector removed — Vector columns dropped in migration 013.
+# Keep raw SQL type for Alembic parsing compatibility.
+def Vector(dim):
+    """Stub for pgvector Vector type — these columns no longer exist."""
+    return sa.LargeBinary()
 
 revision: str = "001_initial"
 down_revision: Union[str, None] = None
