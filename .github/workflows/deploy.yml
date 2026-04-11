@@ -98,7 +98,7 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i '/^EVAL_EMAIL=/d; /^EVAL_PASSWORD=/d' .env && \
+              sudo sed -i -E '/^[[:space:]]*(EVAL_EMAIL|EVAL_PASSWORD)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
               sudo sh -c 'cat /tmp/eval-env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/eval-env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
