@@ -1,16 +1,16 @@
 """
-Import ground truth data from McGill-NLP/AI-For-Science-Retreat-Data (HuggingFace).
+Import ground truth data from McGill-NLP/iclr-leaderboard-data (HuggingFace).
 
-Downloads ICLR 2025 and 2026 full JSON files, parses papers with their
-acceptance decisions and reviewer scores, and inserts them into the
-ground_truth_paper table. Then matches platform papers to ground truth
-by normalized title and sets paper.openreview_id.
+Downloads the preprocessed CSV containing ICLR 2025 and 2026 papers with
+acceptance decisions, reviewer scores, and citation counts, and inserts them
+into the ground_truth_paper table. Then matches platform papers to ground
+truth by normalized title and sets paper.openreview_id.
 
 Usage:
     cd backend
     python -m scripts.import_ground_truth
 
-    # Skip download if files already cached:
+    # Skip download if file already cached:
     python -m scripts.import_ground_truth --cache-dir /tmp
 
     # Import only one year:
@@ -18,8 +18,8 @@ Usage:
 """
 import argparse
 import asyncio
+import csv
 import json
-import os
 import re
 import unicodedata
 import uuid
@@ -34,20 +34,13 @@ from app.models.platform import Paper
 
 
 # ---------------------------------------------------------------------------
-# HuggingFace URLs
+# HuggingFace URL — preprocessed leaderboard CSV
 # ---------------------------------------------------------------------------
 
-HF_BASE = "https://huggingface.co/datasets/McGill-NLP/AI-For-Science-Retreat-Data/resolve/main/iclr-dataset"
-
-FILES = {
-    2025: f"{HF_BASE}/iclr_2025_full.json",
-    2026: f"{HF_BASE}/iclr_2026_full.json",
-}
-
-IMPACT_FILES = {
-    2025: f"{HF_BASE}/iclr_2025_small_impact.csv",
-    2026: f"{HF_BASE}/iclr_2026_full_impact.csv",
-}
+CSV_URL = (
+    "https://huggingface.co/datasets/McGill-NLP/iclr-leaderboard-data"
+    "/resolve/main/iclr_leaderboard_data.csv"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +80,7 @@ def is_accepted(decision: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Download helpers
+# Download helper
 # ---------------------------------------------------------------------------
 
 async def download_file(url: str, dest: Path) -> Path:
@@ -107,53 +100,20 @@ async def download_file(url: str, dest: Path) -> Path:
     return dest
 
 
-def parse_impact_csv(path: Path) -> dict[str, dict]:
-    """Parse impact CSV into {paper_id: {citations: int, ...}}."""
-    import csv
-    result = {}
-    with open(path) as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            pid = row.get('paper_id', '').strip()
-            if not pid:
-                continue
-            citations = row.get('citations', '').strip()
-            result[pid] = {
-                'citations': int(citations) if citations else None,
-            }
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Main import logic
 # ---------------------------------------------------------------------------
 
 async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None = None):
-    target_years = years or [2025, 2026]
+    target_years = set(years) if years else {2025, 2026}
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
 
-    # ── Step 1: Download data files ──
-    print("Step 1: Downloading ground truth data from HuggingFace...")
-    full_data: dict[int, dict] = {}
-    impact_data: dict[int, dict[str, dict]] = {}
+    # ── Step 1: Download preprocessed CSV ──
+    print("Step 1: Downloading preprocessed leaderboard data from HuggingFace...")
+    csv_path = await download_file(CSV_URL, cache_path / "iclr_leaderboard_data.csv")
 
-    for year in target_years:
-        if year not in FILES:
-            print(f"  No data file for year {year}, skipping")
-            continue
-
-        # Download full JSON
-        json_path = await download_file(FILES[year], cache_path / f"iclr_{year}_full.json")
-        with open(json_path) as f:
-            full_data[year] = json.load(f)
-
-        # Download impact CSV
-        if year in IMPACT_FILES:
-            csv_path = await download_file(IMPACT_FILES[year], cache_path / f"iclr_{year}_impact.csv")
-            impact_data[year] = parse_impact_csv(csv_path)
-
-    # ── Step 2: Parse and insert ground truth papers ──
+    # ── Step 2: Parse CSV and insert ground truth papers ──
     print("\nStep 2: Inserting ground truth papers...")
 
     async with AsyncSessionLocal() as session:
@@ -168,55 +128,63 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
             await session.flush()
 
         total_inserted = 0
+        batch = []
 
-        for year, data_by_decision in full_data.items():
-            year_impact = impact_data.get(year, {})
-            year_count = 0
+        with open(csv_path) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                year = int(row['year'])
+                if year not in target_years:
+                    continue
 
-            for decision, papers in data_by_decision.items():
-                batch = []
-                for openreview_id, paper in papers.items():
-                    title = paper.get('title', '').strip()
-                    if not title:
-                        continue
+                title = row.get('title', '').strip()
+                if not title:
+                    continue
 
-                    scores = paper.get('scores', [])
-                    avg_score = sum(scores) / len(scores) if scores else None
+                openreview_id = row['paper_id']
+                decision = row['decision']
 
-                    # Get citations from impact CSV
-                    citations = None
-                    if openreview_id in year_impact:
-                        citations = year_impact[openreview_id].get('citations')
+                # Parse scores from JSON list
+                scores_raw = row.get('scores', '[]')
+                try:
+                    scores = json.loads(scores_raw)
+                except (json.JSONDecodeError, TypeError):
+                    scores = []
 
-                    gt = GroundTruthPaper(
-                        id=uuid.uuid4(),
-                        openreview_id=openreview_id,
-                        title=title,
-                        title_normalized=normalize_title(title),
-                        decision=decision,
-                        accepted=is_accepted(decision),
-                        avg_score=avg_score,
-                        scores=scores if scores else None,
-                        citations=citations,
-                        primary_area=paper.get('primary_area'),
-                        year=year,
-                    )
-                    batch.append(gt)
-                    year_count += 1
+                avg_score_raw = row.get('avg_score', '').strip()
+                avg_score = float(avg_score_raw) if avg_score_raw else None
 
-                    # Flush in batches of 500
-                    if len(batch) >= 500:
-                        session.add_all(batch)
-                        await session.flush()
-                        batch = []
+                citations_raw = row.get('citations', '').strip()
+                citations = int(float(citations_raw)) if citations_raw else 0
 
-                # Flush remaining
-                if batch:
+                gt = GroundTruthPaper(
+                    id=uuid.uuid4(),
+                    openreview_id=openreview_id,
+                    title=title,
+                    title_normalized=normalize_title(title),
+                    decision=decision,
+                    accepted=is_accepted(decision),
+                    avg_score=avg_score,
+                    scores=scores if scores else None,
+                    citations=citations,
+                    primary_area=row.get('primary_area'),
+                    year=year,
+                )
+                batch.append(gt)
+                total_inserted += 1
+
+                # Flush in batches of 500
+                if len(batch) >= 500:
                     session.add_all(batch)
                     await session.flush()
+                    batch = []
 
-            print(f"  {year}: {year_count} papers inserted")
-            total_inserted += year_count
+        # Flush remaining
+        if batch:
+            session.add_all(batch)
+            await session.flush()
+
+        print(f"  Inserted {total_inserted} ground truth papers")
 
         # ── Step 3: Match platform papers to ground truth ──
         print(f"\nStep 3: Matching platform papers to ground truth...")
