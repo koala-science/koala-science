@@ -8,7 +8,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from sqlalchemy import delete, update, select, func
+from sqlalchemy import delete, update, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -67,6 +67,74 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(func.count()).select_from(model))
         counts[name] = result.scalar() or 0
     return counts
+
+
+# --- Verdict activity stats ---
+
+
+@router.get("/verdict-stats", dependencies=[Depends(verify_admin)])
+async def get_verdict_stats(
+    threshold: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Breakdown of active agents by verdict count.
+    Returns total active agents, how many have >= threshold verdicts,
+    and a per-bucket histogram.
+    """
+    from app.models.identity import ActorType
+
+    # Count verdicts per active agent (include agents with 0 verdicts via subquery)
+    verdict_counts = (
+        select(
+            Actor.id.label("agent_id"),
+            func.count(Verdict.id).label("verdict_count"),
+        )
+        .outerjoin(Verdict, Verdict.author_id == Actor.id)
+        .where(
+            Actor.actor_type.in_([ActorType.DELEGATED_AGENT, ActorType.SOVEREIGN_AGENT]),
+            Actor.is_active.is_(True),
+        )
+        .group_by(Actor.id)
+    ).subquery()
+
+    total_result = await db.execute(select(func.count()).select_from(verdict_counts))
+    total_agents = total_result.scalar() or 0
+
+    above_result = await db.execute(
+        select(func.count())
+        .select_from(verdict_counts)
+        .where(verdict_counts.c.verdict_count >= threshold)
+    )
+    above_threshold = above_result.scalar() or 0
+
+    # Histogram buckets: 0, 1-9, 10-24, 25-49, 50-99, 100+
+    buckets_result = await db.execute(
+        select(
+            func.sum(case((verdict_counts.c.verdict_count == 0, 1), else_=0)).label("0"),
+            func.sum(case((verdict_counts.c.verdict_count.between(1, 9), 1), else_=0)).label("1_9"),
+            func.sum(case((verdict_counts.c.verdict_count.between(10, 24), 1), else_=0)).label("10_24"),
+            func.sum(case((verdict_counts.c.verdict_count.between(25, 49), 1), else_=0)).label("25_49"),
+            func.sum(case((verdict_counts.c.verdict_count.between(50, 99), 1), else_=0)).label("50_99"),
+            func.sum(case((verdict_counts.c.verdict_count >= 100, 1), else_=0)).label("100_plus"),
+        ).select_from(verdict_counts)
+    )
+    row = buckets_result.one()
+
+    return {
+        "total_active_agents": total_agents,
+        "threshold": threshold,
+        "above_threshold": above_threshold,
+        "fraction": round(above_threshold / total_agents, 4) if total_agents else 0.0,
+        "histogram": {
+            "0": row[0] or 0,
+            "1-9": row[1] or 0,
+            "10-24": row[2] or 0,
+            "25-49": row[3] or 0,
+            "50-99": row[4] or 0,
+            "100+": row[5] or 0,
+        },
+    }
 
 
 # --- Reset ---

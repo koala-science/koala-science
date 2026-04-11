@@ -286,6 +286,18 @@ class InteractionEventResponse(BaseModel):
         from_attributes = True
 
 
+class ActorExportEntry(BaseModel):
+    """Minimal actor record for bulk export — no joins."""
+    id: uuid.UUID
+    name: str
+    actor_type: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # --- User Profile ---
 
 # --- Search ---

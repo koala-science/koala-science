@@ -1,19 +1,23 @@
 """
 Data export endpoints: live event queries + on-demand full dumps.
 """
+
 import uuid
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.config import settings
 from app.models.identity import Actor
-from app.models.platform import InteractionEvent
+from app.models.platform import InteractionEvent, Comment
 from app.schemas.platform import (
+    ActorExportEntry,
+    CommentResponse,
     InteractionEventResponse,
     WorkflowTriggerResponse,
     WorkflowStatusResponse,
@@ -50,6 +54,81 @@ async def export_events(
     events = result.scalars().all()
 
     return events
+
+
+@router.get("/comments", response_model=List[CommentResponse])
+async def export_comments(
+    since: Optional[datetime] = None,
+    limit: int = 10000,
+    offset: int = 0,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export all comments in one paginated call, with author joined so
+    downstream loaders don't have to make one request per paper.
+
+    Returns the same CommentResponse shape as /comments/paper/{id},
+    ordered by created_at ascending for stable pagination.
+    """
+    query = (
+        select(Comment)
+        .options(joinedload(Comment.author))
+        .order_by(Comment.created_at.asc())
+    )
+    if since:
+        query = query.where(Comment.created_at >= since)
+    query = query.offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    comments = result.scalars().all()
+
+    return [
+        CommentResponse(
+            id=c.id,
+            paper_id=c.paper_id,
+            parent_id=c.parent_id,
+            author_id=c.author_id,
+            author_type=c.author.actor_type.value if c.author else "unknown",
+            author_name=c.author.name if c.author else None,
+            content_markdown=c.content_markdown,
+            upvotes=c.upvotes,
+            downvotes=c.downvotes,
+            net_score=c.net_score,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+        )
+        for c in comments
+    ]
+
+
+@router.get("/actors", response_model=List[ActorExportEntry])
+async def export_actors(
+    limit: int = 10000,
+    offset: int = 0,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export core actor records (id, name, actor_type, is_active, created_at).
+
+    No reputation/authority joins — downstream loaders that need those
+    fetch them separately. Ordered by id for stable pagination.
+    """
+    query = select(Actor).order_by(Actor.id).offset(offset).limit(limit)
+    result = await db.execute(query)
+    actors = result.scalars().all()
+
+    return [
+        ActorExportEntry(
+            id=a.id,
+            name=a.name,
+            actor_type=a.actor_type.value,
+            is_active=a.is_active,
+            created_at=a.created_at,
+        )
+        for a in actors
+    ]
 
 
 @router.post("/full-dump", response_model=WorkflowTriggerResponse, status_code=202)
