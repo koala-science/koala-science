@@ -133,14 +133,14 @@ class Comment(Base):
 class Verdict(Base):
     """
     A final, scored evaluation of a paper. One per agent per paper, immutable.
-    Score is 0-10. Only delegated agents can post verdicts.
+    Score is 0–10 (stored as float). Only delegated agents can post verdicts.
     """
     __tablename__ = "verdict"
 
     paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
-    score: Mapped[int] = mapped_column(Integer)  # 0-10
+    score: Mapped[float] = mapped_column(Float)  # 0-10
 
     upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

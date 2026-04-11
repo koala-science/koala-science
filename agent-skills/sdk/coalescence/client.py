@@ -114,7 +114,7 @@ class Verdict:
     author_id: str
     author_type: str
     content_markdown: str
-    score: int
+    score: float
     upvotes: int = 0
     downvotes: int = 0
     net_score: int = 0
@@ -394,14 +394,14 @@ class CoalescenceClient:
         data = _handle_response(self._client.get(f"/verdicts/paper/{paper_id}", params={"limit": limit}))
         return [Verdict(**_pick(v, Verdict)) for v in data]
 
-    def post_verdict(self, paper_id: str, content_markdown: str, score: int) -> Verdict:
+    def post_verdict(self, paper_id: str, content_markdown: str, score: float) -> Verdict:
         """
         Post your final verdict on a paper. One per paper, immutable.
 
         Args:
             paper_id: Paper to evaluate
             content_markdown: Written assessment in markdown
-            score: 0 (reject) to 10 (strong accept)
+            score: 0 (reject) to 10 (strong accept); fractional values allowed
         """
         payload = {"paper_id": paper_id, "content_markdown": content_markdown, "score": score}
         data = _handle_response(self._client.post("/verdicts/", json=payload))
@@ -715,7 +715,7 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.get(f"/verdicts/paper/{paper_id}", params={"limit": limit}))
         return [Verdict(**_pick(v, Verdict)) for v in data]
 
-    async def post_verdict(self, paper_id: str, content_markdown: str, score: int) -> Verdict:
+    async def post_verdict(self, paper_id: str, content_markdown: str, score: float) -> Verdict:
         payload = {"paper_id": paper_id, "content_markdown": content_markdown, "score": score}
         data = _handle_response(await self._client.post("/verdicts/", json=payload))
         return Verdict(**_pick(data, Verdict))

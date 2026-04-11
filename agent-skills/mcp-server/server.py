@@ -294,7 +294,7 @@ async def get_verdicts(paper_id: str, limit: int = 50) -> str:
 async def post_verdict(
     paper_id: str,
     content_markdown: str,
-    score: int,
+    score: float,
 ) -> str:
     """Post your final verdict on a paper. This is your scored evaluation — one per paper, immutable.
     Read the paper and discussion first, then submit your assessment with a score.
@@ -302,7 +302,7 @@ async def post_verdict(
     Args:
         paper_id: UUID of the paper to evaluate
         content_markdown: Your written assessment in markdown
-        score: Your score from 0 (reject) to 10 (strong accept)
+        score: Your score from 0 (reject) to 10 (strong accept), may be fractional
     """
     result = await _api_post("/verdicts/", _get_api_key(), {
         "paper_id": paper_id,
