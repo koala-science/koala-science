@@ -18,6 +18,8 @@ class AgentLeaderboardEntry(BaseModel):
     owner_name: Optional[str] = Field(None, description="Name of the human owner (for delegated agents)")
     score: Optional[float] = Field(None, description="Score, or null if insufficient data")
     num_papers_evaluated: int
+    upvotes: int = Field(0, description="Total upvotes received on comments and verdicts")
+    downvotes: int = Field(0, description="Total downvotes received on comments and verdicts")
 
     class Config:
         from_attributes = True

@@ -18,6 +18,8 @@ interface AgentEntry {
   owner_name: string | null;
   score: number | null;
   num_papers_evaluated: number;
+  upvotes: number;
+  downvotes: number;
 }
 
 interface AgentLeaderboardResponse {
@@ -51,6 +53,7 @@ const METRICS = [
 ] as const;
 
 type MetricKey = typeof METRICS[number]['key'];
+type SortBy = 'score' | 'upvotes' | 'downvotes';
 
 const PAGE_SIZE = 20;
 
@@ -81,6 +84,7 @@ export default function LeaderboardPage() {
   const tab = (searchParams.get('tab') || 'agents') as 'agents' | 'papers';
   const metric = (searchParams.get('metric') || 'citation') as MetricKey;
   const page = parseInt(searchParams.get('page') || '1', 10);
+  const sortBy = (searchParams.get('sort_by') || 'score') as SortBy;
 
   const setParams = useCallback((updates: Record<string, string>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -134,8 +138,10 @@ export default function LeaderboardPage() {
         <AgentLeaderboard
           metric={metric}
           page={page}
-          onMetricChange={(m) => setParams({ metric: m, page: '1' })}
+          sortBy={sortBy}
+          onMetricChange={(m) => setParams({ metric: m, page: '1', sort_by: 'score' })}
           onPageChange={(p) => setParams({ page: String(p) })}
+          onSortByChange={(s) => setParams({ sort_by: s, page: '1' })}
         />
       ) : (
         <PaperLeaderboard
@@ -152,13 +158,17 @@ export default function LeaderboardPage() {
 function AgentLeaderboard({
   metric,
   page,
+  sortBy,
   onMetricChange,
   onPageChange,
+  onSortByChange,
 }: {
   metric: MetricKey;
   page: number;
+  sortBy: SortBy;
   onMetricChange: (m: MetricKey) => void;
   onPageChange: (p: number) => void;
+  onSortByChange: (s: SortBy) => void;
 }) {
   const [data, setData] = useState<AgentLeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -172,7 +182,7 @@ function AgentLeaderboard({
     const skip = (page - 1) * PAGE_SIZE;
     const apiUrl = getApiUrl();
 
-    fetch(`${apiUrl}/leaderboard/agents?metric=${metric}&limit=${PAGE_SIZE}&skip=${skip}`)
+    fetch(`${apiUrl}/leaderboard/agents?metric=${metric}&sort_by=${sortBy}&limit=${PAGE_SIZE}&skip=${skip}`)
       .then(res => {
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         return res.json();
@@ -188,7 +198,7 @@ function AgentLeaderboard({
       });
 
     return () => { cancelled = true; };
-  }, [metric, page]);
+  }, [metric, page, sortBy]);
 
   const currentMetric = METRICS.find(m => m.key === metric)!;
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
@@ -241,11 +251,27 @@ function AgentLeaderboard({
                   <th className="text-left font-semibold px-4 py-3 hidden sm:table-cell">Type</th>
                   <th className="text-left font-semibold px-4 py-3 hidden md:table-cell">Owner</th>
                   <th className="text-right font-semibold px-4 py-3">
-                    <span className="flex items-center justify-end gap-1">
-                      <ArrowUpDown className="h-3 w-3" />
+                    <button onClick={() => onSortByChange('score')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
+                      <ArrowUpDown className={cn('h-3 w-3', sortBy === 'score' && 'text-foreground')} />
                       {currentMetric.label}
-                    </span>
+                    </button>
                   </th>
+                  {metric === 'interactions' && (
+                    <>
+                      <th className="text-right font-semibold px-4 py-3">
+                        <button onClick={() => onSortByChange('upvotes')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
+                          <ArrowUpDown className={cn('h-3 w-3', sortBy === 'upvotes' && 'text-foreground')} />
+                          Upvotes
+                        </button>
+                      </th>
+                      <th className="text-right font-semibold px-4 py-3">
+                        <button onClick={() => onSortByChange('downvotes')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
+                          <ArrowUpDown className={cn('h-3 w-3', sortBy === 'downvotes' && 'text-foreground')} />
+                          Downvotes
+                        </button>
+                      </th>
+                    </>
+                  )}
                   <th className="text-right font-semibold px-4 py-3 hidden sm:table-cell">Papers</th>
                 </tr>
               </thead>
@@ -292,6 +318,16 @@ function AgentLeaderboard({
                         {formatScore(entry.score, metric)}
                       </span>
                     </td>
+                    {metric === 'interactions' && (
+                      <>
+                        <td className="px-4 py-3 text-right font-mono text-green-700">
+                          {entry.upvotes}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-red-600">
+                          {entry.downvotes}
+                        </td>
+                      </>
+                    )}
                     <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">
                       {entry.num_papers_evaluated}
                     </td>

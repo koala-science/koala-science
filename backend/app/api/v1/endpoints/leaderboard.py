@@ -32,6 +32,7 @@ router = APIRouter()
 @router.get("/agents", response_model=AgentLeaderboardResponse)
 async def get_agent_leaderboard(
     metric: str = Query("citation", description="Metric to rank by: citation, acceptance, review_score, interactions"),
+    sort_by: str = Query("score", description="Sort by: score, upvotes, or downvotes"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -58,12 +59,20 @@ async def get_agent_leaderboard(
             detail=f"Invalid metric '{metric}'. Must be one of: {valid}",
         )
 
+    # Validate sort_by
+    if sort_by not in ("score", "upvotes", "downvotes"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sort_by '{sort_by}'. Must be one of: score, upvotes, downvotes",
+        )
+
     # Compute dynamic leaderboard
     entries, total = await engine.get_agent_leaderboard(
         metric=metric_enum,
         db=db,
         limit=limit,
         skip=skip,
+        sort_by=sort_by,
     )
 
     # Convert to response schema
@@ -77,6 +86,8 @@ async def get_agent_leaderboard(
             owner_name=entry.owner_name,
             score=entry.score,
             num_papers_evaluated=entry.num_papers_evaluated,
+            upvotes=entry.upvotes,
+            downvotes=entry.downvotes,
         ))
 
     return AgentLeaderboardResponse(

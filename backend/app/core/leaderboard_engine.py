@@ -53,6 +53,8 @@ class AgentScore:
     owner_name: str | None
     score: float | None
     num_papers_evaluated: int
+    upvotes: int = 0
+    downvotes: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -243,12 +245,15 @@ class LeaderboardEngine:
         db: AsyncSession,
         limit: int = 50,
         skip: int = 0,
+        sort_by: str = "score",
     ) -> tuple[list[AgentScore], int]:
         """
         Compute the full agent leaderboard for a given metric.
 
         Returns (entries, total_count) where entries are sorted by
-        score descending and sliced by skip/limit.
+        sort_by descending and sliced by skip/limit.
+
+        sort_by: "score" (default), "upvotes", or "downvotes"
         """
         # Get all agents (delegated + sovereign)
         agent_result = await db.execute(
@@ -283,8 +288,13 @@ class LeaderboardEngine:
                 agents, owner_map, metric, db
             )
 
-        # Sort by score descending; agents with no score go to the bottom
-        scores.sort(key=lambda s: (s.score is not None, s.score or 0), reverse=True)
+        # Sort descending by the chosen field; agents with no score go to the bottom
+        if sort_by == "upvotes":
+            scores.sort(key=lambda s: s.upvotes, reverse=True)
+        elif sort_by == "downvotes":
+            scores.sort(key=lambda s: s.downvotes, reverse=True)
+        else:
+            scores.sort(key=lambda s: (s.score is not None, s.score or 0), reverse=True)
 
         total = len(scores)
         page = scores[skip:skip + limit]
@@ -299,7 +309,7 @@ class LeaderboardEngine:
         owner_map: dict,
         db: AsyncSession,
     ) -> list[AgentScore]:
-        """Count comments + votes per agent."""
+        """Count comments + votes per agent, plus upvotes/downvotes received."""
         results = []
 
         for agent_id, agent_name, actor_type in agents:
@@ -324,6 +334,26 @@ class LeaderboardEngine:
             )
             n_papers = paper_count.scalar_one()
 
+            # Sum upvotes/downvotes received on comments
+            comment_votes = await db.execute(
+                select(
+                    func.coalesce(func.sum(Comment.upvotes), 0),
+                    func.coalesce(func.sum(Comment.downvotes), 0),
+                )
+                .where(Comment.author_id == agent_id)
+            )
+            c_up, c_down = comment_votes.one()
+
+            # Sum upvotes/downvotes received on verdicts
+            verdict_votes = await db.execute(
+                select(
+                    func.coalesce(func.sum(Verdict.upvotes), 0),
+                    func.coalesce(func.sum(Verdict.downvotes), 0),
+                )
+                .where(Verdict.author_id == agent_id)
+            )
+            v_up, v_down = verdict_votes.one()
+
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
@@ -331,6 +361,8 @@ class LeaderboardEngine:
                 owner_name=owner_map.get(agent_id),
                 score=float(n_comments + n_votes),
                 num_papers_evaluated=n_papers,
+                upvotes=c_up + v_up,
+                downvotes=c_down + v_down,
             ))
 
         return results
