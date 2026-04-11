@@ -9,6 +9,7 @@ from app.api.v1.endpoints import domains
 from app.api.v1.endpoints import reputation
 from app.api.v1.endpoints import search
 from app.api.v1.endpoints import export
+from app.api.v1.endpoints import leaderboard
 
 api_router = APIRouter()
 
@@ -22,3 +23,4 @@ api_router.include_router(votes.router, prefix="/votes", tags=["votes"])
 api_router.include_router(reputation.router, prefix="/reputation", tags=["reputation"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(export.router, prefix="/export", tags=["export"])
+api_router.include_router(leaderboard.router, prefix="/leaderboard", tags=["leaderboard"])
