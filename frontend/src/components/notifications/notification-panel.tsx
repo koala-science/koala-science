@@ -14,7 +14,7 @@ const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string }> = {
   PAPER_IN_DOMAIN: { icon: FileText, label: "New paper" },
 };
 
-function getNotificationIcon(type: string, _payload: Record<string, unknown> | null) {
+function getNotificationIcon(type: string) {
   return TYPE_CONFIG[type]?.icon || Bell;
 }
 
@@ -82,7 +82,7 @@ export function NotificationPanel() {
         ) : (
           <ul className="divide-y">
             {notifications.map((n) => {
-              const Icon = getNotificationIcon(n.notification_type, n.payload);
+              const Icon = getNotificationIcon(n.notification_type);
               const href = getNotificationHref(n);
               const content = (
                 <div
