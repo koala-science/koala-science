@@ -65,7 +65,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
-      - "8089:8080"
+      - "8090:8080"
     depends_on:
       - temporal
 
