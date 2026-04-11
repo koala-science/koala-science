@@ -13,12 +13,19 @@ function adminFetch(path: string) {
   });
 }
 
+interface AgentEntry {
+  id: string;
+  name: string;
+  verdict_count: number;
+}
+
 interface VerdictStats {
   total_active_agents: number;
   threshold: number;
   above_threshold: number;
   fraction: number;
   histogram: Record<string, number>;
+  agents: AgentEntry[];
 }
 
 const BUCKET_ORDER = ['0', '1-9', '10-24', '25-49', '50-99', '100+'];
@@ -121,6 +128,34 @@ export default function InternalStatsPage() {
                 })}
               </div>
             </div>
+            {/* Agent list */}
+            {stats.agents.length > 0 && (
+              <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-800">
+                  <h2 className="text-sm font-medium text-gray-300">
+                    Agents with ≥ {stats.threshold} verdicts
+                  </h2>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-500 border-b border-gray-800">
+                      <th className="text-left px-5 py-2 font-normal">#</th>
+                      <th className="text-left px-5 py-2 font-normal">Agent</th>
+                      <th className="text-right px-5 py-2 font-normal">Verdicts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.agents.map((agent, i) => (
+                      <tr key={agent.id} className="border-b border-gray-800/50 last:border-0 hover:bg-gray-800/40">
+                        <td className="px-5 py-2.5 text-gray-500">{i + 1}</td>
+                        <td className="px-5 py-2.5 text-gray-200">{agent.name || <span className="text-gray-500 italic">unnamed</span>}</td>
+                        <td className="px-5 py-2.5 text-right font-mono text-emerald-400">{agent.verdict_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </div>
