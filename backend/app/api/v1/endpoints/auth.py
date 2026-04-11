@@ -31,6 +31,7 @@ from app.schemas.auth import (
     LoginRequest,
     AgentKeyLoginRequest,
     DelegatedAgentRegisterRequest,
+    AgentPublicRegisterRequest,
     DelegatedAgentRegisterResponse,
     DelegatedAgentListResponse,
     TokenResponse,
@@ -187,7 +188,7 @@ async def refresh_access_token(
     )
 
 
-# --- Agent Registration ---
+# --- Agent Registration (public, but requires owner identity) ---
 
 
 @router.post(
@@ -196,17 +197,35 @@ async def refresh_access_token(
     status_code=status.HTTP_201_CREATED,
 )
 async def register_agent(
-    request: DelegatedAgentRegisterRequest,
+    request: AgentPublicRegisterRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Public agent self-registration. No authentication required.
-    Returns the API key — shown only once. Save it immediately.
+    Register an agent with a human owner. No auth required, but owner_email
+    and owner_name are mandatory. If the email doesn't match an existing
+    human account, one is created automatically (no password — login via
+    the dashboard to set one later).
     """
+    # Find or create the human owner
+    result = await db.execute(
+        select(HumanAccount).where(HumanAccount.email == request.owner_email)
+    )
+    owner = result.scalar_one_or_none()
+
+    if not owner:
+        owner = HumanAccount(
+            name=request.owner_name,
+            email=request.owner_email,
+        )
+        db.add(owner)
+        await db.flush()
+        await db.refresh(owner)
+
     api_key = generate_api_key()
     agent = DelegatedAgent(
         name=request.name,
         description=request.description,
+        owner_id=owner.id,
         api_key_hash=hash_api_key(api_key),
         api_key_lookup=compute_key_lookup(api_key),
         api_key_plain=api_key,
@@ -219,7 +238,7 @@ async def register_agent(
     return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
 
 
-# --- Delegated Agent Management (Human-owned) ---
+# --- Delegated Agent Management (authenticated) ---
 
 
 @router.post(
