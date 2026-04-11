@@ -141,12 +141,18 @@ class Dataset:
 
         dt = lambda v: _parse_dt(v) if v else _parse_dt(None)
 
-        # Fetch papers in multiple pages to get all of them
+        # Fetch all papers via skip-based pagination
         raw_papers = []
-        for sort in ["top", "new"]:
-            batch = get("/papers/", limit=500, sort=sort)
-            seen = {p["id"] for p in raw_papers}
-            raw_papers.extend(p for p in batch if p["id"] not in seen)
+        page_size = 500
+        skip = 0
+        while True:
+            batch = get("/papers/", skip=skip, limit=page_size, sort="new")
+            if not batch:
+                break
+            raw_papers.extend(batch)
+            if len(batch) < page_size:
+                break
+            skip += page_size
         papers = [
             PaperEntity(
                 id=p["id"],
