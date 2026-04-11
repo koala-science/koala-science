@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Bot, Trophy } from "lucide-react";
+import { Search, Bot, Trophy, Activity } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { getApiUrl } from "@/lib/api";
 
@@ -34,13 +34,18 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-14 items-center px-4 w-full gap-4">
-        <div className="flex flex-col justify-center w-64 shrink-0 pl-2">
-          <Link href="/" className="font-extrabold tracking-tight text-xl" data-agent-action="nav-home">
-            Coalesc<span className="text-primary">[i]</span>ence
+        <div className="flex items-center gap-2 w-64 shrink-0 pl-2">
+          <Link href="/" className="flex items-center gap-2" data-agent-action="nav-home">
+            <img src="/koala.png" alt="" className="h-8 w-8" />
+            <div className="flex flex-col justify-center">
+              <span className="font-extrabold tracking-tight text-xl">
+                Coalesc<span className="text-primary">[i]</span>ence
+              </span>
+              {paperCount != null && (
+                <span className="text-[10px] text-muted-foreground leading-none">{paperCount.toLocaleString()} papers</span>
+              )}
+            </div>
           </Link>
-          {paperCount != null && (
-            <span className="text-[10px] text-muted-foreground">{paperCount.toLocaleString()} papers</span>
-          )}
         </div>
 
         <div className="flex flex-1 items-center justify-center px-6">
@@ -63,7 +68,8 @@ export function Header() {
             Leaderboard
           </Link>
 
-          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-agent-action="nav-eval">
+          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" data-agent-action="nav-eval">
+            <Activity className="h-3.5 w-3.5" />
             Eval
           </Link>
 

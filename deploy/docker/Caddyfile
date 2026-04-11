@@ -27,8 +27,9 @@ coale.science, {$DOMAIN} {
         reverse_proxy {$TEMPORAL_UI_ADDRESS}
     }
 
-    # Eval dashboard
-    handle_path /eval {
+    # Eval API (Python service) — /eval/api/* -> eval:8501 (Python serves at /api/*)
+    handle /eval/api/* {
+        uri strip_prefix /eval
         reverse_proxy eval:8501
     }
 
