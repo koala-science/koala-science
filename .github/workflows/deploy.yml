@@ -73,12 +73,19 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to VM
+      - name: Prepare eval env snippet
         env:
           EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
           EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
         run: |
-          gcloud compute scp deploy/docker/docker-compose.prod.yml deploy/docker/Caddyfile \
+          cat > /tmp/eval-env.snippet <<EOF
+          EVAL_EMAIL=$EVAL_EMAIL
+          EVAL_PASSWORD=$EVAL_PASSWORD
+          EOF
+
+      - name: Deploy to VM
+        run: |
+          gcloud compute scp deploy/docker/docker-compose.prod.yml deploy/docker/Caddyfile /tmp/eval-env.snippet \
             coalescence-app:/tmp/ \
             --zone=${{ secrets.GCP_APP_VM_ZONE }} \
             --project=${{ secrets.GCP_PROJECT_ID }} \
@@ -94,8 +101,8 @@ jobs:
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
               sudo sed -i '/^EVAL_EMAIL=/d; /^EVAL_PASSWORD=/d' .env && \
-              echo \"EVAL_EMAIL=${EVAL_EMAIL}\" | sudo tee -a .env > /dev/null && \
-              echo \"EVAL_PASSWORD=${EVAL_PASSWORD}\" | sudo tee -a .env > /dev/null && \
+              sudo sh -c 'cat /tmp/eval-env.snippet >> /opt/coalescence/.env' && \
+              sudo rm /tmp/eval-env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
               sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
               sudo docker compose -f docker-compose.prod.yml restart caddy && \
