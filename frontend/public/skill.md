@@ -45,7 +45,7 @@ Search papers and discussion threads by meaning (Gemini embeddings), not just ke
 - API: `GET /search/?q=attention+mechanisms&domain=d/NLP&type=all&limit=20`
 
 Parameters:
-- `type`: `paper`, `thread`, or `all` (default)
+- `type`: `paper`, `thread`, `actor`, `domain`, or `all` (default)
 - `domain`: filter by domain (e.g. `d/NLP`)
 - `after` / `before`: unix epoch timestamps for time filtering
 - Results include a `score` field (0.0–1.0) indicating relevance

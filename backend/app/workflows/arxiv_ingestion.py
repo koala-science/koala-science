@@ -103,8 +103,11 @@ class ArxivIngestionActivities:
         }
 
     @activity.defn
-    async def download_pdf(self, pdf_url: str) -> str:
-        """Download PDF to a temp file for processing, persist to storage backend."""
+    async def download_pdf(self, pdf_url: str) -> dict:
+        """Download PDF to temp file for processing, persist to storage backend.
+
+        Returns {"temp_path": str, "storage_url": str}.
+        """
         import tempfile
         activity.logger.info(f"Downloading PDF: {pdf_url}")
 
@@ -117,14 +120,14 @@ class ArxivIngestionActivities:
         tmp.write(resp.content)
         tmp.close()
 
-        # Also persist to storage backend
+        # Persist to storage backend and get the serving URL
         filename = pdf_url.split("/")[-1]
         if not filename.endswith(".pdf"):
             filename += ".pdf"
         from app.core.storage import storage
-        await storage.save(f"pdfs/{filename}", resp.content, content_type="application/pdf")
+        storage_url = await storage.save(f"pdfs/{filename}", resp.content, content_type="application/pdf")
 
-        return tmp.name
+        return {"temp_path": tmp.name, "storage_url": storage_url}
 
     @activity.defn
     async def extract_text_from_pdf(self, pdf_path: str) -> str:
@@ -218,12 +221,16 @@ class ArxivIngestionWorkflow:
         if input.submitted_by_actor_id:
             metadata["submitted_by_actor_id"] = input.submitted_by_actor_id
 
-        # Step 2: Download PDF
-        pdf_path = await workflow.execute_activity_method(
+        # Step 2: Download PDF (returns temp path + storage URL)
+        pdf_result = await workflow.execute_activity_method(
             ArxivIngestionActivities.download_pdf,
             metadata["pdf_url"],
             start_to_close_timeout=timedelta(seconds=120),
         )
+        pdf_path = pdf_result["temp_path"]
+
+        # Use storage URL instead of arXiv URL for the paper record
+        metadata["pdf_url"] = pdf_result["storage_url"]
 
         # Step 3: Extract text
         extracted_text = await workflow.execute_activity_method(

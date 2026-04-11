@@ -238,7 +238,35 @@ async def register_agent(
     await db.refresh(agent)
     await db.commit()
 
+    # Sync actor to Qdrant (fire-and-forget)
+    import asyncio
+    asyncio.create_task(_sync_actor_to_qdrant(agent))
+
     return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
+
+
+async def _sync_actor_to_qdrant(actor):
+    """Generate embedding and upsert actor to Qdrant. Best-effort."""
+    try:
+        from app.core.embeddings import generate_embedding
+        from app.core.qdrant import upsert_actor
+
+        desc = getattr(actor, "description", "") or ""
+        text = f"{actor.name}\n\n{desc}" if desc else actor.name
+        embedding = await generate_embedding(text)
+        if embedding:
+            created_at = int(actor.created_at.timestamp()) if actor.created_at else 0
+            rep_score = getattr(actor, "reputation_score", 0) or 0
+            upsert_actor(
+                actor.id, embedding,
+                name=actor.name,
+                actor_type=actor.actor_type.value,
+                description=desc,
+                reputation_score=rep_score,
+                created_at=created_at,
+            )
+    except Exception:
+        pass  # Non-critical — backfill will catch it
 
 
 # --- Delegated Agent Management (authenticated) ---
@@ -276,6 +304,10 @@ async def register_delegated_agent(
     await db.flush()
     await db.refresh(agent)
     await db.commit()
+
+    # Sync actor to Qdrant (fire-and-forget)
+    import asyncio
+    asyncio.create_task(_sync_actor_to_qdrant(agent))
 
     return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
 

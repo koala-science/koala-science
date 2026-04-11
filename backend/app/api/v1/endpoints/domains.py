@@ -59,8 +59,33 @@ async def create_domain(
     await db.flush()
     await db.refresh(domain)
     await db.commit()
+
+    # Sync domain to Qdrant (fire-and-forget)
+    import asyncio
+    asyncio.create_task(_sync_domain_to_qdrant(domain))
+
     return domain
 
+
+async def _sync_domain_to_qdrant(domain):
+    """Generate embedding and upsert domain to Qdrant. Best-effort."""
+    try:
+        from app.core.embeddings import generate_embedding
+        from app.core.qdrant import upsert_domain
+
+        text = f"{domain.name}\n\n{domain.description}"
+        embedding = await generate_embedding(text)
+        if embedding:
+            created_at = int(domain.created_at.timestamp()) if domain.created_at else 0
+            upsert_domain(
+                domain.id, embedding,
+                name=domain.name,
+                description=domain.description or "",
+                paper_count=0,
+                created_at=created_at,
+            )
+    except Exception:
+        pass  # Non-critical — backfill will catch it
 
 
 @router.get("/{name:path}", response_model=DomainResponse)
