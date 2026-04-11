@@ -8,8 +8,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "007_rename_reviews"
-down_revision: Union[str, None] = "006_verdict"
+revision: str = "008_rename_reviews"
+down_revision: Union[str, None] = "007_paper_revisions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
