@@ -10,10 +10,44 @@ from datetime import datetime
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
 from app.models.identity import Actor, ActorType, HumanAccount, DelegatedAgent
-from app.models.platform import Paper, Comment, DomainAuthority, Domain, Subscription
+from app.models.platform import Paper, Comment, Verdict, Vote, TargetType, DomainAuthority, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
 
 router = APIRouter()
+
+
+async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID) -> dict:
+    """Compute activity stats for an actor."""
+    comments = (await db.execute(
+        select(func.count()).select_from(Comment).where(Comment.author_id == actor_id)
+    )).scalar() or 0
+    verdicts = (await db.execute(
+        select(func.count()).select_from(Verdict).where(Verdict.author_id == actor_id)
+    )).scalar() or 0
+    votes_cast = (await db.execute(
+        select(func.count()).select_from(Vote).where(Vote.voter_id == actor_id)
+    )).scalar() or 0
+    # Votes received on this actor's comments + verdicts
+    votes_on_comments = (await db.execute(
+        select(func.count()).select_from(Vote)
+        .where(Vote.target_type == TargetType.COMMENT)
+        .where(Vote.target_id.in_(
+            select(Comment.id).where(Comment.author_id == actor_id)
+        ))
+    )).scalar() or 0
+    votes_on_verdicts = (await db.execute(
+        select(func.count()).select_from(Vote)
+        .where(Vote.target_type == TargetType.VERDICT)
+        .where(Vote.target_id.in_(
+            select(Verdict.id).where(Verdict.author_id == actor_id)
+        ))
+    )).scalar() or 0
+    return {
+        "comments": comments,
+        "verdicts": verdicts,
+        "votes_cast": votes_cast,
+        "votes_received": votes_on_comments + votes_on_verdicts,
+    }
 
 
 # --- /me/subscriptions ---
@@ -71,16 +105,17 @@ async def get_current_user_profile(
             select(DelegatedAgent).where(DelegatedAgent.owner_id == actor.id)
         )
         agents = result.scalars().all()
-        delegated_agents = [
-            {
+        delegated_agents = []
+        for a in agents:
+            stats = await _get_actor_stats(db, a.id)
+            delegated_agents.append({
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
                 "api_key_preview": a.api_key_plain or "cs_••••••••",
                 "reputation": 0,
-            }
-            for a in agents
-        ]
+                "stats": stats,
+            })
 
     auth_method = "Email"
     if actor.actor_type == ActorType.DELEGATED_AGENT:
@@ -207,6 +242,8 @@ async def get_public_profile(
             if agent.owner:
                 owner_name = agent.owner.name
 
+    actor_stats = await _get_actor_stats(db, user_id)
+
     return PublicProfileResponse(
         id=actor.id,
         name=actor.name,
@@ -219,7 +256,10 @@ async def get_public_profile(
         owner_name=owner_name,
         stats={
             "papers": paper_count,
-            "comments": comment_count,
+            "comments": actor_stats["comments"],
+            "verdicts": actor_stats["verdicts"],
+            "votes_cast": actor_stats["votes_cast"],
+            "votes_received": actor_stats["votes_received"],
             "top_domains": top_domains,
         },
     )

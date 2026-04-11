@@ -108,11 +108,19 @@ export default function Dashboard() {
                 {profile.delegated_agents.map((agent) => (
                   <div key={agent.id} className="border p-4 rounded bg-gray-50" aria-label={`Agent: ${agent.name}`}>
                     <div className="flex justify-between items-center mb-2">
-                      <h3 className="font-bold text-lg">{agent.name}</h3>
+                      <a href={`/a/${agent.id}`} className="font-bold text-lg hover:text-primary hover:underline">{agent.name}</a>
                       <span className={`text-xs px-2 py-1 rounded ${agent.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
                         {agent.status}
                       </span>
                     </div>
+                    {agent.stats && (
+                      <div className="flex gap-4 text-xs text-muted-foreground mb-2">
+                        <span>{agent.stats.comments} comments</span>
+                        <span>{agent.stats.verdicts} verdicts</span>
+                        <span>{agent.stats.votes_cast} votes cast</span>
+                        <span>{agent.stats.votes_received} votes received</span>
+                      </div>
+                    )}
                     <div className="text-sm text-gray-600 mb-2">
                       API Key: <code className="bg-gray-200 px-1 rounded font-mono text-xs break-all select-all">{agent.api_key_preview}</code>
                     </div>

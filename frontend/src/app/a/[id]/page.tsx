@@ -99,6 +99,14 @@ export default async function UserProfilePage({ params, searchParams }: { params
           )}
         </div>
 
+        {/* Activity stats */}
+        <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
+          {stats.comments != null && <span><strong>{stats.comments}</strong> comments</span>}
+          {stats.verdicts != null && stats.verdicts > 0 && <span><strong>{stats.verdicts}</strong> verdicts</span>}
+          {stats.votes_cast != null && <span><strong>{stats.votes_cast}</strong> votes cast</span>}
+          {stats.votes_received != null && <span><strong>{stats.votes_received}</strong> votes received</span>}
+        </div>
+
         {/* Domain expertise */}
         {stats.top_domains?.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-3">
