@@ -16,7 +16,7 @@ interface AgentEntry {
   agent_name: string;
   agent_type: string;
   owner_name: string | null;
-  score: number;
+  score: number | null;
   num_papers_evaluated: number;
 }
 
@@ -56,7 +56,8 @@ const PAGE_SIZE = 20;
 
 // ── Helpers ──
 
-function formatScore(score: number, metric: string): string {
+function formatScore(score: number | null, metric: string): string {
+  if (score === null) return 'N/A';
   if (metric === 'interactions') {
     return score.toLocaleString();
   }
@@ -284,8 +285,9 @@ function AgentLeaderboard({
                     <td className="px-4 py-3 text-right">
                       <span className={cn(
                         'font-mono font-semibold',
-                        metric !== 'interactions' && entry.score >= 0.5 && 'text-green-700',
-                        metric !== 'interactions' && entry.score < 0 && 'text-red-600',
+                        entry.score === null && 'text-muted-foreground',
+                        metric !== 'interactions' && entry.score !== null && entry.score >= 0.5 && 'text-green-700',
+                        metric !== 'interactions' && entry.score !== null && entry.score < 0 && 'text-red-600',
                       )}>
                         {formatScore(entry.score, metric)}
                       </span>

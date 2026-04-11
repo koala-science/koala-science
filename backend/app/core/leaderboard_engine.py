@@ -23,12 +23,13 @@ import math
 import random
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
-from app.models.platform import Paper, Comment, Vote
+from app.models.platform import Paper, Comment, Vote, Verdict, TargetType
 from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
 
 
@@ -42,7 +43,7 @@ class AgentScore:
     agent_name: str
     agent_type: str
     owner_name: str | None
-    score: float
+    score: float | None
     num_papers_evaluated: int
 
 
@@ -110,6 +111,42 @@ def _agent_quality(agent_id: uuid.UUID, metric: str) -> float:
 #   rather than hard 0/1 to avoid degenerate correlations).
 # ---------------------------------------------------------------------------
 
+async def _get_agent_verdict_score(
+    agent_id: uuid.UUID,
+    paper_id: uuid.UUID,
+    db: AsyncSession,
+) -> float | None:
+    """
+    Get the agent's raw verdict score (0-10) for a paper.
+    Falls back to vote on the paper (+1 → 7.0, -1 → 3.0).
+    Returns None if the agent has neither a verdict nor a vote.
+    """
+    verdict_result = await db.execute(
+        select(Verdict.score)
+        .where(Verdict.author_id == agent_id, Verdict.paper_id == paper_id)
+    )
+    verdict_score = verdict_result.scalar_one_or_none()
+
+    if verdict_score is not None:
+        return float(verdict_score)
+
+    # Fallback: use vote on the paper as a coarse signal
+    vote_result = await db.execute(
+        select(Vote.vote_value)
+        .where(
+            Vote.voter_id == agent_id,
+            Vote.target_id == paper_id,
+            Vote.target_type == TargetType.PAPER,
+        )
+    )
+    vote_value = vote_result.scalar_one_or_none()
+
+    if vote_value is not None:
+        return 7.0 if vote_value > 0 else 3.0
+
+    return None
+
+
 async def extract_agent_acceptance_prediction(
     agent_id: uuid.UUID,
     paper_id: uuid.UUID,
@@ -117,64 +154,11 @@ async def extract_agent_acceptance_prediction(
     db: AsyncSession,
 ) -> float | None:
     """
-    TODO: Extract the agent's acceptance prediction from their review.
-
-    Ground truth: binary — True if the paper was accepted at ICLR (poster,
-    spotlight, or oral), False if rejected or desk-rejected. Sourced from
-    the `decision` field in McGill-NLP/AI-For-Science-Retreat-Data.
-
-    Implementation plan (replace the placeholder below):
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    1. Query all comments by this agent on this paper:
-         SELECT content_markdown FROM comment
-         WHERE author_id = agent_id AND paper_id = paper_id
-         ORDER BY LENGTH(content_markdown) DESC
-       Use the longest comment as the primary review source.
-
-    2. REGEX PASS — scan for explicit acceptance signals:
-       - r"(?i)\\b(I\\s+recommend|verdict|decision)\\s*:?\\s*(accept|reject)"
-       - r"(?i)\\b(strong\\s+)?(accept|reject)\\b"
-       - r"(?i)\\bborderline\\b" → 0.5
-       Map: "accept" → 0.85, "strong accept" → 0.95,
-            "reject" → 0.15, "strong reject" → 0.05,
-            "borderline" → 0.5
-
-    3. LLM FALLBACK — if no regex match, call Claude Haiku:
-         prompt = f"Given this paper review, what is the reviewer's
-                   acceptance recommendation? Reply with a single float
-                   between 0 (strong reject) and 1 (strong accept).\\n\\n
-                   {content_markdown[:4000]}"
-       Cache result in DB keyed by comment.id.
-
-    4. VOTE FALLBACK — if no comments, check for a paper vote:
-         SELECT vote_value FROM vote
-         WHERE voter_id = agent_id AND target_id = paper_id
-               AND target_type = 'PAPER'
-       Map: +1 → 0.7, -1 → 0.3
-
-    5. Return None if no signal at all (agent will be excluded from
-       the correlation for this paper).
-
-    Args:
-        agent_id: The agent's UUID
-        paper_id: The paper's UUID (platform paper, not openreview_id)
-        ground_truth_accepted: Whether the paper was actually accepted
-        db: AsyncSession for querying comments and votes
-
-    Returns:
-        Float in [0, 1] representing predicted probability of acceptance,
-        or None if no prediction could be extracted.
+    Extract the agent's acceptance prediction as their raw verdict score (0-10).
+    Correlated against binary ground truth (1=accepted, 0=rejected) to measure
+    whether the agent gives higher scores to accepted papers.
     """
-    # ── PLACEHOLDER: deterministic pseudo-random biased by agent quality ──
-    quality = _agent_quality(agent_id, "acceptance")
-    rng = random.Random(_seed_for(agent_id, paper_id, "acceptance"))
-
-    gt_val = 1.0 if ground_truth_accepted else 0.0
-    if rng.random() < quality:
-        noise = rng.gauss(0, 0.15)
-        return max(0.0, min(1.0, gt_val + noise))
-    else:
-        return rng.random()
+    return await _get_agent_verdict_score(agent_id, paper_id, db)
 
 
 async def extract_agent_review_score_prediction(
@@ -184,56 +168,11 @@ async def extract_agent_review_score_prediction(
     db: AsyncSession,
 ) -> float | None:
     """
-    TODO: Extract the agent's predicted review score from their review.
-
-    Ground truth: avg_score from ICLR reviews — the mean of individual
-    reviewer scores (typically 1–10 scale). Sourced from the `scores`
-    field in McGill-NLP/AI-For-Science-Retreat-Data.
-
-    Implementation plan (replace the placeholder below):
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    1. Query the agent's longest root-level comment on this paper.
-
-    2. REGEX PASS — scan for explicit numerical scores:
-       Patterns observed in real agent reviews on this platform:
-       - r"(?i)(score|rating|overall)\\s*:?\\s*(\\d+(?:\\.\\d+)?)"
-       - r"(\\d+(?:\\.\\d+)?)\\s*/\\s*10"         # "7/10", "6.5/10"
-       - r"(\\d+(?:\\.\\d+)?)\\s+out\\s+of\\s+10"  # "7 out of 10"
-       Normalize extracted value to [1, 10] scale.
-       If multiple scores found, use the one closest to a "## Verdict"
-       or "## Overall" header.
-
-    3. LLM FALLBACK — if no regex match, call Claude Haiku:
-         prompt = f"Given this paper review, what numerical score (1-10)
-                   does the reviewer assign? If no explicit score, infer
-                   from sentiment. Reply with a single number.\\n\\n
-                   {content_markdown[:4000]}"
-       Many real reviews on this platform use structured markdown
-       (## Summary, ## Strengths, ## Weaknesses, ## Assessment) but
-       omit explicit scores — the LLM can infer from language like
-       "solid contribution" (~7) vs "insufficient evidence" (~4).
-
-    4. Return None if the agent has no comments on this paper.
-
-    Args:
-        agent_id: The agent's UUID
-        paper_id: The paper's UUID
-        ground_truth_score: Avg reviewer score from ICLR (1–10 scale)
-        db: AsyncSession for querying comments
-
-    Returns:
-        Float in [1, 10] representing predicted review score,
-        or None if no prediction could be extracted.
+    Extract the agent's review score prediction as their raw verdict score (0-10).
+    Correlated against ground truth avg_score (1-10) to measure whether the
+    agent's scores track reviewer consensus.
     """
-    # ── PLACEHOLDER: deterministic pseudo-random biased by agent quality ──
-    quality = _agent_quality(agent_id, "review_score")
-    rng = random.Random(_seed_for(agent_id, paper_id, "review_score"))
-
-    if rng.random() < quality:
-        noise = rng.gauss(0, 1.0)
-        return max(1.0, min(10.0, ground_truth_score + noise))
-    else:
-        return rng.uniform(1.0, 10.0)
+    return await _get_agent_verdict_score(agent_id, paper_id, db)
 
 
 async def extract_agent_citation_prediction(
@@ -243,69 +182,11 @@ async def extract_agent_citation_prediction(
     db: AsyncSession,
 ) -> float | None:
     """
-    TODO: Extract the agent's citation count prediction from their review.
-
-    Ground truth: citation counts from the impact CSV in the HuggingFace
-    dataset. Available for ICLR 2025 (partial — many nulls) and 2026
-    (partial). Stored in ground_truth_paper.citations.
-
-    Implementation plan (replace the placeholder below):
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    1. Query the agent's comments on this paper.
-
-    2. REGEX PASS — scan for explicit citation predictions:
-       - r"(?i)(cit(ation|ed)|impact).*?(\\d+)"
-       - r"(?i)(expect|predict|estimate).*?(\\d+)\\s*citations?"
-       - r"(?i)high.impact" → infer ~100+
-       - r"(?i)low.impact"  → infer ~5-20
-       - r"(?i)niche"       → infer ~10-30
-       These patterns are rare in current reviews but would become
-       more common if agents are prompted to include impact estimates.
-
-    3. LLM FALLBACK — call Claude Haiku:
-         prompt = f"Based on this review of a machine learning paper,
-                   estimate how many citations the paper will receive
-                   in 2 years. Consider the novelty, execution quality,
-                   and likely community interest. Reply with a single
-                   integer.\\n\\n{content_markdown[:4000]}"
-
-    4. SIGNAL-BASED HEURISTIC — if no text extraction possible, use
-       proxy signals from the platform:
-       - Agent's vote: +1 papers tend to get more citations
-       - Review sentiment: positive reviews correlate with impact
-       - Agent's domain authority: high-authority agents may have
-         better calibration for impact prediction
-       Combine into a rough estimate: base=20, +30 if positive review,
-       +20 if high-authority agent.
-
-    5. Return None if no signal (agent excluded from citation
-       correlation for this paper).
-
-    NOTE: Citation ground truth is sparse. Until the HuggingFace
-    dataset adds more citation data, this metric will primarily use
-    placeholder values for most paper-agent pairs. The engine handles
-    this gracefully — agents with <3 ground-truth-linked papers fall
-    back to the deterministic quality-based placeholder score.
-
-    Args:
-        agent_id: The agent's UUID
-        paper_id: The paper's UUID
-        ground_truth_citations: Actual citation count (nullable)
-        db: AsyncSession for querying comments
-
-    Returns:
-        Float representing predicted citation count (≥0),
-        or None if no prediction could be extracted.
+    Extract the agent's citation prediction as their raw verdict score (0-10).
+    Correlated against time-normalized citation counts to measure whether the
+    agent gives higher scores to higher-impact papers.
     """
-    # ── PLACEHOLDER: deterministic pseudo-random biased by agent quality ──
-    quality = _agent_quality(agent_id, "citation")
-    rng = random.Random(_seed_for(agent_id, paper_id, "citation"))
-
-    if ground_truth_citations is not None and rng.random() < quality:
-        noise = rng.gauss(0, max(10, ground_truth_citations * 0.3))
-        return max(0, ground_truth_citations + noise)
-    else:
-        return rng.uniform(0, 200)
+    return await _get_agent_verdict_score(agent_id, paper_id, db)
 
 
 # ---------------------------------------------------------------------------
@@ -394,8 +275,8 @@ class LeaderboardEngine:
                 agents, owner_map, metric, db
             )
 
-        # Sort by score descending
-        scores.sort(key=lambda s: s.score, reverse=True)
+        # Sort by score descending; agents with no score go to the bottom
+        scores.sort(key=lambda s: (s.score is not None, s.score or 0), reverse=True)
 
         total = len(scores)
         page = scores[skip:skip + limit]
@@ -470,16 +351,22 @@ class LeaderboardEngine:
                 GroundTruthPaper.accepted,
                 GroundTruthPaper.avg_score,
                 GroundTruthPaper.citations,
+                GroundTruthPaper.year,
             )
             .join(GroundTruthPaper, Paper.openreview_id == GroundTruthPaper.openreview_id)
             .where(Paper.openreview_id.isnot(None))
         )
         gt_map: dict[uuid.UUID, dict] = {}
-        for paper_id, accepted, avg_score, citations in gt_result.all():
+        now = datetime.now()
+        for paper_id, accepted, avg_score, citations, year in gt_result.all():
+            # ICLR conferences are held ~May each year; approximate
+            # publication date as June of the conference year.
+            years_since = max((now - datetime(year, 6, 1)).days / 365.25, 0.25)
             gt_map[paper_id] = {
                 'accepted': accepted,
                 'avg_score': avg_score,
                 'citations': citations,
+                'citations_per_year': (citations / years_since) if citations is not None else None,
             }
 
         # Preload: all agent -> paper review links (distinct papers per agent)
@@ -501,17 +388,13 @@ class LeaderboardEngine:
             gt_papers = [pid for pid in reviewed_papers if pid in gt_map]
 
             if len(gt_papers) < 3:
-                # Not enough data for meaningful correlation.
-                # Use the agent's deterministic quality factor as placeholder score.
-                quality = _agent_quality(agent_id, metric.value)
-                # Map quality [0.1, 0.95] to correlation-like range [-0.3, 0.95]
-                placeholder_score = round(quality * 1.3 - 0.3, 4)
+                # Not enough ground-truth data for meaningful correlation.
                 results.append(AgentScore(
                     agent_id=agent_id,
                     agent_name=agent_name,
                     agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
                     owner_name=owner_map.get(agent_id),
-                    score=placeholder_score,
+                    score=None,
                     num_papers_evaluated=len(reviewed_papers),
                 ))
                 continue
@@ -536,10 +419,12 @@ class LeaderboardEngine:
                     )
                     gt_val = gt['avg_score']
                 elif metric == LeaderboardMetric.CITATION:
+                    if gt['citations_per_year'] is None:
+                        continue
                     pred = await extract_agent_citation_prediction(
                         agent_id, paper_id, gt['citations'], db
                     )
-                    gt_val = float(gt['citations']) if gt['citations'] is not None else 0.0
+                    gt_val = gt['citations_per_year']
                 else:
                     continue
 
@@ -550,15 +435,15 @@ class LeaderboardEngine:
             if len(predictions) >= 3:
                 corr = pearson_correlation(predictions, ground_truths)
             else:
-                quality = _agent_quality(agent_id, metric.value)
-                corr = round(quality * 1.3 - 0.3, 4)
+                # Enough gt papers but too few valid predictions.
+                corr = None
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(corr, 4),
+                score=round(corr, 4) if corr is not None else None,
                 num_papers_evaluated=len(reviewed_papers),
             ))
 
