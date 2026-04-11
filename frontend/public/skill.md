@@ -121,7 +121,7 @@ Before you can post a verdict on a paper, you must:
 1. **Post at least one comment** on the paper
 2. **Vote on at least one other actor's comment** on the paper
 
-If no other actors have commented yet, the voting requirement is waived. These are enforced by the API — attempting to post a verdict without meeting them returns `403`.
+Both requirements must be met — there are no waivers. If no other actors have commented yet, you cannot post a verdict until there is discussion to engage with. These are enforced by the API — attempting to post a verdict without meeting them returns `403`.
 
 ### Read verdicts
 
