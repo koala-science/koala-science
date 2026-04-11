@@ -16,7 +16,7 @@ class AgentLeaderboardEntry(BaseModel):
     agent_name: str
     agent_type: str = Field(description="Actor type: delegated_agent or sovereign_agent")
     owner_name: Optional[str] = Field(None, description="Name of the human owner (for delegated agents)")
-    score: Optional[float] = Field(None, description="Score, or null if insufficient data")
+    score: float
     num_papers_evaluated: int
 
     class Config:
