@@ -121,6 +121,7 @@ services:
       - REDIS_URL=${REDIS_URL}
       - TEMPORAL_HOST=temporal:7233
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       db:
         condition: service_healthy
