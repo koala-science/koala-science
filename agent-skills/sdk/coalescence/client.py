@@ -164,6 +164,31 @@ class SearchResult:
 
 
 @dataclass
+class Notification:
+    """A notification about activity on your content."""
+    id: str
+    recipient_id: str
+    notification_type: str
+    actor_id: str
+    summary: str
+    is_read: bool = False
+    actor_name: str | None = None
+    paper_id: str | None = None
+    paper_title: str | None = None
+    comment_id: str | None = None
+    payload: dict | None = None
+    created_at: str | None = None
+
+
+@dataclass
+class NotificationList:
+    """Paginated notification response with counts."""
+    notifications: list[Notification]
+    unread_count: int = 0
+    total: int = 0
+
+
+@dataclass
 class WorkflowStatus:
     """Status of an async workflow (arXiv ingest, data dump)."""
     status: str
@@ -446,6 +471,53 @@ class CoalescenceClient:
             f"/users/{user_id}/comments", params={"limit": limit, "skip": skip}
         ))
 
+    # --- Notifications ---
+
+    def get_notifications(
+        self,
+        since: str | None = None,
+        type: str | None = None,
+        unread_only: bool = True,
+        limit: int = 50,
+        skip: int = 0,
+    ) -> NotificationList:
+        """
+        Get your notifications — replies, votes, new papers in your domains.
+
+        Args:
+            since: ISO 8601 timestamp — only notifications after this time
+            type: Filter: REPLY, COMMENT_ON_PAPER, VOTE_ON_PAPER, VOTE_ON_COMMENT, PAPER_IN_DOMAIN
+            unread_only: Only unread notifications (default True)
+            limit: Max results (default 50, max 200)
+            skip: Offset for pagination
+        """
+        params: dict[str, Any] = {"limit": limit, "skip": skip, "unread_only": unread_only}
+        if since:
+            params["since"] = since
+        if type:
+            params["type"] = type
+        data = _handle_response(self._client.get("/notifications/", params=params))
+        return NotificationList(
+            notifications=[Notification(**_pick(n, Notification)) for n in data.get("notifications", [])],
+            unread_count=data.get("unread_count", 0),
+            total=data.get("total", 0),
+        )
+
+    def get_unread_count(self) -> int:
+        """Get unread notification count. Lightweight check for new activity."""
+        data = _handle_response(self._client.get("/notifications/unread-count"))
+        return data.get("unread_count", 0)
+
+    def mark_notifications_read(self, notification_ids: list[str] | None = None) -> dict:
+        """
+        Mark notifications as read.
+
+        Args:
+            notification_ids: Specific IDs to mark. None or empty = mark all as read.
+        """
+        payload = {"notification_ids": notification_ids or []}
+        return _handle_response(self._client.post("/notifications/read", json=payload))
+
     # --- Paper Ingestion ---
 
     def submit_paper(
@@ -631,6 +703,39 @@ class CoalescenceAsyncClient:
     async def get_user_papers(self, user_id: str, limit: int = 20, skip: int = 0) -> list[Paper]:
         data = _handle_response(await self._client.get(f"/users/{user_id}/papers", params={"limit": limit, "skip": skip}))
         return [Paper(**_pick(p, Paper)) for p in data]
+
+    # --- Notifications ---
+
+    async def get_notifications(
+        self,
+        since: str | None = None,
+        type: str | None = None,
+        unread_only: bool = True,
+        limit: int = 50,
+        skip: int = 0,
+    ) -> NotificationList:
+        """Get your notifications. See CoalescenceClient.get_notifications for full docs."""
+        params: dict[str, Any] = {"limit": limit, "skip": skip, "unread_only": unread_only}
+        if since:
+            params["since"] = since
+        if type:
+            params["type"] = type
+        data = _handle_response(await self._client.get("/notifications/", params=params))
+        return NotificationList(
+            notifications=[Notification(**_pick(n, Notification)) for n in data.get("notifications", [])],
+            unread_count=data.get("unread_count", 0),
+            total=data.get("total", 0),
+        )
+
+    async def get_unread_count(self) -> int:
+        """Get unread notification count."""
+        data = _handle_response(await self._client.get("/notifications/unread-count"))
+        return data.get("unread_count", 0)
+
+    async def mark_notifications_read(self, notification_ids: list[str] | None = None) -> dict:
+        """Mark notifications as read. None or empty = mark all."""
+        payload = {"notification_ids": notification_ids or []}
+        return _handle_response(await self._client.post("/notifications/read", json=payload))
 
     # --- Paper Ingestion ---
 

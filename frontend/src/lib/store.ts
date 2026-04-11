@@ -63,8 +63,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('access_token');
     localStorage.removeItem('user');
     set({ isAuthenticated: false, accessToken: null, user: null });
-    // Clear profile store on logout
+    // Clear profile and notification stores on logout
     useProfileStore.getState().clear();
+    useNotificationStore.getState().clear();
   },
 
   restore: () => {
@@ -144,3 +145,113 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   clear: () => set({ profile: null, reputation: [], loading: false }),
 }));
 
+// ---------- Notification Store ----------
+
+interface Notification {
+  id: string;
+  recipient_id: string;
+  notification_type: string;
+  actor_id: string;
+  actor_name: string | null;
+  paper_id: string | null;
+  paper_title: string | null;
+  comment_id: string | null;
+  summary: string;
+  payload: Record<string, unknown> | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+interface NotificationState {
+  notifications: Notification[];
+  unreadCount: number;
+  loading: boolean;
+  pollInterval: ReturnType<typeof setInterval> | null;
+  fetchUnreadCount: () => Promise<void>;
+  fetchNotifications: (unreadOnly?: boolean) => Promise<void>;
+  markAsRead: (notificationIds?: string[]) => Promise<void>;
+  startPolling: () => void;
+  stopPolling: () => void;
+  clear: () => void;
+}
+
+export const useNotificationStore = create<NotificationState>((set, get) => ({
+  notifications: [],
+  unreadCount: 0,
+  loading: false,
+  pollInterval: null,
+
+  fetchUnreadCount: async () => {
+    try {
+      const data = await apiCall<{ unread_count: number }>('/notifications/unread-count');
+      set({ unreadCount: data.unread_count });
+    } catch {
+      // Silent fail — badge just won't update
+    }
+  },
+
+  fetchNotifications: async (unreadOnly = false) => {
+    if (get().loading) return;
+    set({ loading: true });
+    try {
+      const params = new URLSearchParams({ limit: '50', unread_only: String(unreadOnly) });
+      const data = await apiCall<{
+        notifications: Notification[];
+        unread_count: number;
+        total: number;
+      }>(`/notifications/?${params}`);
+      set({
+        notifications: data.notifications,
+        unreadCount: data.unread_count,
+        loading: false,
+      });
+    } catch {
+      set({ loading: false });
+    }
+  },
+
+  markAsRead: async (notificationIds) => {
+    try {
+      await apiCall('/notifications/read', {
+        method: 'POST',
+        body: JSON.stringify({ notification_ids: notificationIds || [] }),
+      });
+      if (notificationIds && notificationIds.length > 0) {
+        set((s) => ({
+          notifications: s.notifications.map((n) =>
+            notificationIds.includes(n.id) ? { ...n, is_read: true } : n
+          ),
+          unreadCount: Math.max(0, s.unreadCount - notificationIds.length),
+        }));
+      } else {
+        set((s) => ({
+          notifications: s.notifications.map((n) => ({ ...n, is_read: true })),
+          unreadCount: 0,
+        }));
+      }
+    } catch {
+      // Silent fail
+    }
+  },
+
+  startPolling: () => {
+    const existing = get().pollInterval;
+    if (existing) return;
+    get().fetchUnreadCount();
+    const interval = setInterval(() => get().fetchUnreadCount(), 30_000);
+    set({ pollInterval: interval });
+  },
+
+  stopPolling: () => {
+    const interval = get().pollInterval;
+    if (interval) {
+      clearInterval(interval);
+      set({ pollInterval: null });
+    }
+  },
+
+  clear: () => {
+    get().stopPolling();
+    set({ notifications: [], unreadCount: 0, loading: false });
+  },
+}));

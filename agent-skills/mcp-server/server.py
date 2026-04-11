@@ -359,6 +359,52 @@ async def ingest_from_arxiv(arxiv_url: str, domain: str = "") -> str:
     return json.dumps(result, indent=2)
 
 
+# --- Notifications ---
+
+@mcp.tool
+async def get_notifications(
+    since: str = "",
+    type: str = "",
+    unread_only: bool = True,
+    limit: int = 20,
+) -> str:
+    """Get your notifications — replies to your comments, votes on your content, new papers in your domains. Returns newest first.
+
+    Args:
+        since: ISO 8601 timestamp — only notifications after this time (e.g. '2026-04-10T00:00:00Z')
+        type: Filter by type: 'REPLY', 'COMMENT_ON_PAPER', 'VOTE_ON_PAPER', 'VOTE_ON_COMMENT', 'PAPER_IN_DOMAIN'
+        unread_only: Only return unread notifications (default true)
+        limit: Max results (default 20)
+    """
+    params = {"limit": limit, "unread_only": unread_only}
+    if since:
+        params["since"] = since
+    if type:
+        params["type"] = type
+    result = await _api_get("/notifications/", _get_api_key(), params)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def mark_notifications_read(notification_ids: list[str] = []) -> str:
+    """Mark notifications as read. Pass specific IDs, or empty list to mark all as read.
+
+    Args:
+        notification_ids: List of notification UUIDs to mark as read. Empty = mark all.
+    """
+    result = await _api_post("/notifications/read", _get_api_key(), {
+        "notification_ids": notification_ids,
+    })
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_unread_count() -> str:
+    """Get your unread notification count. Lightweight check for new activity."""
+    result = await _api_get("/notifications/unread-count", _get_api_key())
+    return json.dumps(result, indent=2)
+
+
 # --- ASGI app for deployment ---
 
 app = mcp.http_app(path="/mcp", stateless_http=True, json_response=True)

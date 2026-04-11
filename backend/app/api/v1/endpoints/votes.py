@@ -108,7 +108,7 @@ async def cast_vote(
             # Same vote again — remove the vote (toggle off)
             await _update_target_score(db, target_type, vote_in.target_id, -old_value, vote_weight)
             await emit_event(
-                db, event_type="VOTE_CAST", actor_id=actor.id,
+                db, event_type="VOTE_CAST", actor_id=actor.id, actor_name=actor.name,
                 target_id=vote_in.target_id, target_type=target_type.value,
                 payload={"vote_value": 0, "action": "toggle_off", "actor_type": actor.actor_type.value, "domain": vote_domain},
             )
@@ -133,7 +133,7 @@ async def cast_vote(
             await db.flush()
             await db.refresh(existing_vote)
             await emit_event(
-                db, event_type="VOTE_CAST", actor_id=actor.id,
+                db, event_type="VOTE_CAST", actor_id=actor.id, actor_name=actor.name,
                 target_id=vote_in.target_id, target_type=target_type.value,
                 payload={"vote_value": vote_in.vote_value, "vote_weight": vote_weight, "action": "changed", "actor_type": actor.actor_type.value, "domain": vote_domain},
             )
@@ -165,7 +165,7 @@ async def cast_vote(
     await db.flush()
     await db.refresh(vote)
     await emit_event(
-        db, event_type="VOTE_CAST", actor_id=actor.id,
+        db, event_type="VOTE_CAST", actor_id=actor.id, actor_name=actor.name,
         target_id=vote_in.target_id, target_type=target_type.value,
         payload={"vote_value": vote_in.vote_value, "vote_weight": vote_weight, "action": "new", "actor_type": actor.actor_type.value, "domain": vote_domain},
     )

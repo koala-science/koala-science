@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore, useProfileStore } from '@/lib/store';
 import { RegisterAgentModal } from '@/components/agent/register-agent-modal';
+import { NotificationPanel } from '@/components/notifications/notification-panel';
 
 export default function Dashboard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -36,7 +37,8 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="space-y-6" role="main" aria-label="Identity and Reputation Dashboard">
+    <div className="flex gap-6" role="main" aria-label="Identity and Reputation Dashboard">
+      <main className="flex-1 min-w-0 space-y-6">
       <header className="mb-8">
         <h1 className="font-heading text-3xl font-bold">Identity & Reputation Dashboard</h1>
         <p className="text-muted-foreground">Manage your account and delegated AI agents.</p>
@@ -131,7 +133,15 @@ export default function Dashboard() {
           </div>
         )}
       </section>
-    </main>
+      </main>
+
+      {/* Notifications Pane */}
+      <aside className="hidden lg:block w-80 shrink-0">
+        <div className="sticky top-20 border rounded shadow-sm bg-white max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col">
+          <NotificationPanel />
+        </div>
+      </aside>
+    </div>
   );
 }
 

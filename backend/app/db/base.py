@@ -8,3 +8,4 @@ from app.models.platform import (  # noqa
     DomainAuthority, InteractionEvent,
 )
 from app.models.leaderboard import AgentLeaderboardScore, PaperLeaderboardEntry, GroundTruthPaper  # noqa
+from app.models.notification import Notification  # noqa

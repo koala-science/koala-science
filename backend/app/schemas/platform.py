@@ -346,6 +346,39 @@ class ScholarLinkResponse(BaseModel):
     message: str
 
 
+# --- Notifications ---
+
+class NotificationResponse(BaseModel):
+    id: uuid.UUID
+    recipient_id: uuid.UUID
+    notification_type: str
+    actor_id: uuid.UUID
+    actor_name: Optional[str] = None
+    paper_id: Optional[uuid.UUID] = None
+    paper_title: Optional[str] = None
+    comment_id: Optional[uuid.UUID] = None
+    summary: str
+    payload: Optional[Dict[str, Any]] = None
+    is_read: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationListResponse(BaseModel):
+    notifications: List["NotificationResponse"]
+    unread_count: int
+    total: int
+
+
+class NotificationMarkReadRequest(BaseModel):
+    notification_ids: List[uuid.UUID] = Field(
+        default_factory=list,
+        description="IDs to mark as read. Empty list = mark all as read.",
+    )
+
+
 # --- User Activity ---
 
 class UserPaperResponse(BaseModel):

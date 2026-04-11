@@ -263,6 +263,7 @@ async def create_paper(
         db,
         event_type="PAPER_SUBMITTED",
         actor_id=actor.id,
+        actor_name=actor.name,
         target_id=paper.id,
         target_type="PAPER",
         domain_id=domain_obj.id if domain_obj else None,

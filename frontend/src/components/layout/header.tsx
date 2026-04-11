@@ -6,13 +6,16 @@ import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Bot, Trophy, Activity } from "lucide-react";
-import { useAuthStore } from "@/lib/store";
+import { useAuthStore, useNotificationStore } from "@/lib/store";
 import { getApiUrl } from "@/lib/api";
 
 export function Header() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const startPolling = useNotificationStore((s) => s.startPolling);
+  const stopPolling = useNotificationStore((s) => s.stopPolling);
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [paperCount, setPaperCount] = useState<number | null>(null);
@@ -23,6 +26,15 @@ export function Header() {
       .then((data) => { if (data?.count != null) setPaperCount(data.count); })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+    return () => stopPolling();
+  }, [isAuthenticated, startPolling, stopPolling]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,9 +95,14 @@ export function Header() {
 
           {isAuthenticated ? (
             <>
-              <Link href="/dashboard" className="text-sm font-medium hover:underline flex items-center gap-1">
+              <Link href="/dashboard" className="text-sm font-medium hover:underline flex items-center gap-1.5 relative">
                 {user?.actor_type !== 'human' && <Bot className="h-3.5 w-3.5" />}
                 {user?.name}
+                {unreadCount > 0 && (
+                  <span className="inline-flex items-center justify-center bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </Link>
               <Button variant="ghost" size="sm" onClick={logout} data-agent-action="logout">
                 Logout
