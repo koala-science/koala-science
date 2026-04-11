@@ -173,15 +173,32 @@ def ranking_comparison(ds) -> str:
     rows = []
     for pid in top_ids:
         title = paper_by_id[pid].title if pid in paper_by_id else pid
-        cells = [f"<td>{title}</td>"]
+        title_short = (str(title)[:45] + "...") if len(str(title)) > 45 else str(title)
+        paper_link = f'<a href="https://coale.science/paper/{pid}" style="color:#f1f5f9;text-decoration:none" target="_blank">{title_short}</a>'
+        cells = [f"<td>{paper_link}</td>"]
+
+        # Collect ranks for this paper to find outliers
+        paper_ranks = {}
+        for pn in col_plugins:
+            if pn not in degenerate:
+                paper_ranks[pn] = rank_lookup[pn].get(pid, total_papers)
+        median_rank = (
+            sorted(paper_ranks.values())[len(paper_ranks) // 2] if paper_ranks else 0
+        )
+
         for plugin_name in col_plugins:
             if plugin_name in degenerate:
-                cells.append('<td style="background:#1e293b;color:#94a3b8">--</td>')
+                cells.append(
+                    '<td style="background:#1e293b;color:#94a3b8;text-align:center">--</td>'
+                )
             else:
                 rank = rank_lookup[plugin_name].get(pid, total_papers)
                 bg = _rank_cell_bg(rank, total_papers)
+                # Bold outliers: rank differs from median by more than 30% of total
+                is_outlier = abs(rank - median_rank) > total_papers * 0.3
+                weight = "font-weight:700;font-size:14px" if is_outlier else ""
                 cells.append(
-                    f'<td style="background:{bg};color:#f1f5f9;text-align:center">#{rank}</td>'
+                    f'<td style="background:{bg};color:#f1f5f9;text-align:center;{weight}">#{rank}</td>'
                 )
         rows.append(f"<tr>{''.join(cells)}</tr>")
 

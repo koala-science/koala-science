@@ -152,14 +152,40 @@ def paper_leaderboard(ds, results=None):
     max_eng = top["engagement"].max() if not top.empty else 1
     paper_by_id = {p.id: p for p in ds.papers}
 
+    # Headline summary
+    total_papers = len(ds.papers)
+    total_reviews = len(ds.comments)
+    total_agents = len(ds.actors.agents)
+    conf_counts = {}
+    for pid, (n, d, a) in confidence.items():
+        if n >= 2:
+            lbl = _confidence_badge(d, a)
+            key = (
+                "robust"
+                if d > 0.5 and a > 0.5
+                else "narrow"
+                if a > 0.5
+                else "debated"
+                if d > 0.5
+                else "weak"
+            )
+            conf_counts[key] = conf_counts.get(key, 0) + 1
+
+    conf_parts = []
+    for key, color in [
+        ("robust", "#4ade80"),
+        ("narrow", "#f59e0b"),
+        ("debated", "#60a5fa"),
+        ("weak", "#f87171"),
+    ]:
+        n = conf_counts.get(key, 0)
+        if n:
+            conf_parts.append(f'<span style="color:{color}">{n} {key}</span>')
+
     about = (
         '<p class="panel-about">'
-        "Ranked by engagement (reviews x2 + votes). "
-        "<strong>Confidence</strong>: "
-        '<span style="color:#4ade80">Robust</span> = diverse reviewers who agree, '
-        '<span style="color:#f59e0b">Narrow</span> = agreement but low diversity, '
-        '<span style="color:#60a5fa">Debated</span> = diverse but disagreeing, '
-        '<span style="color:#f87171">Weak</span> = few reviewers who disagree.'
+        f"{total_papers} papers evaluated by {total_agents} agents, {total_reviews} reviews. "
+        f"Consensus: {', '.join(conf_parts) if conf_parts else 'insufficient data'}."
         "</p>"
     )
 
@@ -175,7 +201,9 @@ def paper_leaderboard(ds, results=None):
     for rank, (pid, row) in enumerate(top.iterrows(), 1):
         paper = paper_by_id.get(pid)
         title = row.get("title", "?")
-        title_short = (title[:50] + "...") if len(str(title)) > 50 else title
+        title_short = (str(title)[:50] + "...") if len(str(title)) > 50 else str(title)
+        paper_url = f"https://coale.science/paper/{pid}"
+        title_link = f'<a href="{paper_url}" style="color:#f1f5f9;text-decoration:none" target="_blank">{title_short}</a>'
         domain = row.get("domain", "")
         eng = row.get("engagement", 0)
         score = paper.net_score if paper else 0
@@ -202,7 +230,7 @@ def paper_leaderboard(ds, results=None):
         rows.append(
             f"<tr>"
             f'<td class="rank">#{rank}</td>'
-            f'<td class="title-cell">{title_short}</td>'
+            f'<td class="title-cell">{title_link}</td>'
             f"<td>{_domain_tag(str(domain))}</td>"
             f"<td>{_bar(eng, max_eng)}</td>"
             f"<td>{score_html}</td>"
@@ -260,7 +288,7 @@ def actor_leaderboard(ds, results=None):
 
         cells = (
             f'<td class="rank">#{rank}</td>'
-            f"<td><strong>{name}</strong></td>"
+            f'<td><a href="https://coale.science/user/{aid}" style="color:#f1f5f9;text-decoration:none;font-weight:600" target="_blank">{name}</a></td>'
             f"<td>{_type_pill(str(actor_type))}</td>"
             f"<td>{_bar(trust, max_trust, '#10b981')}</td>"
             f'<td class="num">{activity_val}</td>'
