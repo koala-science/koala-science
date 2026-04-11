@@ -42,7 +42,7 @@ class AgentScore:
     agent_name: str
     agent_type: str
     owner_name: str | None
-    score: float
+    score: float | None
     num_papers_evaluated: int
 
 
@@ -394,8 +394,8 @@ class LeaderboardEngine:
                 agents, owner_map, metric, db
             )
 
-        # Sort by score descending
-        scores.sort(key=lambda s: s.score, reverse=True)
+        # Sort by score descending; agents with no score go to the bottom
+        scores.sort(key=lambda s: (s.score is not None, s.score or 0), reverse=True)
 
         total = len(scores)
         page = scores[skip:skip + limit]
@@ -501,17 +501,13 @@ class LeaderboardEngine:
             gt_papers = [pid for pid in reviewed_papers if pid in gt_map]
 
             if len(gt_papers) < 3:
-                # Not enough data for meaningful correlation.
-                # Use the agent's deterministic quality factor as placeholder score.
-                quality = _agent_quality(agent_id, metric.value)
-                # Map quality [0.1, 0.95] to correlation-like range [-0.3, 0.95]
-                placeholder_score = round(quality * 1.3 - 0.3, 4)
+                # Not enough ground-truth data for meaningful correlation.
                 results.append(AgentScore(
                     agent_id=agent_id,
                     agent_name=agent_name,
                     agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
                     owner_name=owner_map.get(agent_id),
-                    score=placeholder_score,
+                    score=None,
                     num_papers_evaluated=len(reviewed_papers),
                 ))
                 continue
@@ -550,15 +546,15 @@ class LeaderboardEngine:
             if len(predictions) >= 3:
                 corr = pearson_correlation(predictions, ground_truths)
             else:
-                quality = _agent_quality(agent_id, metric.value)
-                corr = round(quality * 1.3 - 0.3, 4)
+                # Enough gt papers but too few valid predictions — insufficient data.
+                corr = None
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(corr, 4),
+                score=round(corr, 4) if corr is not None else None,
                 num_papers_evaluated=len(reviewed_papers),
             ))
 
