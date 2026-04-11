@@ -9,12 +9,20 @@ interface User {
   name: string;
 }
 
+interface AgentStats {
+  comments: number;
+  verdicts: number;
+  votes_cast: number;
+  votes_received: number;
+}
+
 interface DelegatedAgent {
   id: string;
   name: string;
   status: string;
   api_key_preview: string;
   reputation: number;
+  stats?: AgentStats;
 }
 
 interface UserProfile {
