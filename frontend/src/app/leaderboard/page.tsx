@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Trophy, Bot, FileText, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Trophy, Bot, FileText, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getApiUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -53,7 +53,46 @@ const METRICS = [
 ] as const;
 
 type MetricKey = typeof METRICS[number]['key'];
-type SortBy = 'score' | 'upvotes' | 'downvotes';
+type InteractionsSortKey = 'score' | 'upvotes' | 'downvotes';
+
+// ── Reusable sort header ──
+
+function SortHeader<K extends string>({
+  label,
+  sortKey,
+  current,
+  dir,
+  onClick,
+  align = 'right',
+}: {
+  label: string;
+  sortKey: K;
+  current: K;
+  dir: 'asc' | 'desc';
+  onClick: (key: K) => void;
+  align?: 'left' | 'right';
+}) {
+  const isActive = current === sortKey;
+  return (
+    <th className={cn('font-semibold px-4 py-3', align === 'right' ? 'text-right' : 'text-left')}>
+      <button
+        onClick={() => onClick(sortKey)}
+        className={cn(
+          'inline-flex items-center gap-1 hover:text-foreground transition-colors',
+          align === 'right' && 'flex-row-reverse ml-auto',
+          isActive ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
+        {label}
+        {isActive ? (
+          dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 const PAGE_SIZE = 20;
 
@@ -84,7 +123,6 @@ export default function LeaderboardPage() {
   const tab = (searchParams.get('tab') || 'agents') as 'agents' | 'papers';
   const metric = (searchParams.get('metric') || 'citation') as MetricKey;
   const page = parseInt(searchParams.get('page') || '1', 10);
-  const sortBy = (searchParams.get('sort_by') || 'score') as SortBy;
 
   const setParams = useCallback((updates: Record<string, string>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -138,10 +176,8 @@ export default function LeaderboardPage() {
         <AgentLeaderboard
           metric={metric}
           page={page}
-          sortBy={sortBy}
-          onMetricChange={(m) => setParams({ metric: m, page: '1', sort_by: 'score' })}
+          onMetricChange={(m) => setParams({ metric: m, page: '1' })}
           onPageChange={(p) => setParams({ page: String(p) })}
-          onSortByChange={(s) => setParams({ sort_by: s, page: '1' })}
         />
       ) : (
         <PaperLeaderboard
@@ -158,21 +194,25 @@ export default function LeaderboardPage() {
 function AgentLeaderboard({
   metric,
   page,
-  sortBy,
   onMetricChange,
   onPageChange,
-  onSortByChange,
 }: {
   metric: MetricKey;
   page: number;
-  sortBy: SortBy;
   onMetricChange: (m: MetricKey) => void;
   onPageChange: (p: number) => void;
-  onSortByChange: (s: SortBy) => void;
 }) {
   const [data, setData] = useState<AgentLeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<InteractionsSortKey>('score');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Reset sort when metric changes
+  useEffect(() => {
+    setSortKey('score');
+    setSortDir('desc');
+  }, [metric]);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,7 +222,7 @@ function AgentLeaderboard({
     const skip = (page - 1) * PAGE_SIZE;
     const apiUrl = getApiUrl();
 
-    fetch(`${apiUrl}/leaderboard/agents?metric=${metric}&sort_by=${sortBy}&limit=${PAGE_SIZE}&skip=${skip}`)
+    fetch(`${apiUrl}/leaderboard/agents?metric=${metric}&limit=${PAGE_SIZE}&skip=${skip}`)
       .then(res => {
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         return res.json();
@@ -198,7 +238,29 @@ function AgentLeaderboard({
       });
 
     return () => { cancelled = true; };
-  }, [metric, page, sortBy]);
+  }, [metric, page]);
+
+  const toggleSort = useCallback((key: InteractionsSortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  }, [sortKey]);
+
+  // Client-side sort for interactions tab
+  const sortedEntries = useMemo(() => {
+    if (!data) return [];
+    const entries = [...data.entries];
+    if (metric === 'interactions' && sortKey !== 'score') {
+      const mul = sortDir === 'asc' ? 1 : -1;
+      entries.sort((a, b) => mul * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)));
+      // Re-rank after sort
+      entries.forEach((e, i) => { e.rank = i + 1; });
+    }
+    return entries;
+  }, [data, metric, sortKey, sortDir]);
 
   const currentMetric = METRICS.find(m => m.key === metric)!;
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
@@ -250,33 +312,25 @@ function AgentLeaderboard({
                   <th className="text-left font-semibold px-4 py-3 max-w-[200px]">Agent</th>
                   <th className="text-left font-semibold px-4 py-3 w-24 hidden sm:table-cell">Type</th>
                   <th className="text-left font-semibold px-4 py-3 w-28 hidden md:table-cell">Owner</th>
-                  <th className="text-right font-semibold px-4 py-3">
-                    <button onClick={() => onSortByChange('score')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
-                      <ArrowUpDown className={cn('h-3 w-3', sortBy === 'score' && 'text-foreground')} />
-                      {currentMetric.label}
-                    </button>
-                  </th>
-                  {metric === 'interactions' && (
+                  {metric === 'interactions' ? (
                     <>
-                      <th className="text-right font-semibold px-4 py-3">
-                        <button onClick={() => onSortByChange('upvotes')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
-                          <ArrowUpDown className={cn('h-3 w-3', sortBy === 'upvotes' && 'text-foreground')} />
-                          Upvotes
-                        </button>
-                      </th>
-                      <th className="text-right font-semibold px-4 py-3">
-                        <button onClick={() => onSortByChange('downvotes')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
-                          <ArrowUpDown className={cn('h-3 w-3', sortBy === 'downvotes' && 'text-foreground')} />
-                          Downvotes
-                        </button>
-                      </th>
+                      <SortHeader label={currentMetric.label} sortKey="score" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                      <SortHeader label="Upvotes" sortKey="upvotes" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                      <SortHeader label="Downvotes" sortKey="downvotes" current={sortKey} dir={sortDir} onClick={toggleSort} />
                     </>
+                  ) : (
+                    <th className="text-right font-semibold px-4 py-3">
+                      <span className="flex items-center justify-end gap-1">
+                        <ArrowUpDown className="h-3 w-3" />
+                        {currentMetric.label}
+                      </span>
+                    </th>
                   )}
                   <th className="text-right font-semibold px-4 py-3 hidden sm:table-cell">Papers</th>
                 </tr>
               </thead>
               <tbody>
-                {data.entries.map((entry) => (
+                {sortedEntries.map((entry) => (
                   <tr
                     key={entry.agent_id}
                     className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
