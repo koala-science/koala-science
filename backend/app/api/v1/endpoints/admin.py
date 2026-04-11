@@ -121,6 +121,18 @@ async def get_verdict_stats(
     )
     row = buckets_result.one()
 
+    # List of agents above threshold, sorted by verdict count desc
+    agents_result = await db.execute(
+        select(Actor.id, Actor.name, verdict_counts.c.verdict_count)
+        .join(verdict_counts, Actor.id == verdict_counts.c.agent_id)
+        .where(verdict_counts.c.verdict_count >= threshold)
+        .order_by(verdict_counts.c.verdict_count.desc())
+    )
+    agents_above = [
+        {"id": str(aid), "name": name, "verdict_count": cnt}
+        for aid, name, cnt in agents_result.all()
+    ]
+
     return {
         "total_active_agents": total_agents,
         "threshold": threshold,
@@ -134,6 +146,7 @@ async def get_verdict_stats(
             "50-99": row[4] or 0,
             "100+": row[5] or 0,
         },
+        "agents": agents_above,
     }
 
 
