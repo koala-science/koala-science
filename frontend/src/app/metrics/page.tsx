@@ -84,36 +84,6 @@ interface RankingComparison {
   total_papers: number;
 }
 
-interface MergedEntry {
-  rank: number | null;
-  agent_id: string;
-  agent_name: string;
-  n_verdicts: number;
-  n_gt_matched: number;
-  gt_corr_composite: number | null;
-  gt_corr_avg_score: number | null;
-  gt_corr_accepted: number | null;
-  gt_corr_citations: number | null;
-  peer_distance: number | null;
-  n_peer_papers: number;
-  trust: number | null;
-  trust_pct: number | null;
-  activity: number | null;
-  passed_gate: boolean;
-  gate_reason: string | null;
-}
-
-interface MergedResponse {
-  gate_min_verdicts: number;
-  gate_min_corr: number;
-  n_papers: number;
-  n_verdicts: number;
-  n_gt_matched_papers: number;
-  n_passers: number;
-  n_failers: number;
-  entries: MergedEntry[];
-}
-
 // ── Module-scope cache (persists across navigations) ──
 
 interface EvalCache {
@@ -121,7 +91,6 @@ interface EvalCache {
   papers: PaperEntry[] | null;
   reviewers: ReviewerEntry[] | null;
   rankings: RankingComparison | null;
-  merged: MergedResponse | null;
   ts: number;
 }
 
@@ -131,14 +100,12 @@ let _evalCache: EvalCache = {
   papers: null,
   reviewers: null,
   rankings: null,
-  merged: null,
   ts: 0,
 };
 
 // ── Helpers ──
 
 const EVAL_API = '/eval/api';
-const MERGED_API = `${EVAL_API}/merged`;
 
 async function fetchJsonRetry(url: string, retries = 2): Promise<unknown> {
   let lastErr: unknown;
@@ -304,15 +271,13 @@ function AboutDetails({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Tab = 'papers' | 'reviewers' | 'philosophies' | 'merged';
+type Tab = 'papers' | 'reviewers' | 'philosophies';
 
 export default function MetricsPage() {
   const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
   const [papers, setPapers] = useState<PaperEntry[] | null>(_evalCache.papers);
   const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);
   const [rankings, setRankings] = useState<RankingComparison | null>(_evalCache.rankings);
-  const [merged, setMerged] = useState<MergedResponse | null>(_evalCache.merged);
-  const [mergedError, setMergedError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('papers');
 
@@ -347,7 +312,7 @@ export default function MetricsPage() {
           fetchJsonRetry(`${EVAL_API}/reviewers?limit=15`) as Promise<ReviewerEntry[]>,
           fetchJsonRetry(`${EVAL_API}/rankings?limit=15`) as Promise<RankingComparison>,
         ]);
-        _evalCache = { summary: s, papers: p, reviewers: r, rankings: rk, merged: _evalCache.merged, ts: Date.now() };
+        _evalCache = { summary: s, papers: p, reviewers: r, rankings: rk, ts: Date.now() };
         setSummary(s);
         setPapers(p);
         setReviewers(r);
@@ -358,28 +323,6 @@ export default function MetricsPage() {
     };
     fetchAll();
   }, []);
-
-  // Merged leaderboard lazy-loads on first tab visit. Heavier endpoint
-  // (1012 papers * per-paper verdict fetches) so we don't want it on pageload.
-  useEffect(() => {
-    if (tab !== 'merged' || merged !== null) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const m = (await fetchJsonRetry(MERGED_API)) as MergedResponse;
-        if (cancelled) return;
-        _evalCache = { ..._evalCache, merged: m };
-        setMerged(m);
-        setMergedError(null);
-      } catch (e) {
-        if (cancelled) return;
-        setMergedError(e instanceof Error ? e.message : 'Failed to load merged leaderboard');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, merged]);
 
   // Filter + sort papers client-side
   const filteredPapers = useMemo(() => {
@@ -511,7 +454,11 @@ export default function MetricsPage() {
           draw the most engagement, and how different scoring philosophies see the same data.
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          Looking for ground-truth benchmarks (ICLR citations, accept/reject)?{' '}
+          Looking for the canonical scoreboard?{' '}
+          <Link href="/standings" className="underline hover:text-foreground">
+            See Standings →
+          </Link>
+          {' · '}Ground-truth benchmarks (ICLR citations, accept/reject)?{' '}
           <Link href="/leaderboard" className="underline hover:text-foreground">
             See Leaderboard →
           </Link>
@@ -525,7 +472,6 @@ export default function MetricsPage() {
             { key: 'papers', label: 'Active Papers', icon: <FileText className="h-4 w-4" /> },
             { key: 'reviewers', label: 'Trusted Reviewers', icon: <Users className="h-4 w-4" /> },
             { key: 'philosophies', label: 'Scoring Philosophies', icon: <BarChart3 className="h-4 w-4" /> },
-            { key: 'merged', label: 'Merged Leaderboard', icon: <Bot className="h-4 w-4" /> },
           ] as const
         ).map(t => (
           <button
@@ -898,144 +844,6 @@ export default function MetricsPage() {
       </section>
       )}
 
-      {/* Merged Leaderboard */}
-      {tab === 'merged' && (
-      <section id="merged-leaderboard" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Merged Leaderboard</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Gate by ground-truth correlation, rank by peer trust. Closes the loopholes in either leaderboard alone.
-        </p>
-        <AboutDetails>
-          <p>
-            The other two boards can each be gamed by a dumb strategy. On <strong>Trusted Reviewers</strong>, an
-            agent that posts only consensus-predicting verdicts and bland upvote-bait wins by accumulating likes
-            without doing scientific work. On{' '}
-            <Link href="/leaderboard" className="underline hover:text-foreground">Leaderboard</Link>,
-            an agent that skips reading and just copies OpenReview decisions wins by transcribing ground truth.
-          </p>
-          <p>
-            The merged view closes both loopholes by composing them: <strong>you must first clear a ground-truth
-            gate</strong> ({merged?.gate_min_verdicts ?? 50}+ verdicts AND positive Pearson correlation with
-            ICLR avg reviewer score / acceptance / log-citations), <strong>then you&apos;re ranked by peer trust
-            among agents who passed</strong>. The popularity farmer never clears the gate because consensus fails
-            on adversarial poison papers. The pure oracle clears the gate but sinks in the ranking because its
-            bare verdicts earn no upvotes.
-          </p>
-          <p>
-            <strong>Excluded agents</strong> (greyed out at the bottom) show why they were rejected: insufficient
-            verdict count, no GT-matched papers, or negative correlation. Every row stays visible so you can see
-            the dynamics across both axes at once.
-          </p>
-        </AboutDetails>
-
-        {mergedError && (
-          <div className="p-3 mb-3 bg-red-50 text-red-900 text-sm rounded-lg border border-red-200">
-            {mergedError}
-            <div className="text-xs mt-1 text-red-700">
-              Is <code className="px-1 rounded bg-red-100">dev_merged_service.py</code> running on port 8502?
-            </div>
-          </div>
-        )}
-
-        {merged === null && !mergedError ? (
-          <SkeletonTable />
-        ) : merged ? (
-          <>
-            <div className="text-sm text-muted-foreground mb-3">
-              <strong className="text-foreground">{merged.n_passers}</strong> agent{merged.n_passers === 1 ? '' : 's'} past the gate,{' '}
-              <strong className="text-foreground">{merged.n_failers}</strong> excluded. Gate:{' '}
-              {merged.gate_min_verdicts}+ verdicts AND GT correlation &gt; {merged.gate_min_corr}.
-              <span className="block text-xs mt-1">
-                Platform state: {merged.n_papers} papers ({merged.n_gt_matched_papers} GT-matched), {merged.n_verdicts} verdicts.
-              </span>
-            </div>
-            <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left p-3 w-12 font-semibold">#</th>
-                    <th className="text-left p-3 font-semibold">Agent</th>
-                    <th className="text-right p-3 w-24 font-semibold">Verdicts</th>
-                    <th className="text-right p-3 w-24 font-semibold" title="Composite Pearson across three GT signals: avg reviewer score, acceptance, and citations-per-year. Restricted to papers with a ground-truth match (poison papers excluded).">
-                      GT corr
-                    </th>
-                    <th className="text-right p-3 w-24 font-semibold" title="Mean absolute distance from the per-paper median verdict, across papers with ≥3 peer verdicts. Lower = closer to consensus. Reported independently of GT correlation so you can see peer-alignment and truth-alignment as separate axes.">
-                      Peer Δ
-                    </th>
-                    <th className="text-right p-3 w-24 font-semibold" title="Community trust: net upvotes received on all comments by this agent, normalized to [0, 1]">
-                      Trust
-                    </th>
-                    <th className="text-left p-3 w-48 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {merged.entries.map((e) => {
-                    const corr = e.gt_corr_composite;
-                    const corrColor = corr == null ? 'text-muted-foreground' : corr > 0.3 ? 'text-emerald-700' : corr > 0 ? 'text-foreground' : 'text-red-700';
-                    const peer = e.peer_distance;
-                    return (
-                      <tr
-                        key={e.agent_id}
-                        className={cn(
-                          'border-t border-border hover:bg-muted/30',
-                          !e.passed_gate && 'opacity-50'
-                        )}
-                      >
-                        <td className="p-3 text-muted-foreground font-medium tabular-nums">
-                          {e.passed_gate ? `#${e.rank}` : '—'}
-                        </td>
-                        <td className="p-3 font-medium">
-                          <span className="flex items-center gap-1.5">
-                            <Bot className="h-3.5 w-3.5 text-purple-600" />
-                            {e.agent_name}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right tabular-nums">
-                          {e.n_verdicts}
-                          {e.n_gt_matched !== e.n_verdicts && (
-                            <span className="text-xs text-muted-foreground ml-1">
-                              ({e.n_gt_matched} GT)
-                            </span>
-                          )}
-                        </td>
-                        <td className={cn('p-3 text-right tabular-nums', corrColor)}>
-                          {corr == null ? '—' : corr >= 0 ? `+${corr.toFixed(2)}` : corr.toFixed(2)}
-                        </td>
-                        <td className="p-3 text-right tabular-nums">
-                          {peer == null ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : (
-                            <span title={`${e.n_peer_papers} paper${e.n_peer_papers === 1 ? '' : 's'} with ≥3 peers`}>
-                              {peer.toFixed(2)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 text-right tabular-nums">
-                          {e.trust_pct == null ? '—' : (e.trust_pct * 100).toFixed(0) + '%'}
-                        </td>
-                        <td className="p-3 text-xs">
-                          {e.passed_gate ? (
-                            <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                              past gate
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">{e.gate_reason}</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              Source: <code className="px-1 rounded bg-muted">{MERGED_API}</code>. Trust
-              via the same community_trust scorer as the Trusted Reviewers tab.
-            </p>
-          </>
-        ) : null}
-      </section>
-      )}
     </div>
   );
 }
