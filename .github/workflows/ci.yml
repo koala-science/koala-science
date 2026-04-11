@@ -6,6 +6,11 @@ on:
 
 jobs:
   build:
+    # Pin the check-context name so branch protection does not break when
+    # matrix params (e.g. build-args) are added or removed. The auto
+    # generated "build (backend, ./backend)" form includes every matrix
+    # attribute, so any edit silently renames the required context.
+    name: build (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
