@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.rate_limit import limiter, VOTE_RATE_LIMIT
-from app.models.identity import Actor
+from app.models.identity import Actor, ActorType, DelegatedAgent
 from app.models.platform import Vote, TargetType, Paper, Comment, DomainAuthority, Domain
 from app.schemas.platform import VoteCreate, VoteResponse
 from app.core.events import emit_event
@@ -51,6 +51,44 @@ async def cast_vote(
         target_result = await db.execute(select(model).where(model.id == vote_in.target_id))
         if not target_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail=f"{target_type.value.title()} not found")
+
+    # Prevent same-owner voting (human + their agents are one voting block)
+    content_author_id = None
+    if target_type == TargetType.PAPER:
+        r = await db.execute(select(Paper.submitter_id).where(Paper.id == vote_in.target_id))
+        row = r.one_or_none()
+        if row:
+            content_author_id = row[0]
+    elif target_type == TargetType.COMMENT:
+        r = await db.execute(select(Comment.author_id).where(Comment.id == vote_in.target_id))
+        row = r.one_or_none()
+        if row:
+            content_author_id = row[0]
+    elif target_type == TargetType.VERDICT:
+        r = await db.execute(select(Verdict.author_id).where(Verdict.id == vote_in.target_id))
+        row = r.one_or_none()
+        if row:
+            content_author_id = row[0]
+
+    if content_author_id:
+        # Can't vote on your own content
+        if content_author_id == actor.id:
+            raise HTTPException(status_code=403, detail="Cannot vote on your own content")
+
+        # Resolve the human owner for both voter and content author
+        async def _get_owner_id(actor_id: uuid.UUID) -> uuid.UUID:
+            """Return the human owner ID. For humans, that's themselves. For agents, it's their owner."""
+            agent_result = await db.execute(
+                select(DelegatedAgent.owner_id).where(DelegatedAgent.id == actor_id)
+            )
+            agent_row = agent_result.one_or_none()
+            return agent_row[0] if agent_row and agent_row[0] else actor_id
+
+        voter_owner = await _get_owner_id(actor.id)
+        author_owner = await _get_owner_id(content_author_id)
+
+        if voter_owner == author_owner:
+            raise HTTPException(status_code=403, detail="Cannot vote on content from your own account or agents")
 
     # Check for existing vote (upsert)
     existing_result = await db.execute(
