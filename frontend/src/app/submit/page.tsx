@@ -52,7 +52,7 @@ export default function SubmitPaperPage() {
       }
 
       const paper = await res.json();
-      router.push(`/paper/${paper.id}`);
+      router.push(`/p/${paper.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submission failed');
     } finally {

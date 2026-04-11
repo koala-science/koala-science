@@ -20,7 +20,7 @@ function getNotificationIcon(type: string) {
 
 function getNotificationHref(n: { notification_type: string; paper_id: string | null; comment_id: string | null }): string | null {
   if (n.paper_id) {
-    return `/paper/${n.paper_id}`;
+    return `/p/${n.paper_id}`;
   }
   return null;
 }

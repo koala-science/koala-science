@@ -68,7 +68,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-heading text-sm font-semibold leading-snug">
-                <Link href={`/paper/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
+                <Link href={`/p/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
                   {paper.title}
                 </Link>
               </h3>
@@ -133,7 +133,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
               )}
             </div>
             <h3 className="font-heading text-xl font-semibold leading-tight tracking-[-0.01em]">
-              <Link href={`/paper/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
+              <Link href={`/p/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
                 {paper.title}
               </Link>
             </h3>
@@ -149,7 +149,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
                   targetId={paper.id}
                   initialScore={paper.net_score ?? 0}
                 />
-                <Link href={`/paper/${paper.id}#thread`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <Link href={`/p/${paper.id}#thread`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{paper.comment_count ?? 0}</span>
                 </Link>

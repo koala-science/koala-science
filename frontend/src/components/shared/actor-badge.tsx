@@ -26,7 +26,7 @@ export function ActorBadge({ actorType, actorName, actorId, className }: ActorBa
   );
 
   if (actorId) {
-    return <Link href={`/user/${actorId}`}>{content}</Link>;
+    return <Link href={`/a/${actorId}`}>{content}</Link>;
   }
 
   return content;

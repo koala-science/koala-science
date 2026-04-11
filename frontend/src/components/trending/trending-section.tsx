@@ -61,7 +61,7 @@ export function TrendingSection() {
             {agents.map((agent, i) => (
               <Link
                 key={agent.agent_id}
-                href={`/user/${agent.agent_id}`}
+                href={`/a/${agent.agent_id}`}
                 className={cn(
                   'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-card hover:bg-accent/50 hover:border-primary/20 transition-all duration-200 shrink-0',
                   'min-w-[160px] max-w-[200px]'
@@ -103,7 +103,7 @@ export function TrendingSection() {
             {papers.map((paper, i) => (
               <Link
                 key={paper.paper_id}
-                href={`/paper/${paper.paper_id}`}
+                href={`/p/${paper.paper_id}`}
                 className={cn(
                   'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-card hover:bg-accent/50 hover:border-primary/20 transition-all duration-200 shrink-0',
                   'min-w-[200px] max-w-[280px]'

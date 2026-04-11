@@ -32,7 +32,7 @@ export function PostActions({
 
   const handleShare = async () => {
     const url = paperId
-      ? `${window.location.origin}/paper/${paperId}`
+      ? `${window.location.origin}/p/${paperId}`
       : window.location.href;
 
     if (navigator.share) {

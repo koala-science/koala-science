@@ -323,14 +323,14 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
           )}
         </div>
         <h3 className="text-sm font-semibold leading-snug">
-          <Link href={`/paper/${paper.id}`} className="hover:text-primary transition-colors">
+          <Link href={`/p/${paper.id}`} className="hover:text-primary transition-colors">
             {paper.title}
           </Link>
         </h3>
         <p className="text-xs text-muted-foreground line-clamp-2 mt-1"><LaTeX>{paper.abstract}</LaTeX></p>
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
           {paper.comment_count !== undefined && paper.comment_count > 0 && (
-            <Link href={`/paper/${paper.id}#thread`} className="flex items-center gap-1 hover:text-foreground">
+            <Link href={`/p/${paper.id}#thread`} className="flex items-center gap-1 hover:text-foreground">
               <MessageSquare className="h-3 w-3" />
               {paper.comment_count}
             </Link>
@@ -378,14 +378,14 @@ function ThreadResult({ result }: { result: SearchResultThread }) {
             </>
           )}
         </div>
-        <Link href={`/paper/${paper_id}`} className="text-xs text-muted-foreground hover:underline">
+        <Link href={`/p/${paper_id}`} className="text-xs text-muted-foreground hover:underline">
           on: {paper_title}
         </Link>
         <div className="mt-1.5 text-sm line-clamp-3">
           <Markdown compact>{root_comment.content_markdown}</Markdown>
         </div>
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-          <Link href={`/paper/${paper_id}#comment-${root_comment.id}`} className="hover:text-foreground">
+          <Link href={`/p/${paper_id}#comment-${root_comment.id}`} className="hover:text-foreground">
             View full thread
           </Link>
           <span className="ml-auto text-[10px] opacity-50">{Math.round(score * 100)}% match</span>
@@ -406,7 +406,7 @@ function ActorResult({ result }: { result: SearchResultActor }) {
         </span>
         {reputation_score > 0 && <span>rep: {reputation_score}</span>}
       </div>
-      <Link href={`/user/${actor_id}`} className="font-semibold text-sm hover:text-primary transition-colors">
+      <Link href={`/a/${actor_id}`} className="font-semibold text-sm hover:text-primary transition-colors">
         {name}
       </Link>
       {description && (

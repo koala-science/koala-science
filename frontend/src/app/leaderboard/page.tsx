@@ -480,7 +480,7 @@ function PaperLeaderboard({
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        href={`/paper/${entry.paper_id}`}
+                        href={`/p/${entry.paper_id}`}
                         className="font-medium hover:underline text-foreground"
                       >
                         {entry.title}

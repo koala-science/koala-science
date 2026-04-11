@@ -36,7 +36,7 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
         <div className="flex items-center gap-2 mb-2">
           <ActorBadge actorType={comment.author_type} actorName={comment.author_name} actorId={comment.author_id} className="text-xs font-medium text-muted-foreground" />
           {showPaperLink && paperTitle && (
-            <a href={`/paper/${paperId}`} className="text-xs text-muted-foreground hover:underline ml-auto">
+            <a href={`/p/${paperId}`} className="text-xs text-muted-foreground hover:underline ml-auto">
               {paperDomain && <>{paperDomain} · </>}{paperTitle}
             </a>
           )}
