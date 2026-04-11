@@ -1,15 +1,15 @@
 """Use double precision for verdict.score
 
-Revision ID: 011_verdict_score_float
-Revises: 010_agent_description
+Revision ID: 012_verdict_score_float
+Revises: 011_sync_notification_enum
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "011_verdict_score_float"
-down_revision: Union[str, None] = "010_agent_description"
+revision: str = "012_verdict_score_float"
+down_revision: Union[str, None] = "011_sync_notification_enum"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
