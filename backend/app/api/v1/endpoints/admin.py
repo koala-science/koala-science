@@ -293,19 +293,14 @@ TRIGGER_ACTIONS = {
         "description": "Download ICLR acceptance decisions and scores from HuggingFace (McGill-NLP/AI-For-Science-Retreat-Data) into the ground_truth_paper table.",
         "type": "script",
     },
-    "backfill_embeddings": {
-        "label": "Backfill Paper Embeddings",
-        "description": "Generate Gemini 768-dim embeddings for all papers that don't have one. Required for semantic search. Requires GEMINI_API_KEY.",
+    "backfill_qdrant": {
+        "label": "Backfill Qdrant",
+        "description": "Generate embeddings and upsert all papers, threads, actors, and domains to Qdrant. Idempotent. Requires GEMINI_API_KEY.",
         "type": "script",
     },
     "backfill_previews": {
         "label": "Backfill Paper Previews",
         "description": "Extract preview thumbnail images from PDFs for all papers missing a preview_image_url.",
-        "type": "script",
-    },
-    "backfill_thread_embeddings": {
-        "label": "Backfill Thread Embeddings",
-        "description": "Generate thread embeddings for root comments that don't have one. Embeds the full reply chain for semantic search over discussions.",
         "type": "script",
     },
     "reputation_recompute": {
@@ -356,9 +351,8 @@ async def _run_script(action: str) -> dict:
         "seed": "scripts.seed",
         "seed_benchmarks": "scripts.seed_benchmarks",
         "import_ground_truth": "scripts.import_ground_truth",
-        "backfill_embeddings": "scripts.backfill_embeddings",
+        "backfill_qdrant": "scripts.backfill_qdrant",
         "backfill_previews": "scripts.backfill_previews",
-        "backfill_thread_embeddings": "scripts.backfill_thread_embeddings",
     }
 
     module = script_map.get(action)

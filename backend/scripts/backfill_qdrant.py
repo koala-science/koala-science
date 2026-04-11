@@ -1,10 +1,7 @@
 """
 Backfill Qdrant collections from Postgres.
 
-Migrates papers, threads, actors, and domains to Qdrant.
-Reuses existing pgvector embeddings for papers/threads (no re-generation).
-Generates new embeddings for actors and domains.
-
+Generates embeddings and upserts papers, threads, actors, and domains to Qdrant.
 Idempotent — safe to run multiple times (upsert semantics).
 
 Usage:
@@ -12,7 +9,6 @@ Usage:
     python -m scripts.backfill_qdrant
 """
 import asyncio
-import time
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
@@ -28,7 +24,11 @@ from app.core.qdrant import (
     DOMAINS_COLLECTION,
     batch_upsert,
 )
+from app.core.embeddings import generate_embeddings_batch
 from qdrant_client import models as qmodels
+
+
+BATCH_SIZE = 50
 
 
 async def backfill():
@@ -36,7 +36,6 @@ async def backfill():
     print("Qdrant Backfill")
     print("=" * 60)
 
-    # Step 0: Ensure collections exist
     print("\nCreating collections...")
     ensure_collections()
     print("Collections ready.")
@@ -45,82 +44,100 @@ async def backfill():
         # --- Papers ---
         print("\n--- Papers ---")
         result = await session.execute(
-            select(Paper)
-            .options(joinedload(Paper.submitter))
-            .where(Paper.embedding.isnot(None))
+            select(Paper).options(joinedload(Paper.submitter))
         )
         papers = result.scalars().unique().all()
-        print(f"Found {len(papers)} papers with embeddings")
+        print(f"Found {len(papers)} papers")
 
-        points = []
-        for p in papers:
-            created_at = int(p.created_at.timestamp()) if p.created_at else 0
-            points.append(qmodels.PointStruct(
-                id=str(p.id),
-                vector=list(p.embedding),
-                payload={
-                    "paper_id": str(p.id),
-                    "title": p.title,
-                    "abstract": (p.abstract or "")[:1000],
-                    "domains": p.domains or [],
-                    "submitter_id": str(p.submitter_id),
-                    "submitter_name": p.submitter.name if p.submitter else "",
-                    "arxiv_id": p.arxiv_id or "",
-                    "created_at": created_at,
-                    "net_score": p.net_score or 0,
-                    "preview_image_url": p.preview_image_url or "",
-                },
-            ))
+        if papers:
+            # Generate embeddings for all papers
+            paper_texts = [f"{p.title}\n\n{p.abstract or ''}" for p in papers]
+            print(f"Generating embeddings for {len(paper_texts)} papers...")
+            embeddings = await generate_embeddings_batch(paper_texts)
 
-        if points:
-            count = batch_upsert(PAPERS_COLLECTION, points)
-            print(f"Upserted {count} papers to Qdrant")
-        else:
-            print("No papers to upsert")
+            points = []
+            for p, emb in zip(papers, embeddings):
+                if emb is None:
+                    continue
+                created_at = int(p.created_at.timestamp()) if p.created_at else 0
+                points.append(qmodels.PointStruct(
+                    id=str(p.id),
+                    vector=emb,
+                    payload={
+                        "paper_id": str(p.id),
+                        "title": p.title,
+                        "abstract": (p.abstract or "")[:1000],
+                        "domains": p.domains or [],
+                        "submitter_id": str(p.submitter_id),
+                        "submitter_name": p.submitter.name if p.submitter else "",
+                        "arxiv_id": p.arxiv_id or "",
+                        "created_at": created_at,
+                        "net_score": p.net_score or 0,
+                        "preview_image_url": p.preview_image_url or "",
+                    },
+                ))
 
-        # --- Threads (root comments with embeddings) ---
+            if points:
+                count = batch_upsert(PAPERS_COLLECTION, points)
+                print(f"Upserted {count} papers to Qdrant")
+            else:
+                print("No paper embeddings generated")
+
+        # --- Threads (root comments) ---
         print("\n--- Threads ---")
         result = await session.execute(
             select(Comment)
             .options(joinedload(Comment.author), joinedload(Comment.paper))
-            .where(Comment.thread_embedding.isnot(None))
             .where(Comment.parent_id.is_(None))
         )
         comments = result.scalars().unique().all()
-        print(f"Found {len(comments)} root comments with thread embeddings")
+        print(f"Found {len(comments)} root comments")
 
-        points = []
-        for c in comments:
-            created_at = int(c.created_at.timestamp()) if c.created_at else 0
-            points.append(qmodels.PointStruct(
-                id=str(c.id),
-                vector=list(c.thread_embedding),
-                payload={
-                    "comment_id": str(c.id),
-                    "paper_id": str(c.paper_id),
-                    "paper_title": c.paper.title if c.paper else "",
-                    "paper_domains": c.paper.domains if c.paper else [],
-                    "author_id": str(c.author_id),
-                    "author_name": c.author.name if c.author else "",
-                    "content_preview": (c.content_markdown or "")[:500],
-                    "created_at": created_at,
-                },
-            ))
+        if comments:
+            from app.core.thread_assembler import assemble_thread_text
 
-        if points:
-            count = batch_upsert(THREADS_COLLECTION, points)
-            print(f"Upserted {count} threads to Qdrant")
-        else:
-            print("No threads to upsert")
+            thread_data = []
+            thread_texts = []
+            for c in comments:
+                # Assemble thread text for embedding
+                text = f"{c.paper.title if c.paper else ''}\n\n{c.content_markdown or ''}"
+                thread_texts.append(text)
+                thread_data.append(c)
+
+            print(f"Generating embeddings for {len(thread_texts)} threads...")
+            embeddings = await generate_embeddings_batch(thread_texts)
+
+            points = []
+            for c, emb in zip(thread_data, embeddings):
+                if emb is None:
+                    continue
+                created_at = int(c.created_at.timestamp()) if c.created_at else 0
+                points.append(qmodels.PointStruct(
+                    id=str(c.id),
+                    vector=emb,
+                    payload={
+                        "comment_id": str(c.id),
+                        "paper_id": str(c.paper_id),
+                        "paper_title": c.paper.title if c.paper else "",
+                        "paper_domains": c.paper.domains if c.paper else [],
+                        "author_id": str(c.author_id),
+                        "author_name": c.author.name if c.author else "",
+                        "content_preview": (c.content_markdown or "")[:500],
+                        "created_at": created_at,
+                    },
+                ))
+
+            if points:
+                count = batch_upsert(THREADS_COLLECTION, points)
+                print(f"Upserted {count} threads to Qdrant")
+            else:
+                print("No thread embeddings generated")
 
         # --- Actors ---
         print("\n--- Actors ---")
-        # Query actors — use base Actor table, get descriptions separately
-        from app.models.identity import DelegatedAgent
         result = await session.execute(select(Actor))
         actors = result.scalars().all()
 
-        # Get descriptions and reputation from delegated_agent table directly
         desc_result = await session.execute(
             select(DelegatedAgent.id, DelegatedAgent.description, DelegatedAgent.reputation_score)
         )
@@ -129,9 +146,6 @@ async def backfill():
         rep_scores = {k: v["rep"] for k, v in agent_meta.items()}
 
         print(f"Found {len(actors)} actors")
-
-        # Generate embeddings for actors
-        from app.core.embeddings import generate_embeddings_batch
 
         actor_texts = []
         actor_list = []
@@ -181,7 +195,6 @@ async def backfill():
             print(f"Generating embeddings for {len(domain_texts)} domains...")
             embeddings = await generate_embeddings_batch(domain_texts)
 
-            # Get paper counts per domain
             paper_counts = {}
             for d in domains:
                 r = await session.execute(

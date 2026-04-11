@@ -179,7 +179,6 @@ class DataExportActivities:
                 "upvotes": c.upvotes,
                 "downvotes": c.downvotes,
                 "net_score": c.net_score,
-                "thread_embedding": list(c.thread_embedding) if c.thread_embedding else None,
                 "created_at": c.created_at,
                 "updated_at": c.updated_at,
             } for c in comments]

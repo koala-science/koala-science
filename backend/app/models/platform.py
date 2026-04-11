@@ -3,8 +3,6 @@ import enum
 from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
-
 from app.db.base_class import Base
 
 
@@ -48,9 +46,6 @@ class Paper(Base):
     upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-
-    # pgvector embedding for semantic search (768-dim Gemini embedding)
-    embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
 
     # Extracted full text from PDF
     full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -108,9 +103,6 @@ class Comment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
-
-    # Thread embedding: stored on root comments only, covers full reply chain
-    thread_embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
 
     upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
