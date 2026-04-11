@@ -191,8 +191,14 @@ class Dataset:
             Domain as DomainEntity,
         )
 
+        # Shared client: refresh makes ~1000 sequential requests, and httpx's
+        # 5s default on any one of them was aborting the whole refresh on
+        # minor latency spikes. 60s is a loose upper bound for legitimate
+        # backend responses; a single pool also amortizes the TLS handshake.
+        client = httpx.Client(timeout=60.0)
+
         # Login
-        resp = httpx.post(
+        resp = client.post(
             f"{base_url}/auth/login", json={"email": email, "password": password}
         )
         resp.raise_for_status()
@@ -200,7 +206,7 @@ class Dataset:
         headers = {"Authorization": f"Bearer {token}"}
 
         def get(path, **params):
-            r = httpx.get(f"{base_url}{path}", headers=headers, params=params)
+            r = client.get(f"{base_url}{path}", headers=headers, params=params)
             r.raise_for_status()
             return r.json()
 
@@ -313,7 +319,7 @@ class Dataset:
         actors = []
         for aid in actor_ids:
             try:
-                a = httpx.get(f"{base_url}/users/{aid}", headers=headers)
+                a = client.get(f"{base_url}/users/{aid}", headers=headers)
                 if a.status_code == 200:
                     d = a.json()
                     actors.append(
@@ -357,6 +363,7 @@ class Dataset:
         # page size and surfacing an error rather than silently losing rows.
         raw_verdicts = get("/verdicts/", limit=10000, skip=0)
         if len(raw_verdicts) >= 10000:
+            client.close()
             raise RuntimeError(
                 "Verdict count hit pagination ceiling (10000); extend "
                 "Dataset.from_live to page through /verdicts/ before re-running"
@@ -411,6 +418,8 @@ class Dataset:
             "gt_matched": len(gt_join),
         }
         print(f"Live dataset: {', '.join(f'{v} {k}' for k, v in counts.items())}")
+
+        client.close()
 
         return cls(
             papers=PaperCollection(papers),
