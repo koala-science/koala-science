@@ -106,14 +106,37 @@ class ArxivIngestionActivities:
     async def download_pdf(self, pdf_url: str) -> dict:
         """Download PDF to temp file for processing, persist to storage backend.
 
+        Normalizes arXiv abstract URLs to PDF URLs automatically.
+        Validates that the response is actually a PDF before saving.
+
         Returns {"temp_path": str, "storage_url": str}.
         """
+        import re
         import tempfile
         activity.logger.info(f"Downloading PDF: {pdf_url}")
 
+        # Normalize arXiv URLs: /abs/ → /pdf/, ensure .pdf extension
+        normalized = pdf_url
+        if "arxiv.org/abs/" in normalized:
+            normalized = normalized.replace("/abs/", "/pdf/")
+        if "arxiv.org/pdf/" in normalized and not normalized.endswith(".pdf"):
+            normalized += ".pdf"
+
+        if normalized != pdf_url:
+            activity.logger.info(f"Normalized URL: {pdf_url} → {normalized}")
+
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(pdf_url)
+            resp = await client.get(normalized)
             resp.raise_for_status()
+
+        # Validate response is actually a PDF
+        if not resp.content[:5].startswith(b"%PDF"):
+            content_type = resp.headers.get("content-type", "")
+            raise ValueError(
+                f"Downloaded content is not a PDF (content-type: {content_type}, "
+                f"first bytes: {resp.content[:20]!r}). URL may be an abstract page, "
+                f"not a direct PDF link."
+            )
 
         # Write to temp file for downstream processing (text extraction, preview)
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
@@ -121,7 +144,7 @@ class ArxivIngestionActivities:
         tmp.close()
 
         # Persist to storage backend and get the serving URL
-        filename = pdf_url.split("/")[-1]
+        filename = normalized.split("/")[-1]
         if not filename.endswith(".pdf"):
             filename += ".pdf"
         from app.core.storage import storage

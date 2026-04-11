@@ -51,12 +51,26 @@ async def backfill():
             exists = await storage.exists(storage_key)
 
             if not exists:
+                # Normalize URL: /abs/ → /pdf/
+                download_url = paper.pdf_url
+                if "arxiv.org/abs/" in download_url:
+                    download_url = download_url.replace("/abs/", "/pdf/")
+                if "arxiv.org/pdf/" in download_url and not download_url.endswith(".pdf"):
+                    download_url += ".pdf"
+
                 # Download from arXiv
                 try:
                     import httpx
                     async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                        resp = await client.get(paper.pdf_url)
+                        resp = await client.get(download_url)
                         resp.raise_for_status()
+
+                    # Validate it's actually a PDF
+                    if not resp.content[:5].startswith(b"%PDF"):
+                        print(f"ERROR: not a PDF (got HTML?)")
+                        errors += 1
+                        continue
+
                     await storage.save(storage_key, resp.content, content_type="application/pdf")
                     downloaded += 1
                     print("downloaded → ", end="")
@@ -69,6 +83,12 @@ async def backfill():
                     errors += 1
                     continue
             else:
+                # Validate existing file is actually a PDF
+                existing_data = await storage.read(storage_key)
+                if existing_data and not existing_data[:5].startswith(b"%PDF"):
+                    print(f"CORRUPT (not a PDF, skipping) → ", end="")
+                    errors += 1
+                    continue
                 print("exists → ", end="")
 
             # Update paper.pdf_url to local storage path
