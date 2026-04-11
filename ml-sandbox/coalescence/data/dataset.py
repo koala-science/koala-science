@@ -20,7 +20,10 @@ from coalescence.data.collections import (
     ActorCollection,
     EventCollection,
     DomainCollection,
+    VerdictCollection,
+    GroundTruthCollection,
 )
+from coalescence.data.entities import GroundTruthPaper
 from coalescence.data.loader import (
     _parse_dt,
     load_papers,
@@ -29,8 +32,50 @@ from coalescence.data.loader import (
     load_actors,
     load_events,
     load_domains,
+    load_verdicts,
+    load_ground_truth_papers,
     hydrate_last_activity,
 )
+
+
+# ---------------------------------------------------------------------------
+# Ground-truth join
+#
+# Joins platform ``Paper`` rows to ``GroundTruthPaper`` rows via a normalized
+# title key. This is the same normalization the backend uses when seeding the
+# ``ground_truth_paper.title_normalized`` column, so the join is exact: no
+# fuzzy matching, no fragile substring heuristics.
+# ---------------------------------------------------------------------------
+
+
+def _normalize_title(title: str) -> str:
+    """Lowercase + alphanumeric-only, truncated to 60 chars.
+
+    Must match ``backend.app.services.ground_truth_import.normalize_title``.
+    Any change here requires a corresponding change on the backend side.
+    """
+    import re
+
+    return re.sub(r"[^a-z0-9]", "", title.lower())[:60]
+
+
+def _build_gt_join(
+    platform_papers: list, gt_papers: list[GroundTruthPaper]
+) -> dict[str, GroundTruthPaper]:
+    """Return ``{platform_paper_id -> GroundTruthPaper}`` keyed by title match.
+
+    Each platform paper with a matching normalized title gets an entry.
+    Unmatched papers are absent from the result and are treated as out-of-GT
+    (i.e. adversarial / poison) by downstream scorers.
+    """
+    gt_by_norm = {g.title_normalized: g for g in gt_papers}
+    out: dict[str, GroundTruthPaper] = {}
+    for p in platform_papers:
+        key = _normalize_title(p.title)
+        g = gt_by_norm.get(key)
+        if g is not None:
+            out[p.id] = g
+    return out
 
 
 class Dataset:
@@ -44,6 +89,8 @@ class Dataset:
         actors: ActorCollection,
         events: EventCollection,
         domains: DomainCollection,
+        verdicts: VerdictCollection | None = None,
+        ground_truth: GroundTruthCollection | None = None,
         manifest: dict | None = None,
     ):
         self.papers = papers
@@ -52,6 +99,10 @@ class Dataset:
         self.actors = actors
         self.events = events
         self.domains = domains
+        self.verdicts = verdicts if verdicts is not None else VerdictCollection([])
+        self.ground_truth = (
+            ground_truth if ground_truth is not None else GroundTruthCollection.empty()
+        )
         self.manifest = manifest or {}
 
     @classmethod
@@ -59,6 +110,10 @@ class Dataset:
         """
         Load a dump directory containing JSONL files.
         Reads manifest.json if present, otherwise auto-discovers files.
+
+        Optional files ``verdicts.jsonl`` and ``ground_truth_papers.jsonl`` are
+        loaded when present; their absence is treated as "not dumped" rather
+        than an error, since older dumps predate those entities.
         """
         dump_dir = Path(path)
         if not dump_dir.is_dir():
@@ -77,9 +132,14 @@ class Dataset:
         actors = load_actors(dump_dir / "actors.jsonl")
         events = load_events(dump_dir / "events.jsonl")
         domains = load_domains(dump_dir / "domains.jsonl")
+        verdicts = load_verdicts(dump_dir / "verdicts.jsonl")
+        gt_papers = load_ground_truth_papers(dump_dir / "ground_truth_papers.jsonl")
 
         # Hydrate last_activity_at from events
         hydrate_last_activity(papers, comments, actors, events)
+
+        # Join GT to platform papers by normalized title
+        gt_join = _build_gt_join(papers, gt_papers)
 
         counts = {
             "papers": len(papers),
@@ -88,6 +148,9 @@ class Dataset:
             "actors": len(actors),
             "events": len(events),
             "domains": len(domains),
+            "verdicts": len(verdicts),
+            "gt_papers": len(gt_papers),
+            "gt_matched": len(gt_join),
         }
         print(f"Dataset loaded: {', '.join(f'{v} {k}' for k, v in counts.items())}")
 
@@ -98,6 +161,8 @@ class Dataset:
             actors=ActorCollection(actors),
             events=EventCollection(events),
             domains=DomainCollection(domains),
+            verdicts=VerdictCollection(verdicts),
+            ground_truth=GroundTruthCollection(gt_papers, gt_join),
             manifest=manifest,
         )
 
@@ -285,6 +350,55 @@ class Dataset:
 
         hydrate_last_activity(papers, comments, actors, events)
 
+        # Fetch verdicts in bulk. Endpoint is paginated; a single call with a
+        # generous page size is sufficient for the retreat's scale (<< 10k).
+        # A future page-size overflow will manifest as a truncated list, which
+        # we detect by comparing the returned count against the requested
+        # page size and surfacing an error rather than silently losing rows.
+        raw_verdicts = get("/verdicts/", limit=10000, skip=0)
+        if len(raw_verdicts) >= 10000:
+            raise RuntimeError(
+                "Verdict count hit pagination ceiling (10000); extend "
+                "Dataset.from_live to page through /verdicts/ before re-running"
+            )
+        verdicts = [
+            VerdictEntity(
+                id=v["id"],
+                paper_id=v["paper_id"],
+                author_id=v["author_id"],
+                content_markdown=v.get("content_markdown", ""),
+                score=int(v["score"]),
+                upvotes=v.get("upvotes", 0),
+                downvotes=v.get("downvotes", 0),
+                net_score=v.get("net_score", 0),
+                author_type=v.get("author_type"),
+                author_name=v.get("author_name"),
+                created_at=dt(v.get("created_at")),
+                updated_at=dt(v.get("updated_at")),
+            )
+            for v in raw_verdicts
+        ]
+
+        # Fetch ground-truth papers. Endpoint returns the full set keyed by
+        # openreview_id with a title_normalized column that matches the
+        # normalization we use for the join in ``_build_gt_join``.
+        raw_gt = get("/leaderboard/ground-truth/")
+        gt_papers = [
+            GroundTruthEntity(
+                openreview_id=g["openreview_id"],
+                title_normalized=g["title_normalized"],
+                decision=g["decision"],
+                accepted=bool(g["accepted"]),
+                year=int(g["year"]),
+                avg_score=g.get("avg_score"),
+                citations=g.get("citations"),
+                primary_area=g.get("primary_area"),
+            )
+            for g in raw_gt
+        ]
+
+        gt_join = _build_gt_join(papers, gt_papers)
+
         counts = {
             "papers": len(papers),
             "comments": len(comments),
@@ -292,6 +406,9 @@ class Dataset:
             "actors": len(actors),
             "events": len(events),
             "domains": len(domains),
+            "verdicts": len(verdicts),
+            "gt_papers": len(gt_papers),
+            "gt_matched": len(gt_join),
         }
         print(f"Live dataset: {', '.join(f'{v} {k}' for k, v in counts.items())}")
 
@@ -302,6 +419,8 @@ class Dataset:
             actors=ActorCollection(actors),
             events=EventCollection(events),
             domains=DomainCollection(domains),
+            verdicts=VerdictCollection(verdicts),
+            ground_truth=GroundTruthCollection(gt_papers, gt_join),
             manifest={"source": "live", "base_url": base_url},
         )
 

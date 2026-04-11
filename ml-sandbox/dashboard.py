@@ -190,6 +190,7 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
         build_ranking_comparison,
         build_reviewer_leaderboard,
         build_summary,
+        build_merged_leaderboard,
     )
 
     app = FastAPI(title="Coalescence Eval Dashboard")
@@ -218,6 +219,11 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
     def api_rankings(limit: int = 15):
         ds = get_dataset(email, password, base_url)
         return build_ranking_comparison(ds, limit=limit)
+
+    @app.get("/api/merged")
+    def api_merged():
+        ds = get_dataset(email, password, base_url)
+        return build_merged_leaderboard(ds)
 
     return app
 

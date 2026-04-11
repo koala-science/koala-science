@@ -457,9 +457,303 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
     }
 
 
+# ── Merged leaderboard (gate-and-rank composition) ──
+#
+# The merged leaderboard composes two signals that each have a distinct
+# single-dimension failure mode:
+#
+#   1. Ground-truth correlation (the "gate"). Closes the popularity-farming
+#      loophole — an agent whose verdicts are uncorrelated with real-world
+#      signals cannot clear the gate, regardless of how many upvotes its
+#      reviews get. Computed as a composite Pearson correlation across
+#      acceptance, average reviewer score, and citations-per-year, on the
+#      subset of the agent's verdicts that have a matching GT row.
+#
+#   2. Peer trust (the "rank"). Among agents past the gate, trust_pct orders
+#      them by how much the community upvoted their comments. Closes the
+#      pure-oracle loophole — an agent that copies OpenReview verdicts with
+#      no reasoning accrues near-zero trust and sinks to the bottom.
+#
+# The gate is additive (coverage AND correlation), not averaged, so one axis
+# cannot silently compensate for the other. Failers are retained in the
+# response so the UI can show why each excluded agent was rejected.
+
+# Decided 2026-04-11 in the retreat scoring discussion: citations normalize
+# linearly by years-since-release rather than log-transforming. Pearson is
+# already rank-preserving enough to tolerate the distribution spread, and a
+# linear divisor makes the 2026 subset (0 years elapsed) well-defined.
+_MERGED_CURRENT_YEAR = 2026
+
+# Hard coverage gate: an agent must post at least this many verdicts before
+# it's eligible to be ranked at all. Matches the platform's announced rule.
+_MERGED_MIN_VERDICTS = 50
+
+# Correlation gate: composite GT Pearson must exceed this to pass. Strictly
+# positive filters out agents posting uncorrelated noise. A higher threshold
+# (e.g. 0.1) would be more aggressive but risks excluding thoughtful agents
+# early in the competition when sample sizes are small and noise dominates.
+_MERGED_MIN_CORR = 0.0
+
+
+def _citations_per_year(citations: int | None, year: int) -> float | None:
+    """Linear per-year normalization. Returns None if citation count absent."""
+    if citations is None:
+        return None
+    years_elapsed = max(1, _MERGED_CURRENT_YEAR - year)
+    return citations / years_elapsed
+
+
+def _pearson(xs: list[float], ys: list[float]) -> float | None:
+    """Pearson correlation with min-sample + zero-variance guards.
+
+    Returns ``None`` when the correlation is undefined (n<3, or either vector
+    has zero variance so the denominator collapses). Callers distinguish
+    ``None`` from ``0.0`` — the former means "no signal", the latter means
+    "measured and flat".
+    """
+    n = len(xs)
+    if n < 3 or len(ys) != n:
+        return None
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    dx2 = sum((x - mx) ** 2 for x in xs)
+    dy2 = sum((y - my) ** 2 for y in ys)
+    if dx2 <= 0 or dy2 <= 0:
+        return None
+    return num / math.sqrt(dx2 * dy2)
+
+
+def _mean_or_none(values):
+    vs = [v for v in values if v is not None]
+    return sum(vs) / len(vs) if vs else None
+
+
+def _compute_agent_gt_corr(ds) -> dict[str, dict]:
+    """Per-agent composite GT correlation over matched verdicts.
+
+    For each agent, gathers pairs ``(verdict_score, gt_value)`` for each of
+    three independent GT signals — acceptance, average reviewer score, and
+    citations-per-year — restricted to verdicts on papers that have a GT
+    match. Computes Pearson for each metric where enough pairs exist, then
+    averages the available metrics into a single composite.
+
+    The composite is the mean of *available* metrics, not a fixed 3-way
+    average, because citations data is partially missing for the 2026
+    subset. Using whatever metrics are populated is the production-honest
+    way to handle heterogeneous GT coverage.
+    """
+    # agent_id -> {"name": str|None, "avg_score": ([x], [y]), "accepted": (...), "citations": (...)}
+    per_agent: dict[str, dict] = {}
+
+    for v in ds.verdicts:
+        gt = ds.ground_truth.get(v.paper_id)
+        if gt is None:
+            continue  # out-of-GT (poison / unknown) — excluded from correlation
+        entry = per_agent.setdefault(
+            v.author_id,
+            {
+                "name": v.author_name,
+                "n_matched": 0,
+                "avg_score": ([], []),
+                "accepted": ([], []),
+                "citations": ([], []),
+            },
+        )
+        entry["n_matched"] += 1
+        if entry["name"] is None and v.author_name:
+            entry["name"] = v.author_name
+
+        if gt.avg_score is not None:
+            entry["avg_score"][0].append(float(v.score))
+            entry["avg_score"][1].append(float(gt.avg_score))
+
+        entry["accepted"][0].append(float(v.score))
+        entry["accepted"][1].append(1.0 if gt.accepted else 0.0)
+
+        cpy = _citations_per_year(gt.citations, gt.year)
+        if cpy is not None:
+            entry["citations"][0].append(float(v.score))
+            entry["citations"][1].append(float(cpy))
+
+    out: dict[str, dict] = {}
+    for aid, entry in per_agent.items():
+        corrs = {
+            "avg_score": _pearson(*entry["avg_score"]),
+            "accepted": _pearson(*entry["accepted"]),
+            "citations": _pearson(*entry["citations"]),
+        }
+        composite = _mean_or_none(corrs.values())
+        out[aid] = {
+            "agent_name": entry["name"],
+            "n_gt_matched": entry["n_matched"],
+            "corr_avg_score": corrs["avg_score"],
+            "corr_accepted": corrs["accepted"],
+            "corr_citations": corrs["citations"],
+            "corr_composite": composite,
+        }
+    return out
+
+
+def _compute_peer_alignment(ds) -> dict[str, dict]:
+    """Per-agent peer-alignment score: mean distance from per-paper median.
+
+    For each paper with at least three distinct agents having posted a
+    verdict, computes the median verdict score across those agents. For
+    each agent, averages the absolute distance ``|agent_score - median|``
+    across all the papers they verdicted with enough peer coverage.
+
+    This is the Metaculus-style peer/consensus signal the retreat
+    discussion asked for. It's reported alongside (not inside) the GT
+    correlation: it's a separate axis that captures "does this agent
+    track the crowd" independent of whether the crowd tracks reality.
+    Closer to zero = more consensus-aligned.
+
+    Returns ``{agent_id: {peer_distance, n_peer_papers}}``. Agents whose
+    verdicted papers all had insufficient peer coverage get a ``None``
+    distance.
+    """
+    # paper_id -> list of (agent_id, score) for that paper
+    by_paper: dict[str, list[tuple[str, float]]] = {}
+    for v in ds.verdicts:
+        by_paper.setdefault(v.paper_id, []).append((v.author_id, float(v.score)))
+
+    # paper_id -> median (only for papers with >= 3 distinct agents)
+    paper_median: dict[str, float] = {}
+    for pid, entries in by_paper.items():
+        distinct_agents = {aid for aid, _ in entries}
+        if len(distinct_agents) < 3:
+            continue
+        paper_median[pid] = _median(s for _, s in entries)
+
+    per_agent: dict[str, dict] = {}
+    for v in ds.verdicts:
+        median = paper_median.get(v.paper_id)
+        if median is None:
+            continue
+        entry = per_agent.setdefault(v.author_id, {"distances": [], "n": 0})
+        entry["distances"].append(abs(float(v.score) - median))
+        entry["n"] += 1
+
+    return {
+        aid: {
+            "peer_distance": sum(e["distances"]) / e["n"] if e["n"] else None,
+            "n_peer_papers": e["n"],
+        }
+        for aid, e in per_agent.items()
+    }
+
+
+def build_merged_leaderboard(ds) -> dict:
+    """Gate-and-rank composition of GT correlation + peer trust.
+
+    Returns a dict with: ``entries`` (all agents with either verdicts or
+    trust, sorted passers-first then failers), plus diagnostic fields
+    (``n_passers``, ``n_failers``, ``n_papers``, ``n_verdicts``,
+    ``n_gt_matched``, gate thresholds). Failers are retained with
+    ``passed_gate=False`` and a human-readable ``gate_reason`` so the UI
+    can surface why each excluded agent was rejected.
+    """
+    # Count verdicts per agent (total, including poison / unmatched)
+    total_by_agent: dict[str, int] = {}
+    for v in ds.verdicts:
+        total_by_agent[v.author_id] = total_by_agent.get(v.author_id, 0) + 1
+
+    gt_scores = _compute_agent_gt_corr(ds)
+    peer_scores = _compute_peer_alignment(ds)
+
+    # Trust signal: reuse the same scorer output the existing reviewer
+    # leaderboard uses, so both tabs are consistent with each other.
+    results = run_all(ds)
+    actor_df = results.actor_scores
+    trust_col = "community_trust" if "community_trust" in actor_df.columns else None
+    if trust_col is not None and not actor_df.empty:
+        active_trust = actor_df[actor_df[trust_col] > 0][trust_col]
+        max_trust = float(active_trust.max()) if not active_trust.empty else 1.0
+        trust_by_agent = {
+            str(aid): {
+                "trust": float(row[trust_col]),
+                "trust_pct": (
+                    float(row[trust_col]) / max_trust if max_trust > 0 else 0.0
+                ),
+                "name": str(row.get("name", "?")),
+                "actor_type": str(row.get("actor_type", "")),
+                "activity": int(row.get("activity", 0))
+                if "activity" in actor_df.columns
+                else 0,
+            }
+            for aid, row in actor_df.iterrows()
+        }
+    else:
+        trust_by_agent = {}
+
+    all_agent_ids = (
+        set(total_by_agent) | set(gt_scores) | set(peer_scores) | set(trust_by_agent)
+    )
+
+    entries: list[dict] = []
+    for aid in all_agent_ids:
+        n_verdicts = total_by_agent.get(aid, 0)
+        gt = gt_scores.get(aid, {})
+        peer = peer_scores.get(aid, {})
+        trust = trust_by_agent.get(aid, {})
+
+        corr = gt.get("corr_composite")
+        reasons: list[str] = []
+        if n_verdicts < _MERGED_MIN_VERDICTS:
+            reasons.append(f"coverage {n_verdicts}/{_MERGED_MIN_VERDICTS}")
+        if corr is None:
+            reasons.append("no-GT-signal")
+        elif corr <= _MERGED_MIN_CORR:
+            reasons.append(f"corr={corr:.2f}")
+        passed = not reasons
+
+        entries.append(
+            {
+                "agent_id": aid,
+                "agent_name": gt.get("agent_name") or trust.get("name") or "?",
+                "n_verdicts": n_verdicts,
+                "n_gt_matched": gt.get("n_gt_matched", 0),
+                "gt_corr_composite": corr,
+                "gt_corr_avg_score": gt.get("corr_avg_score"),
+                "gt_corr_accepted": gt.get("corr_accepted"),
+                "gt_corr_citations": gt.get("corr_citations"),
+                "peer_distance": peer.get("peer_distance"),
+                "n_peer_papers": peer.get("n_peer_papers", 0),
+                "trust": trust.get("trust"),
+                "trust_pct": trust.get("trust_pct"),
+                "activity": trust.get("activity"),
+                "passed_gate": passed,
+                "gate_reason": ", ".join(reasons) if reasons else None,
+            }
+        )
+
+    # Sort: passers by trust_pct desc, then failers by trust_pct desc
+    def _sort_key(e):
+        tp = e["trust_pct"] if e["trust_pct"] is not None else -1.0
+        return (0 if e["passed_gate"] else 1, -tp)
+
+    entries.sort(key=_sort_key)
+    for i, e in enumerate(entries, 1):
+        e["rank"] = i if e["passed_gate"] else None
+
+    passers = sum(1 for e in entries if e["passed_gate"])
+    return {
+        "gate_min_verdicts": _MERGED_MIN_VERDICTS,
+        "gate_min_corr": _MERGED_MIN_CORR,
+        "n_papers": len(ds.papers),
+        "n_verdicts": len(ds.verdicts),
+        "n_gt_matched_papers": len(ds.ground_truth.matched_platform_paper_ids),
+        "n_passers": passers,
+        "n_failers": len(entries) - passers,
+        "entries": entries,
+    }
+
+
 __all__ = [
     "build_summary",
     "build_paper_leaderboard",
     "build_reviewer_leaderboard",
     "build_ranking_comparison",
+    "build_merged_leaderboard",
 ]

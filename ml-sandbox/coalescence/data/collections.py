@@ -4,6 +4,7 @@ Indexed collection wrappers with chainable filters.
 All filter methods return new collection instances. Collections are
 lightweight — they share the underlying entity references.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -13,12 +14,22 @@ from typing import TypeVar, Generic, Iterator
 import numpy as np
 import pandas as pd
 
-from coalescence.data.entities import Paper, Comment, Vote, Actor, Event, Domain
+from coalescence.data.entities import (
+    Paper,
+    Comment,
+    Vote,
+    Actor,
+    Event,
+    Domain,
+    Verdict,
+    GroundTruthPaper,
+)
 
 T = TypeVar("T")
 
 
 # --- Base Collection ---
+
 
 class BaseCollection(Generic[T]):
     """Base with shared filter and export methods."""
@@ -42,6 +53,7 @@ class BaseCollection(Generic[T]):
         if not self._items:
             return pd.DataFrame()
         from dataclasses import asdict
+
         return pd.DataFrame([asdict(item) for item in self._items])
 
     def _filter(self, predicate) -> list[T]:
@@ -54,20 +66,30 @@ class BaseCollection(Generic[T]):
         return self.__class__(self._filter(lambda x: x.created_at < dt))
 
     def last_activity_after(self, dt: datetime):
-        return self.__class__(self._filter(
-            lambda x: getattr(x, "last_activity_at", None) is not None and x.last_activity_at >= dt
-        ))
+        return self.__class__(
+            self._filter(
+                lambda x: (
+                    getattr(x, "last_activity_at", None) is not None
+                    and x.last_activity_at >= dt
+                )
+            )
+        )
 
     def last_activity_before(self, dt: datetime):
-        return self.__class__(self._filter(
-            lambda x: getattr(x, "last_activity_at", None) is not None and x.last_activity_at < dt
-        ))
+        return self.__class__(
+            self._filter(
+                lambda x: (
+                    getattr(x, "last_activity_at", None) is not None
+                    and x.last_activity_at < dt
+                )
+            )
+        )
 
 
 # --- Paper Collection ---
 
-class PaperCollection(BaseCollection[Paper]):
 
+class PaperCollection(BaseCollection[Paper]):
     def __init__(self, items: list[Paper]):
         super().__init__(items)
         self._by_id: dict[str, Paper] = {p.id: p for p in items}
@@ -99,7 +121,11 @@ class PaperCollection(BaseCollection[Paper]):
         if self._embedding_cache is not None:
             return self._embedding_cache
         vecs = [p.embedding for p in self._items if p.embedding]
-        self._embedding_cache = np.array(vecs, dtype=np.float32) if vecs else np.empty((0, 768), dtype=np.float32)
+        self._embedding_cache = (
+            np.array(vecs, dtype=np.float32)
+            if vecs
+            else np.empty((0, 768), dtype=np.float32)
+        )
         return self._embedding_cache
 
     def embedding_ids(self) -> list[str]:
@@ -109,8 +135,8 @@ class PaperCollection(BaseCollection[Paper]):
 
 # --- Comment Collection ---
 
-class CommentCollection(BaseCollection[Comment]):
 
+class CommentCollection(BaseCollection[Comment]):
     def __init__(self, items: list[Comment]):
         super().__init__(items)
         self._by_id: dict[str, Comment] = {c.id: c for c in items}
@@ -163,7 +189,11 @@ class CommentCollection(BaseCollection[Comment]):
         if self._embedding_cache is not None:
             return self._embedding_cache
         vecs = [c.thread_embedding for c in self._items if c.thread_embedding]
-        self._embedding_cache = np.array(vecs, dtype=np.float32) if vecs else np.empty((0, 768), dtype=np.float32)
+        self._embedding_cache = (
+            np.array(vecs, dtype=np.float32)
+            if vecs
+            else np.empty((0, 768), dtype=np.float32)
+        )
         return self._embedding_cache
 
     def thread_embedding_ids(self) -> list[str]:
@@ -173,8 +203,8 @@ class CommentCollection(BaseCollection[Comment]):
 
 # --- Vote Collection ---
 
-class VoteCollection(BaseCollection[Vote]):
 
+class VoteCollection(BaseCollection[Vote]):
     def __init__(self, items: list[Vote]):
         super().__init__(items)
         self._by_target: dict[str, list[Vote]] = defaultdict(list)
@@ -200,8 +230,8 @@ class VoteCollection(BaseCollection[Vote]):
 
 # --- Actor Collection ---
 
-class ActorCollection(BaseCollection[Actor]):
 
+class ActorCollection(BaseCollection[Actor]):
     def __init__(self, items: list[Actor]):
         super().__init__(items)
         self._by_id: dict[str, Actor] = {a.id: a for a in items}
@@ -220,8 +250,8 @@ class ActorCollection(BaseCollection[Actor]):
 
 # --- Event Collection ---
 
-class EventCollection(BaseCollection[Event]):
 
+class EventCollection(BaseCollection[Event]):
     def __init__(self, items: list[Event]):
         super().__init__(items)
         self._by_type: dict[str, list[Event]] = defaultdict(list)
@@ -239,8 +269,8 @@ class EventCollection(BaseCollection[Event]):
 
 # --- Domain Collection ---
 
-class DomainCollection(BaseCollection[Domain]):
 
+class DomainCollection(BaseCollection[Domain]):
     def __init__(self, items: list[Domain]):
         super().__init__(items)
         self._by_id: dict[str, Domain] = {d.id: d for d in items}
@@ -248,3 +278,103 @@ class DomainCollection(BaseCollection[Domain]):
 
     def get(self, key: str) -> Domain | None:
         return self._by_name.get(key) or self._by_id.get(key)
+
+
+# --- Verdict Collection ---
+
+
+class VerdictCollection(BaseCollection[Verdict]):
+    """Verdicts indexed by (paper, author) and by author for fast lookups.
+
+    Enforces the model-level ``(author_id, paper_id)`` uniqueness: duplicate
+    rows in the input are rejected rather than silently deduplicated, so the
+    loader surfaces data integrity problems immediately.
+    """
+
+    def __init__(self, items: list[Verdict]):
+        super().__init__(items)
+        self._by_id: dict[str, Verdict] = {}
+        self._by_paper: dict[str, list[Verdict]] = defaultdict(list)
+        self._by_author: dict[str, list[Verdict]] = defaultdict(list)
+        self._by_author_paper: dict[tuple[str, str], Verdict] = {}
+        for v in items:
+            self._by_id[v.id] = v
+            self._by_paper[v.paper_id].append(v)
+            self._by_author[v.author_id].append(v)
+            key = (v.author_id, v.paper_id)
+            if key in self._by_author_paper:
+                raise ValueError(
+                    f"Duplicate verdict for author={v.author_id} paper={v.paper_id}; "
+                    "verdicts must be unique per (author, paper) per the backend model"
+                )
+            self._by_author_paper[key] = v
+
+    def get(self, verdict_id: str) -> Verdict | None:
+        return self._by_id.get(verdict_id)
+
+    def by_author(self, author_id: str) -> VerdictCollection:
+        return VerdictCollection(self._by_author.get(author_id, []))
+
+    def for_paper(self, paper_id: str) -> VerdictCollection:
+        return VerdictCollection(self._by_paper.get(paper_id, []))
+
+    def for_author_paper(self, author_id: str, paper_id: str) -> Verdict | None:
+        return self._by_author_paper.get((author_id, paper_id))
+
+    @property
+    def authors(self) -> set[str]:
+        """All distinct agent IDs that have posted at least one verdict."""
+        return set(self._by_author.keys())
+
+
+# --- Ground-truth Collection ---
+
+
+class GroundTruthCollection:
+    """Keyed lookup over ``GroundTruthPaper`` rows joined to platform papers.
+
+    This collection is built post-load by joining on ``title_normalized`` so
+    downstream scorers can resolve platform ``paper_id -> GroundTruthPaper``
+    in O(1). Platform papers without a matching GT row are absent from the
+    index (a ``None`` return from ``get``) — callers treat those as
+    adversarial / poison for correlation purposes.
+    """
+
+    def __init__(
+        self,
+        gt_papers: list[GroundTruthPaper],
+        platform_paper_to_gt: dict[str, GroundTruthPaper],
+    ):
+        self._gt_papers = gt_papers
+        self._by_platform_id = platform_paper_to_gt
+        self._by_openreview_id: dict[str, GroundTruthPaper] = {
+            g.openreview_id: g for g in gt_papers
+        }
+
+    def __iter__(self) -> Iterator[GroundTruthPaper]:
+        return iter(self._gt_papers)
+
+    def __len__(self) -> int:
+        return len(self._gt_papers)
+
+    def __bool__(self) -> bool:
+        return len(self._gt_papers) > 0
+
+    def get(self, platform_paper_id: str) -> GroundTruthPaper | None:
+        """Lookup GT by platform paper UUID. Returns None if unmatched."""
+        return self._by_platform_id.get(platform_paper_id)
+
+    def by_openreview_id(self, openreview_id: str) -> GroundTruthPaper | None:
+        return self._by_openreview_id.get(openreview_id)
+
+    @property
+    def matched_platform_paper_ids(self) -> set[str]:
+        """Set of platform paper IDs that have a GT match (i.e. are scorable)."""
+        return set(self._by_platform_id.keys())
+
+    def is_matched(self, platform_paper_id: str) -> bool:
+        return platform_paper_id in self._by_platform_id
+
+    @classmethod
+    def empty(cls) -> GroundTruthCollection:
+        return cls([], {})

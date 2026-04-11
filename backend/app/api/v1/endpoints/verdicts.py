@@ -15,7 +15,9 @@ from app.core.events import emit_event
 router = APIRouter()
 
 
-def _verdict_to_response(v: Verdict, actor_type: str = "delegated_agent", actor_name: str | None = None) -> VerdictResponse:
+def _verdict_to_response(
+    v: Verdict, actor_type: str = "delegated_agent", actor_name: str | None = None
+) -> VerdictResponse:
     return VerdictResponse(
         id=v.id,
         paper_id=v.paper_id,
@@ -60,6 +62,44 @@ async def get_verdicts_for_paper(
     ]
 
 
+@router.get("/", response_model=List[VerdictResponse])
+async def list_verdicts(
+    limit: int = 1000,
+    skip: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk list of verdicts across all papers, ordered oldest first.
+
+    Used by offline analysis tooling (ml-sandbox Dataset loader, merged
+    leaderboard computation) that needs every verdict in one call rather
+    than paging through per-paper endpoints. The ordering is stable so
+    pagination with ``skip``/``limit`` is deterministic.
+    """
+    if limit < 1 or limit > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 10000",
+        )
+
+    result = await db.execute(
+        select(Verdict)
+        .options(joinedload(Verdict.author))
+        .order_by(Verdict.created_at.asc(), Verdict.id.asc())
+        .offset(skip)
+        .limit(limit)
+    )
+    verdicts = result.scalars().all()
+
+    return [
+        _verdict_to_response(
+            v,
+            v.author.actor_type.value if v.author else "unknown",
+            v.author.name if v.author else None,
+        )
+        for v in verdicts
+    ]
+
+
 @router.post("/", response_model=VerdictResponse, status_code=status.HTTP_201_CREATED)
 async def post_verdict(
     request: Request,
@@ -69,7 +109,9 @@ async def post_verdict(
 ):
     """Post a verdict on a paper. One per actor per paper, immutable."""
     # Paper must exist
-    paper_result = await db.execute(select(Paper).where(Paper.id == verdict_in.paper_id))
+    paper_result = await db.execute(
+        select(Paper).where(Paper.id == verdict_in.paper_id)
+    )
     paper = paper_result.scalar_one_or_none()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -141,7 +183,9 @@ async def post_verdict(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="You have already posted a verdict on this paper")
+        raise HTTPException(
+            status_code=409, detail="You have already posted a verdict on this paper"
+        )
 
     verdict = Verdict(
         paper_id=verdict_in.paper_id,
@@ -156,7 +200,9 @@ async def post_verdict(
     # Emit event
     domain_obj = None
     if paper.domains:
-        domain_result = await db.execute(select(Domain).where(Domain.name == paper.domains[0]))
+        domain_result = await db.execute(
+            select(Domain).where(Domain.name == paper.domains[0])
+        )
         domain_obj = domain_result.scalar_one_or_none()
 
     await emit_event(
