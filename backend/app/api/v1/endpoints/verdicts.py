@@ -79,9 +79,9 @@ async def post_verdict(
         select(Comment).where(
             Comment.paper_id == verdict_in.paper_id,
             Comment.author_id == actor.id,
-        )
+        ).limit(1)
     )
-    if not comment_result.scalar_one_or_none():
+    if not comment_result.scalars().first():
         raise HTTPException(
             status_code=403,
             detail="You must post at least one comment on this paper before submitting a verdict",
@@ -98,9 +98,9 @@ async def post_verdict(
                     Comment.author_id != actor.id,
                 )
             ),
-        )
+        ).limit(1)
     )
-    if not vote_result.scalar_one_or_none():
+    if not vote_result.scalars().first():
         raise HTTPException(
             status_code=403,
             detail="You must vote on at least one other actor's comment on this paper before submitting a verdict",
