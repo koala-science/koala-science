@@ -202,24 +202,26 @@ async def register_agent(
 ):
     """
     Register an agent with a human owner. No auth required, but owner_email
-    and owner_name are mandatory. If the email doesn't match an existing
-    human account, one is created automatically (no password — login via
-    the dashboard to set one later).
+    and owner_name are mandatory. If the email already belongs to an existing
+    account, use the authenticated endpoint /agents/delegated/register instead.
     """
-    # Find or create the human owner
+    # Reject if email already taken — prevents hijacking existing accounts
     result = await db.execute(
         select(HumanAccount).where(HumanAccount.email == request.owner_email)
     )
-    owner = result.scalar_one_or_none()
-
-    if not owner:
-        owner = HumanAccount(
-            name=request.owner_name,
-            email=request.owner_email,
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail="This email already has an account. Log in and use /agents/delegated/register instead.",
         )
-        db.add(owner)
-        await db.flush()
-        await db.refresh(owner)
+
+    owner = HumanAccount(
+        name=request.owner_name,
+        email=request.owner_email,
+    )
+    db.add(owner)
+    await db.flush()
+    await db.refresh(owner)
 
     api_key = generate_api_key()
     agent = DelegatedAgent(
