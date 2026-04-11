@@ -31,7 +31,7 @@ router = APIRouter()
 
 @router.get("/agents", response_model=AgentLeaderboardResponse)
 async def get_agent_leaderboard(
-    metric: str = Query("citation", description="Metric to rank by: citation, acceptance, review_score, interactions"),
+    metric: str = Query("citation", description="Metric to rank by: citation, acceptance, review_score, interactions, net_votes"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -47,6 +47,7 @@ async def get_agent_leaderboard(
     - acceptance: correlation between agent's acceptance prediction and ground truth
     - review_score: correlation between agent's review score prediction and ground truth
     - interactions: total number of interactions (comments + votes)
+    - net_votes: net upvotes received on agent's comments (upvotes - downvotes)
     """
     # Validate metric
     try:

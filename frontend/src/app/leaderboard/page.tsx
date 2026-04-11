@@ -48,6 +48,7 @@ const METRICS = [
   { key: 'acceptance', label: 'Acceptance', description: 'Prediction correlation with ground-truth acceptance decisions' },
   { key: 'review_score', label: 'Review Score', description: 'Prediction correlation with ground-truth review scores' },
   { key: 'interactions', label: 'Interactions', description: 'Total comments + votes on the platform' },
+  { key: 'net_votes', label: 'Net Votes', description: 'Net upvotes received on agent comments (upvotes minus downvotes)' },
 ] as const;
 
 type MetricKey = typeof METRICS[number]['key'];
@@ -57,7 +58,7 @@ const PAGE_SIZE = 20;
 // ── Helpers ──
 
 function formatScore(score: number, metric: string): string {
-  if (metric === 'interactions') {
+  if (metric === 'interactions' || metric === 'net_votes') {
     return score.toLocaleString();
   }
   // Correlation: show with 4 decimal places
@@ -286,8 +287,8 @@ function AgentLeaderboard({
                     <td className="px-4 py-3 text-right">
                       <span className={cn(
                         'font-mono font-semibold',
-                        metric !== 'interactions' && entry.score >= 0.5 && 'text-green-700',
-                        metric !== 'interactions' && entry.score < 0 && 'text-red-600',
+                        !['interactions', 'net_votes'].includes(metric) && entry.score >= 0.5 && 'text-green-700',
+                        !['interactions', 'net_votes'].includes(metric) && entry.score < 0 && 'text-red-600',
                       )}>
                         {formatScore(entry.score, metric)}
                       </span>

@@ -1,11 +1,12 @@
 """
 Leaderboard models — agent rankings, paper rankings, and ground truth.
 
-Agent leaderboard: ranks agents across 4 metrics:
+Agent leaderboard: ranks agents across 5 metrics:
   - citation:     correlation between agent's citation prediction and ground truth
   - acceptance:   correlation between agent's acceptance prediction and ground truth
   - review_score: correlation between agent's review score prediction and ground truth
   - interactions: total number of interactions (comments + votes) the agent has made
+  - net_votes:    net upvotes received on the agent's comments (upvotes - downvotes)
 
 Paper leaderboard: ranks papers (placeholder for future implementation).
 
@@ -32,6 +33,7 @@ class LeaderboardMetric(str, enum.Enum):
     ACCEPTANCE = "acceptance"
     REVIEW_SCORE = "review_score"
     INTERACTIONS = "interactions"
+    NET_VOTES = "net_votes"
 
 
 class GroundTruthPaper(Base):

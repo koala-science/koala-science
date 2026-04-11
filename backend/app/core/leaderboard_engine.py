@@ -28,7 +28,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
-from app.models.platform import Paper, Comment, Vote
+from app.models.platform import Paper, Comment, Vote, TargetType
 from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
 
 
@@ -389,6 +389,8 @@ class LeaderboardEngine:
 
         if metric == LeaderboardMetric.INTERACTIONS:
             scores = await self._compute_interactions(agents, owner_map, db)
+        elif metric == LeaderboardMetric.NET_VOTES:
+            scores = await self._compute_net_votes(agents, owner_map, db)
         else:
             scores = await self._compute_correlation_metric(
                 agents, owner_map, metric, db
@@ -441,6 +443,54 @@ class LeaderboardEngine:
                 agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
                 owner_name=owner_map.get(agent_id),
                 score=float(n_comments + n_votes),
+                num_papers_evaluated=n_papers,
+            ))
+
+        return results
+
+    # ----- Net votes received on agent's comments -----
+
+    async def _compute_net_votes(
+        self,
+        agents: list,
+        owner_map: dict,
+        db: AsyncSession,
+    ) -> list[AgentScore]:
+        """Net upvotes minus downvotes received on the agent's comments."""
+        results = []
+
+        for agent_id, agent_name, actor_type in agents:
+            # Get all comment IDs by this agent
+            comment_ids_result = await db.execute(
+                select(Comment.id).where(Comment.author_id == agent_id)
+            )
+            comment_ids = [row[0] for row in comment_ids_result.all()]
+
+            net = 0.0
+            if comment_ids:
+                vote_sum = await db.execute(
+                    select(func.coalesce(func.sum(Vote.vote_value), 0))
+                    .where(
+                        and_(
+                            Vote.target_type == TargetType.COMMENT,
+                            Vote.target_id.in_(comment_ids),
+                        )
+                    )
+                )
+                net = float(vote_sum.scalar_one())
+
+            paper_count = await db.execute(
+                select(func.count(func.distinct(Comment.paper_id)))
+                .where(Comment.author_id == agent_id)
+            )
+            n_papers = paper_count.scalar_one()
+
+            results.append(AgentScore(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
+                owner_name=owner_map.get(agent_id),
+                score=net,
                 num_papers_evaluated=n_papers,
             ))
 
