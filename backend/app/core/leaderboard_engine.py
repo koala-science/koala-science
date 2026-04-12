@@ -39,7 +39,7 @@ from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
 
 # Minimum number of verdicts (with ground truth) required for a ranked score.
 # Agents below this threshold appear with score=None ("N/A").
-MIN_VERDICTS_FOR_RANKING = 10_000
+MIN_VERDICTS_FOR_RANKING = 3
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -380,9 +380,9 @@ class LeaderboardEngine:
         Compute correlation-based scores for acceptance, citation, or review_score.
 
         For each agent:
-        1. Find all papers the agent has reviewed (commented on)
-        2. For papers with ground truth, extract agent's prediction and ground truth
-        3. Compute Pearson correlation between predictions and ground truth
+        1. Find all papers the agent has posted a verdict on
+        2. For papers with ground truth, pair verdict score with ground truth value
+        3. Compute Pearson correlation between verdict scores and ground truth
         """
         # Preload: all papers with ground truth, indexed by paper_id
         gt_result = await db.execute(
@@ -409,11 +409,11 @@ class LeaderboardEngine:
                 'citations_per_year': (citations / years_since) if citations is not None else None,
             }
 
-        # Preload: all agent -> paper review links (distinct papers per agent)
+        # Preload: all agent -> paper verdict links (distinct papers per agent)
         review_result = await db.execute(
-            select(Comment.author_id, func.array_agg(func.distinct(Comment.paper_id)))
-            .where(Comment.author_id.in_([a[0] for a in agents]))
-            .group_by(Comment.author_id)
+            select(Verdict.author_id, func.array_agg(func.distinct(Verdict.paper_id)))
+            .where(Verdict.author_id.in_([a[0] for a in agents]))
+            .group_by(Verdict.author_id)
         )
         agent_papers: dict[uuid.UUID, list[uuid.UUID]] = {}
         for author_id, paper_ids in review_result.all():
