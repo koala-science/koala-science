@@ -1,10 +1,11 @@
 """
-Import ground truth data from McGill-NLP/iclr-leaderboard-data (HuggingFace).
+Import ground truth data from McGill-NLP/AI-For-Science-Retreat-Data (HuggingFace).
 
-Downloads the preprocessed CSV containing ICLR 2025 and 2026 papers with
-acceptance decisions, reviewer scores, and citation counts, and inserts them
-into the ground_truth_paper table. Then matches platform papers to ground
-truth by normalized title and sets paper.openreview_id.
+Downloads the preprocessed CSV containing ICLR 2025 papers with acceptance
+decisions, reviewer scores, and citation counts, and inserts them into the
+ground_truth_paper table. Then matches platform papers to ground truth using
+the frontend_paper_id column (direct UUID match) with title normalization
+as fallback.
 
 Usage:
     cd backend
@@ -38,8 +39,8 @@ from app.models.platform import Paper
 # ---------------------------------------------------------------------------
 
 CSV_URL = (
-    "https://huggingface.co/datasets/McGill-NLP/iclr-leaderboard-data"
-    "/resolve/main/iclr_leaderboard_data.csv"
+    "https://huggingface.co/datasets/McGill-NLP/AI-For-Science-Retreat-Data"
+    "/resolve/main/molbook_leaderboad.csv"
 )
 
 
@@ -111,10 +112,13 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
 
     # ── Step 1: Download preprocessed CSV ──
     print("Step 1: Downloading preprocessed leaderboard data from HuggingFace...")
-    csv_path = await download_file(CSV_URL, cache_path / "iclr_leaderboard_data.csv")
+    csv_path = await download_file(CSV_URL, cache_path / "molbook_leaderboad.csv")
 
     # ── Step 2: Parse CSV and insert ground truth papers ──
     print("\nStep 2: Inserting ground truth papers...")
+
+    # Also build a mapping from frontend_paper_id -> openreview_id for Step 3
+    frontend_id_to_orid: dict[str, str] = {}
 
     async with AsyncSessionLocal() as session:
         # Check existing ground truth count
@@ -154,7 +158,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                 avg_score_raw = row.get('avg_score', '').strip()
                 avg_score = float(avg_score_raw) if avg_score_raw else None
 
-                citations_raw = row.get('citations', '').strip()
+                citations_raw = row.get('citations_serper', '').strip()
                 citations = int(float(citations_raw)) if citations_raw else 0
 
                 gt = GroundTruthPaper(
@@ -173,6 +177,11 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                 batch.append(gt)
                 total_inserted += 1
 
+                # Track frontend_paper_id for direct matching
+                fpid = row.get('frontend_paper_id', '').strip()
+                if fpid and fpid != '0':
+                    frontend_id_to_orid[fpid] = openreview_id
+
                 # Flush in batches of 500
                 if len(batch) >= 500:
                     session.add_all(batch)
@@ -189,13 +198,13 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
         # ── Step 3: Match platform papers to ground truth ──
         print(f"\nStep 3: Matching platform papers to ground truth...")
 
-        # Build ground truth lookup by normalized title
+        # Build ground truth lookup by normalized title (fallback)
         gt_result = await session.execute(
             select(GroundTruthPaper.openreview_id, GroundTruthPaper.title_normalized)
         )
-        gt_lookup: dict[str, str] = {}
+        gt_title_lookup: dict[str, str] = {}
         for orid, norm_title in gt_result.all():
-            gt_lookup[norm_title] = orid
+            gt_title_lookup[norm_title] = orid
 
         # Get all platform papers
         paper_result = await session.execute(
@@ -206,7 +215,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
         matched = 0
         already_linked = 0
         unmatched = 0
-        assigned_orids: set[str] = set()  # Track assigned IDs to avoid unique constraint violations
+        assigned_orids: set[str] = set()
 
         # Collect already-assigned openreview_ids
         for paper_id, paper_title, existing_orid in papers:
@@ -218,8 +227,13 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                 already_linked += 1
                 continue
 
-            norm = normalize_title(paper_title)
-            orid = gt_lookup.get(norm)
+            # Try direct match via frontend_paper_id first
+            orid = frontend_id_to_orid.get(str(paper_id))
+
+            # Fall back to normalized title match
+            if not orid:
+                norm = normalize_title(paper_title)
+                orid = gt_title_lookup.get(norm)
 
             if orid and orid not in assigned_orids:
                 await session.execute(
