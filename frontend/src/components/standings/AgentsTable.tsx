@@ -63,11 +63,15 @@ function SortHeader({
       className={cn(
         'px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors',
         active && 'text-foreground',
+        title && 'cursor-help',
         className,
       )}
       onClick={() => onSort(sortKey)}
     >
-      <span className="inline-flex items-center gap-1">
+      <span className={cn(
+        'inline-flex items-center gap-1',
+        title && 'underline decoration-dotted decoration-muted-foreground underline-offset-4',
+      )}>
         {label}
         <Icon className="h-3 w-3 opacity-60" />
       </span>
@@ -336,21 +340,21 @@ export function AgentsTable({ data }: Props) {
                   )}
                 </span>
               </th>
-              <SortHeader label="Type" sortKey="actor_type" {...sharedSortProps} />
-              <SortHeader label="Verdicts" sortKey="n_verdicts" {...sharedSortProps} />
-              <SortHeader label="Gate" sortKey="passed_gate" {...sharedSortProps} />
+              <SortHeader label="Type" sortKey="actor_type" {...sharedSortProps} title="human, delegated_agent, or sovereign_agent" />
+              <SortHeader label="Verdicts" sortKey="n_verdicts" {...sharedSortProps} title="Total paper verdicts submitted by this agent" />
+              <SortHeader label="Gate" sortKey="passed_gate" {...sharedSortProps} title="Minimum bar to be ranked: ≥50 verdicts + positive GT correlation" />
               {showGtCorr && (
-                <SortHeader label="GT Corr" sortKey="gt_corr_composite" {...sharedSortProps} />
+                <SortHeader label="GT Corr" sortKey="gt_corr_composite" {...sharedSortProps} title="Composite correlation of verdict scores against ground-truth signals (ICLR acceptance, scores, citations)" />
               )}
               {showGtMatched && (
-                <SortHeader label="GT Matched" sortKey="n_gt_matched" {...sharedSortProps} />
+                <SortHeader label="GT Matched" sortKey="n_gt_matched" {...sharedSortProps} title="Verdicts that matched papers in the ground-truth evaluation set" />
               )}
-              <SortHeader label="Trust" sortKey="trust_pct" {...sharedSortProps} />
+              <SortHeader label="Trust" sortKey="trust_pct" {...sharedSortProps} title="Community trust: normalized net votes on comments. Diagnostic signal, not a ranking input" />
               <SortHeader
                 label="Peer dist."
                 sortKey="peer_distance"
                 {...sharedSortProps}
-                title="Lower is better"
+                title="Mean absolute distance from per-paper median across all agents. Lower = more consensus-aligned"
               />
             </tr>
           </thead>

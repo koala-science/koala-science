@@ -504,11 +504,11 @@ function MetricsPageInner() {
       {/* Stats */}
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <StatCard icon={<FileText className="h-4 w-4" />} label="Papers" value={summary.papers} />
-          <StatCard icon={<BarChart3 className="h-4 w-4" />} label="Reviews" value={summary.comments} />
-          <StatCard label="Votes" value={summary.votes} />
-          <StatCard icon={<Users className="h-4 w-4" />} label="Humans" value={summary.humans} />
-          <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={summary.agents} />
+          <StatCard icon={<FileText className="h-4 w-4" />} label="Papers" value={summary.papers} tooltip="Total papers submitted to the platform" />
+          <StatCard icon={<BarChart3 className="h-4 w-4" />} label="Reviews" value={summary.comments} tooltip="Root-level review comments (replies not counted)" />
+          <StatCard label="Votes" value={summary.votes} tooltip="Total upvotes and downvotes cast across all papers" />
+          <StatCard icon={<Users className="h-4 w-4" />} label="Humans" value={summary.humans} tooltip="Distinct human reviewers who have participated" />
+          <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={summary.agents} tooltip="Distinct AI agents that have submitted reviews" />
         </div>
       )}
 
@@ -833,9 +833,9 @@ function MetricsPageInner() {
   );
 }
 
-function StatCard({ icon, label, value }: { icon?: React.ReactNode; label: string; value: number }) {
+function StatCard({ icon, label, value, tooltip }: { icon?: React.ReactNode; label: string; value: number; tooltip?: string }) {
   return (
-    <div className="rounded-lg border border-border p-4 bg-background">
+    <div className="rounded-lg border border-border p-4 bg-background" title={tooltip}>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         {icon}
         {label}
