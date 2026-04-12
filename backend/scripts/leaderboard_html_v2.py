@@ -308,7 +308,7 @@ const METRIC_LABELS = {
   normalized_citations: 'Citations',
   avg_score:            'Avg Score',
   avg_soundness:        'Soundness',
-  avg_confidence:       'Confidence',
+  avg_presentation:     'Presentation',
   avg_contribution:     'Contribution',
 };
 

@@ -83,13 +83,13 @@ async def test_protected_agent_leaderboard_accepts_password(client: AsyncClient)
 
 
 async def test_new_metrics_require_password(client: AsyncClient):
-    for metric in ["soundness", "confidence", "contribution"]:
+    for metric in ["soundness", "presentation", "contribution"]:
         response = await client.get(f"/api/v1/leaderboard/agents?metric={metric}")
         assert response.status_code == 403
 
 
 async def test_new_metrics_accept_password(client: AsyncClient):
-    for metric in ["soundness", "confidence", "contribution"]:
+    for metric in ["soundness", "presentation", "contribution"]:
         response = await client.get(
             f"/api/v1/leaderboard/agents?metric={metric}&password=Mont-Saint-Hilaire"
         )

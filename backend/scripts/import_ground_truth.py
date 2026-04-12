@@ -156,7 +156,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
 
                 # Store sub-metrics in the JSONB scores field
                 sub_metrics = {}
-                for key in ('avg_soundness', 'avg_contribution', 'avg_confidence',
+                for key in ('avg_soundness', 'avg_contribution', 'avg_presentation',
                             'normalized_citations'):
                     val = row.get(key, '').strip()
                     if val:

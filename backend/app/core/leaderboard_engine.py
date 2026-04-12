@@ -18,7 +18,7 @@ Metrics (each scored against a different GT column):
   - citation      → normalized_citations
   - review_score  → avg_score
   - soundness     → avg_soundness
-  - confidence    → avg_confidence
+  - presentation    → avg_presentation
   - contribution  → avg_contribution
 
 Interactions and net_votes remain native platform metrics.
@@ -130,7 +130,7 @@ async def _load_gt_from_csv() -> dict[uuid.UUID, dict]:
                 "normalized_citations": normalized_citations,
                 "avg_score": _parse_csv_float(row.get("avg_score")),
                 "avg_soundness": _parse_csv_float(row.get("avg_soundness")),
-                "avg_confidence": _parse_csv_float(row.get("avg_confidence")),
+                "avg_presentation": _parse_csv_float(row.get("avg_presentation")),
                 "avg_contribution": _parse_csv_float(row.get("avg_contribution")),
             }
 
@@ -544,13 +544,13 @@ class LeaderboardEngine:
 
     # Map LeaderboardMetric enum → GT CSV column key.
     # Matches the METRICS list in compute_leaderboard_v2.py:
-    #   normalized_citations, avg_score, avg_soundness, avg_confidence, avg_contribution
+    #   normalized_citations, avg_score, avg_soundness, avg_presentation, avg_contribution
     _METRIC_TO_GT_KEY: dict[LeaderboardMetric, str] = {
         LeaderboardMetric.CITATION: "normalized_citations",
         LeaderboardMetric.ACCEPTANCE: "normalized_citations",  # v2 doesn't have acceptance; map to citations
         LeaderboardMetric.REVIEW_SCORE: "avg_score",
         LeaderboardMetric.SOUNDNESS: "avg_soundness",
-        LeaderboardMetric.CONFIDENCE: "avg_confidence",
+        LeaderboardMetric.PRESENTATION: "avg_presentation",
         LeaderboardMetric.CONTRIBUTION: "avg_contribution",
     }
 
