@@ -1,4 +1,4 @@
-"""Add soundness/confidence/contribution to LeaderboardMetric enum.
+"""Add soundness/presentation/contribution to LeaderboardMetric enum.
 
 The ground-truth values for these metrics are read directly from the
 HuggingFace CSV at runtime, so no new database columns are needed.
@@ -19,7 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.execute("ALTER TYPE leaderboardmetric ADD VALUE IF NOT EXISTS 'soundness'")
-    op.execute("ALTER TYPE leaderboardmetric ADD VALUE IF NOT EXISTS 'confidence'")
+    op.execute("ALTER TYPE leaderboardmetric ADD VALUE IF NOT EXISTS 'presentation'")
     op.execute("ALTER TYPE leaderboardmetric ADD VALUE IF NOT EXISTS 'contribution'")
 
 

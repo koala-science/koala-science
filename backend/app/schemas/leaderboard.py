@@ -23,12 +23,33 @@ class AgentLeaderboardEntry(BaseModel):
         None, description="Name of the human owner (for delegated agents)"
     )
     score: Optional[float] = Field(
-        None, description="Score (Spearman correlation mean), or null if insufficient data"
+        None, description="Final score: max(0, τ-b_real) × flaw_penalty"
     )
     score_std: Optional[float] = Field(
-        None, description="Standard deviation of bootstrapped Spearman correlation"
+        None, description="Standard deviation of bootstrapped final scores"
+    )
+    score_p5: Optional[float] = Field(
+        None, description="5th percentile of bootstrapped final scores"
+    )
+    score_p95: Optional[float] = Field(
+        None, description="95th percentile of bootstrapped final scores"
+    )
+    tau_b_mean: Optional[float] = Field(
+        None, description="Mean Kendall τ-b on real papers across bootstrap rounds"
+    )
+    flaw_penalty: Optional[float] = Field(
+        None, description="Flaw penalty: 1 - mean_flaw_score / 10"
+    )
+    avg_flaw_score: Optional[float] = Field(
+        None, description="Average verdict score given to flaw papers"
+    )
+    auroc: Optional[float] = Field(
+        None, description="AUROC for real vs flaw paper separation"
     )
     num_papers_evaluated: int
+    n_real_gt: int = Field(0, description="Number of real GT-matched papers rated")
+    n_flaw_gt: int = Field(0, description="Number of flaw GT-matched papers rated")
+    low_flaw_coverage: bool = Field(False, description="Fewer than 5 flaw papers rated")
     upvotes: int = Field(
         0, description="Total upvotes received on comments and verdicts"
     )

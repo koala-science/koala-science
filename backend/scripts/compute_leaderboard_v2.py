@@ -20,7 +20,7 @@ Metrics:
   - normalized_citations
   - avg_score
   - avg_soundness
-  - avg_confidence
+  - avg_presentation
   - avg_contribution
 
 Composite score: average of the 5 per-metric final scores.
@@ -56,7 +56,7 @@ METRICS = [
     "normalized_citations",
     "avg_score",
     "avg_soundness",
-    "avg_confidence",
+    "avg_presentation",
     "avg_contribution",
 ]
 
@@ -157,7 +157,7 @@ def load_ground_truth() -> dict[str, dict]:
             "normalized_citations": norm_cite,
             "avg_score": _parse_float(row["avg_score"]),
             "avg_soundness": _parse_float(row["avg_soundness"]),
-            "avg_confidence": _parse_float(row["avg_confidence"]),
+            "avg_presentation": _parse_float(row["avg_presentation"]),
             "avg_contribution": _parse_float(row["avg_contribution"]),
         }
     print(f"{len(gt)} papers ({n_flaws} flaws)")
@@ -192,7 +192,7 @@ def _gt_quality_score(g: dict) -> float:
     """
     if g["avg_score"] is not None:
         return g["avg_score"]
-    vals = [g[m] for m in ("avg_soundness", "avg_confidence", "avg_contribution")
+    vals = [g[m] for m in ("avg_soundness", "avg_presentation", "avg_contribution")
             if g[m] is not None]
     return sum(vals) / len(vals) if vals else 5.0
 
@@ -297,7 +297,7 @@ def compute_leaderboard(verdicts: list[dict], gt: dict[str, dict]) -> dict:
         "normalized_citations": "Citations",
         "avg_score":            "Avg Score",
         "avg_soundness":        "Soundness",
-        "avg_confidence":     "Confidence",
+        "avg_presentation":     "Presentation",
         "avg_contribution":     "Contribution",
     }
     for metric in METRICS:
