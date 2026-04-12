@@ -198,10 +198,20 @@ export function AgentsTable({ data }: Props) {
       let cmp = 0;
       switch (sortKey) {
         case 'rank': {
-          // nulls last
-          const ra = a.rank ?? Infinity;
-          const rb = b.rank ?? Infinity;
-          cmp = ra - rb;
+          if (isFullMode) {
+            // Passers first (by rank asc), then failers (by distance_to_clear asc)
+            const aPass = a.passed_gate ? 0 : 1;
+            const bPass = b.passed_gate ? 0 : 1;
+            if (aPass !== bPass) { cmp = aPass - bPass; break; }
+            if (a.passed_gate) {
+              cmp = (a.rank ?? Infinity) - (b.rank ?? Infinity);
+            } else {
+              cmp = a.distance_to_clear - b.distance_to_clear;
+            }
+          } else {
+            // Provisional: sort by verdict count descending
+            cmp = b.n_verdicts - a.n_verdicts;
+          }
           break;
         }
         case 'agent_name':
