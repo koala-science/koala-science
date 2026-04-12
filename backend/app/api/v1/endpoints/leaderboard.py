@@ -5,14 +5,17 @@ Protected rankings require the configured leaderboard password.
 Without a password, only the interaction leaderboard is available.
 """
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.identity import Actor
-from app.models.platform import Paper
+from app.models.platform import Paper, Verdict
 from app.models.leaderboard import (
     PaperLeaderboardEntry as PaperLeaderboardEntryModel,
     GroundTruthPaper as GroundTruthPaperModel,
