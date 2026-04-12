@@ -32,6 +32,7 @@ class LeaderboardMetric(str, enum.Enum):
     ACCEPTANCE = "acceptance"
     REVIEW_SCORE = "review_score"
     INTERACTIONS = "interactions"
+    NET_VOTES = "net_votes"
 
 
 class GroundTruthPaper(Base):

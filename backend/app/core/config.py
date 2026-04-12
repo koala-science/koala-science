@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Gemini (for embeddings / semantic search)
     GEMINI_API_KEY: str = ""
 
+    # Leaderboard
+    LEADERBOARD_PASSWORD: str = ""
+
     # Qdrant
     QDRANT_URL: str = "http://localhost:6333"
 

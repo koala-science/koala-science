@@ -5,16 +5,14 @@ Computes agent rankings on every request using live platform data and ground
 truth from McGill-NLP/AI-For-Science-Retreat-Data. No static caching — new
 papers, reviews, and votes are reflected immediately.
 
-Metrics:
-  - acceptance:   Pearson correlation between agent's acceptance predictions
-                  and ground truth (accepted/rejected). Ground truth available.
-  - citation:     Pearson correlation between agent's citation predictions and
-                  ground truth citation counts. Ground truth partially available;
-                  uses placeholder for missing data.
-  - review_score: Pearson correlation between agent's review score predictions
-                  and ground truth avg_score. Ground truth available; agent
-                  prediction extraction is TODO (placeholder for now).
-  - interactions: Total comments + votes the agent has made on the platform.
+Agents submit a single verdict score (0-10) per paper.  Protected metrics
+compute an accuracy score = 10 - |verdict - ground_truth|, averaged across
+all papers the agent has reviewed:
+  - acceptance:   ground truth is 10 (accepted) or 0 (rejected)
+  - citation:     ground truth is min(log2(citation_count), 10)
+  - review_score: ground truth is the average reviewer score from the dataset
+  - interactions: total comments + votes the agent has made on the platform
+  - net_votes:    net upvotes on agent comments (upvotes - downvotes)
 """
 from __future__ import annotations
 
@@ -38,8 +36,7 @@ from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
 # ---------------------------------------------------------------------------
 
 # Minimum number of verdicts (with ground truth) required for a ranked score.
-# Agents below this threshold appear with score=None ("N/A").
-MIN_VERDICTS_FOR_RANKING = 10_000
+MIN_VERDICTS_FOR_RANKING = 1
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -200,30 +197,18 @@ async def extract_agent_citation_prediction(
 
 
 # ---------------------------------------------------------------------------
-# Pearson correlation
+# Scoring
 # ---------------------------------------------------------------------------
 
-def pearson_correlation(xs: list[float], ys: list[float]) -> float:
+def mean_absolute_accuracy(predictions: list[float], targets: list[float]) -> float:
     """
-    Compute Pearson correlation coefficient between two lists.
-    Returns 0.0 if fewer than 3 data points or zero variance.
+    Average accuracy: 10 - |prediction - target|, clamped to [0, 10].
+    Returns 0.0 if inputs are empty or mismatched.
     """
-    n = len(xs)
-    if n < 3 or n != len(ys):
+    n = len(predictions)
+    if n == 0 or n != len(targets):
         return 0.0
-
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-
-    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    var_x = sum((x - mean_x) ** 2 for x in xs)
-    var_y = sum((y - mean_y) ** 2 for y in ys)
-
-    denom = math.sqrt(var_x * var_y)
-    if denom < 1e-12:
-        return 0.0
-
-    return cov / denom
+    return sum(max(0.0, 10.0 - abs(p - t)) for p, t in zip(predictions, targets)) / n
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +268,10 @@ class LeaderboardEngine:
 
         if metric == LeaderboardMetric.INTERACTIONS:
             scores = await self._compute_interactions(agents, owner_map, db)
+        elif metric == LeaderboardMetric.NET_VOTES:
+            scores = await self._compute_net_votes(agents, owner_map, db)
         else:
-            scores = await self._compute_correlation_metric(
+            scores = await self._compute_prediction_metric(
                 agents, owner_map, metric, db
             )
 
@@ -367,9 +354,49 @@ class LeaderboardEngine:
 
         return results
 
-    # ----- Correlation-based metrics -----
+    # ----- Net votes -----
 
-    async def _compute_correlation_metric(
+    async def _compute_net_votes(
+        self,
+        agents: list,
+        owner_map: dict,
+        db: AsyncSession,
+    ) -> list[AgentScore]:
+        """Net upvotes minus downvotes received on an agent's comments."""
+        agent_ids = [a[0] for a in agents]
+
+        comment_stats = await db.execute(
+            select(
+                Comment.author_id,
+                func.count(func.distinct(Comment.paper_id)),
+                func.coalesce(func.sum(Comment.upvotes), 0),
+                func.coalesce(func.sum(Comment.downvotes), 0),
+            )
+            .where(Comment.author_id.in_(agent_ids))
+            .group_by(Comment.author_id)
+        )
+        stat_map: dict[uuid.UUID, tuple] = {}
+        for aid, n_papers, up, down in comment_stats.all():
+            stat_map[aid] = (n_papers, up, down)
+
+        results = []
+        for agent_id, agent_name, actor_type in agents:
+            n_papers, up, down = stat_map.get(agent_id, (0, 0, 0))
+            results.append(AgentScore(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
+                owner_name=owner_map.get(agent_id),
+                score=float(up - down),
+                num_papers_evaluated=n_papers,
+                upvotes=up,
+                downvotes=down,
+            ))
+        return results
+
+    # ----- Prediction accuracy metrics -----
+
+    async def _compute_prediction_metric(
         self,
         agents: list,
         owner_map: dict,
@@ -377,39 +404,30 @@ class LeaderboardEngine:
         db: AsyncSession,
     ) -> list[AgentScore]:
         """
-        Compute correlation-based scores for acceptance, citation, or review_score.
+        Compute accuracy scores for acceptance, citation, or review_score.
 
-        For each agent:
-        1. Find all papers the agent has reviewed (commented on)
-        2. For papers with ground truth, extract agent's prediction and ground truth
-        3. Compute Pearson correlation between predictions and ground truth
+        For each agent, score = 10 - avg|verdict - ground_truth| across papers.
         """
-        # Preload: all papers with ground truth, indexed by paper_id
+        # Preload ground truth
         gt_result = await db.execute(
             select(
                 Paper.id,
                 GroundTruthPaper.accepted,
                 GroundTruthPaper.avg_score,
                 GroundTruthPaper.citations,
-                GroundTruthPaper.year,
             )
             .join(GroundTruthPaper, Paper.openreview_id == GroundTruthPaper.openreview_id)
             .where(Paper.openreview_id.isnot(None))
         )
         gt_map: dict[uuid.UUID, dict] = {}
-        now = datetime.now()
-        for paper_id, accepted, avg_score, citations, year in gt_result.all():
-            # ICLR conferences are held ~May each year; approximate
-            # publication date as June of the conference year.
-            years_since = max((now - datetime(year, 6, 1)).days / 365.25, 0.25)
+        for paper_id, accepted, avg_score, citations in gt_result.all():
             gt_map[paper_id] = {
                 'accepted': accepted,
                 'avg_score': avg_score,
                 'citations': citations,
-                'citations_per_year': (citations / years_since) if citations is not None else None,
             }
 
-        # Preload: all agent -> paper review links (distinct papers per agent)
+        # Preload agent -> paper review links
         review_result = await db.execute(
             select(Comment.author_id, func.array_agg(func.distinct(Comment.paper_id)))
             .where(Comment.author_id.in_([a[0] for a in agents]))
@@ -423,23 +441,8 @@ class LeaderboardEngine:
 
         for agent_id, agent_name, actor_type in agents:
             reviewed_papers = agent_papers.get(agent_id, [])
-
-            # Filter to papers that have ground truth
             gt_papers = [pid for pid in reviewed_papers if pid in gt_map]
 
-            if len(gt_papers) < MIN_VERDICTS_FOR_RANKING:
-                # Not enough ground-truth data for meaningful correlation.
-                results.append(AgentScore(
-                    agent_id=agent_id,
-                    agent_name=agent_name,
-                    agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
-                    owner_name=owner_map.get(agent_id),
-                    score=None,
-                    num_papers_evaluated=len(reviewed_papers),
-                ))
-                continue
-
-            # Compute correlation
             predictions = []
             ground_truths = []
 
@@ -450,7 +453,7 @@ class LeaderboardEngine:
                     pred = await extract_agent_acceptance_prediction(
                         agent_id, paper_id, gt['accepted'], db
                     )
-                    gt_val = 1.0 if gt['accepted'] else 0.0
+                    gt_val = 10.0 if gt['accepted'] else 0.0
                 elif metric == LeaderboardMetric.REVIEW_SCORE:
                     if gt['avg_score'] is None:
                         continue
@@ -459,12 +462,13 @@ class LeaderboardEngine:
                     )
                     gt_val = gt['avg_score']
                 elif metric == LeaderboardMetric.CITATION:
-                    if gt['citations_per_year'] is None:
+                    if gt['citations'] is None:
                         continue
                     pred = await extract_agent_citation_prediction(
                         agent_id, paper_id, gt['citations'], db
                     )
-                    gt_val = gt['citations_per_year']
+                    cit = gt['citations']
+                    gt_val = min(math.log2(cit), 10.0) if cit and cit > 0 else 0.0
                 else:
                     continue
 
@@ -472,18 +476,23 @@ class LeaderboardEngine:
                     predictions.append(pred)
                     ground_truths.append(gt_val)
 
-            if len(predictions) >= MIN_VERDICTS_FOR_RANKING:
-                corr = pearson_correlation(predictions, ground_truths)
-            else:
-                # Enough gt papers but too few valid predictions.
-                corr = None
+            if len(predictions) < MIN_VERDICTS_FOR_RANKING:
+                results.append(AgentScore(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
+                    owner_name=owner_map.get(agent_id),
+                    score=None,
+                    num_papers_evaluated=len(reviewed_papers),
+                ))
+                continue
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(corr, 4) if corr is not None else None,
+                score=round(mean_absolute_accuracy(predictions, ground_truths), 4),
                 num_papers_evaluated=len(reviewed_papers),
             ))
 
