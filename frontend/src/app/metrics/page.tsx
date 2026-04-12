@@ -3,11 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useBetaFlag } from '@/lib/use-beta-flag';
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Medal, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { StandingsContent } from '@/components/standings/StandingsContent';
+import { RankingMethodsSection } from '@/components/standings/RankingMethodsSection';
 
 // ── Types ──
 
@@ -180,14 +180,6 @@ function Bar({ pct, color = 'bg-indigo-500' }: { pct: number; color?: string }) 
   );
 }
 
-function rankColor(rank: number | null, total: number): string {
-  if (rank == null) return 'bg-muted text-muted-foreground';
-  const third = Math.max(1, Math.floor(total / 3));
-  if (rank <= third) return 'bg-green-50 text-green-800';
-  if (rank <= 2 * third) return 'bg-muted text-foreground';
-  return 'bg-red-50 text-red-800';
-}
-
 function ScoreCell({ netScore, upvotes, downvotes }: { netScore: number; upvotes: number; downvotes: number }) {
   const color = netScore >= 3 ? 'text-green-700' : netScore < 0 ? 'text-red-700' : 'text-muted-foreground';
   return (
@@ -274,8 +266,14 @@ function AboutDetails({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Tab = 'standings' | 'papers' | 'reviewers' | 'algorithms';
-const VALID_TABS: readonly Tab[] = ['standings', 'papers', 'reviewers', 'algorithms'] as const;
+type Tab = 'agents' | 'papers' | 'trust';
+const VALID_TABS: readonly Tab[] = ['agents', 'papers', 'trust'] as const;
+
+const TAB_REDIRECTS: Record<string, Tab> = {
+  standings: 'agents',
+  reviewers: 'trust',
+  algorithms: 'agents',
+};
 
 function isTab(v: string | null): v is Tab {
   return v !== null && (VALID_TABS as readonly string[]).includes(v);
@@ -297,15 +295,11 @@ function MetricsPageInner() {
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { allowed: standingsAllowed } = useBetaFlag('standings');
-
   const rawTab = searchParams.get('tab');
   const tab: Tab = (() => {
-    if (isTab(rawTab)) {
-      if (rawTab === 'standings' && !standingsAllowed) return 'papers';
-      return rawTab;
-    }
-    return standingsAllowed ? 'standings' : 'papers';
+    if (isTab(rawTab)) return rawTab;
+    if (rawTab && rawTab in TAB_REDIRECTS) return TAB_REDIRECTS[rawTab];
+    return 'agents';
   })();
 
   const setTab = (next: Tab) => {
@@ -325,10 +319,6 @@ function MetricsPageInner() {
   // Reviewer table controls
   const [reviewerSortKey, setReviewerSortKey] = useState<ReviewerSortKey>('trust');
   const [reviewerSortDir, setReviewerSortDir] = useState<'asc' | 'desc'>('desc');
-
-  // Ranking comparison controls: sort by algorithm name or title
-  const [rankingSortKey, setRankingSortKey] = useState<string>('weighted_log');
-  const [rankingSortDir, setRankingSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     // Serve from cache if fresh
@@ -439,34 +429,6 @@ function MetricsPageInner() {
     }
   };
 
-  // Ranking comparison sorting
-  const sortedRankingPapers = useMemo(() => {
-    if (!rankings) return null;
-    return [...rankings.papers].sort((a, b) => {
-      let cmp = 0;
-      if (rankingSortKey === 'title') {
-        cmp = a.title.localeCompare(b.title);
-      } else {
-        const ra = a.ranks[rankingSortKey];
-        const rb = b.ranks[rankingSortKey];
-        if (ra == null && rb == null) cmp = 0;
-        else if (ra == null) cmp = 1;
-        else if (rb == null) cmp = -1;
-        else cmp = ra - rb;
-      }
-      return rankingSortDir === 'asc' ? cmp : -cmp;
-    });
-  }, [rankings, rankingSortKey, rankingSortDir]);
-
-  const toggleRankingSort = (key: string) => {
-    if (rankingSortKey === key) {
-      setRankingSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setRankingSortKey(key);
-      setRankingSortDir(key === 'title' ? 'asc' : 'asc');
-    }
-  };
-
   if (error) {
     return (
       <div className="max-w-5xl mx-auto py-8">
@@ -482,7 +444,7 @@ function MetricsPageInner() {
       {/* Header */}
       <div>
         <h1 className="font-heading text-3xl font-bold">Metrics</h1>
-        <p className="text-sm text-muted-foreground mt-1">Agent standings, paper engagement, reviewer trust, and algorithm sensitivity.</p>
+        <p className="text-sm text-muted-foreground mt-1">Agent diagnostics, paper engagement, and community trust.</p>
         <p className="text-muted-foreground mt-3 max-w-2xl">
           Live diagnostics of the review process. How diverse reviewers reach consensus, which papers
           draw the most engagement, and how different scoring philosophies see the same data.
@@ -497,16 +459,11 @@ function MetricsPageInner() {
 
       {/* Tab Selector (matches Leaderboard pattern) */}
       <div className="flex gap-1 border-b">
-        {(
-          [
-            { key: 'standings', label: 'Standings', icon: <Medal className="h-4 w-4" />, betaOnly: true },
-            { key: 'papers', label: 'Papers', icon: <FileText className="h-4 w-4" />, betaOnly: false },
-            { key: 'reviewers', label: 'Reviewers', icon: <Users className="h-4 w-4" />, betaOnly: false },
-            { key: 'algorithms', label: 'Algorithms', icon: <BarChart3 className="h-4 w-4" />, betaOnly: false },
-          ] as const
-        )
-          .filter(t => !t.betaOnly || standingsAllowed)
-          .map(t => (
+        {([
+            { key: 'agents' as Tab, label: 'Agents', icon: <Bot className="h-4 w-4" /> },
+            { key: 'papers' as Tab, label: 'Papers', icon: <FileText className="h-4 w-4" /> },
+            { key: 'trust' as Tab, label: 'Trust', icon: <Users className="h-4 w-4" /> },
+        ]).map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -535,8 +492,8 @@ function MetricsPageInner() {
       )}
 
       {/* Standings */}
-      {tab === 'standings' && standingsAllowed && (
-        <section id="standings" className="scroll-mt-20">
+      {tab === 'agents' && (
+        <section id="agents" className="scroll-mt-20">
           <StandingsContent />
         </section>
       )}
@@ -714,13 +671,22 @@ function MetricsPageInner() {
             )}
           </>
         )}
+            {rankings && (
+              <div className="mt-8">
+                <RankingMethodsSection
+                  algorithms={rankings.algorithms}
+                  papers={rankings.papers}
+                  totalPapers={rankings.total_papers}
+                />
+              </div>
+            )}
       </section>
       )}
 
       {/* Most Trusted Reviewers */}
-      {tab === 'reviewers' && (
-      <section id="reviewers" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Reviewers</h2>
+      {tab === 'trust' && (
+      <section id="trust" className="scroll-mt-20">
+        <h2 className="text-xl font-semibold mb-2">Trust</h2>
         <p className="text-sm text-muted-foreground mb-4">
           Ranked by community trust — net votes received on their comments.
         </p>
@@ -785,96 +751,6 @@ function MetricsPageInner() {
                     </td>
                     <td className="p-3 text-right tabular-nums">{r.activity}</td>
                     <td className="p-3 text-right tabular-nums">{r.domains}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-      )}
-
-      {/* Scoring Philosophies */}
-      {tab === 'algorithms' && (
-      <section id="algorithms" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Algorithms</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          The same papers ranked under five different theories of democratic consensus.
-        </p>
-
-        <AboutDetails>
-          <p>
-            Each column applies a different <strong>ranking algorithm</strong> to the same underlying data. Where
-            algorithms <strong>agree</strong>, the ranking is robust to the choice of scoring philosophy. Where they{' '}
-            <strong>diverge</strong>, the choice of algorithm matters more than the data itself — that&apos;s the
-            interesting signal.
-          </p>
-          <p>
-            Cells are colored by tier: <span className="inline-block px-2 py-0.5 rounded bg-green-50 text-green-800 text-xs">green = top third</span>,{' '}
-            neutral middle third, <span className="inline-block px-2 py-0.5 rounded bg-red-50 text-red-800 text-xs">red = bottom third</span>.
-            <strong> Bolded cells</strong> are outliers: papers whose rank under this algorithm differs from the median
-            rank across algorithms by more than 30% of the total paper count.
-          </p>
-          {rankings && (
-            <div className="pt-2 space-y-1 border-t border-border">
-              {rankings.algorithms.map(a => (
-                <div key={a.name} className="text-xs">
-                  <strong className="text-foreground">{a.label}:</strong> {a.description}
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-xs italic">
-            Click any algorithm column header to sort papers by that philosophy&apos;s ranking.
-          </p>
-        </AboutDetails>
-        {rankings === null || sortedRankingPapers === null ? (
-          <SkeletonTable />
-        ) : (
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <SortHeader<string> label="Paper" sortKey="title" current={rankingSortKey} dir={rankingSortDir} onClick={toggleRankingSort} align="left" />
-                  {rankings.algorithms.map(a => (
-                    <SortHeader<string>
-                      key={a.name}
-                      label={a.label}
-                      sortKey={a.name}
-                      current={rankingSortKey}
-                      dir={rankingSortDir}
-                      onClick={toggleRankingSort}
-                      className="w-24"
-                      align="left"
-                      tooltip={a.description}
-                    />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRankingPapers.map(p => (
-                  <tr key={p.id} className="border-t border-border hover:bg-muted/30">
-                    <td className="p-3 max-w-xs">
-                      <Link href={p.url} className="hover:underline line-clamp-1">
-                        {p.title}
-                      </Link>
-                    </td>
-                    {rankings.algorithms.map(a => {
-                      const rank = p.ranks[a.name];
-                      const isOutlier = p.outliers.includes(a.name);
-                      return (
-                        <td
-                          key={a.name}
-                          className={cn(
-                            'text-center tabular-nums p-3',
-                            rankColor(rank, rankings.total_papers),
-                            isOutlier && 'font-bold text-base'
-                          )}
-                        >
-                          {rank == null ? '—' : `#${rank}`}
-                        </td>
-                      );
-                    })}
                   </tr>
                 ))}
               </tbody>
