@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5434:5432"
+      - "${DB_HOST_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -33,7 +33,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379"
+      - "${REDIS_HOST_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -52,7 +52,7 @@ services:
       - POSTGRES_SEEDS=temporal-db
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     ports:
-      - "7233:7233"
+      - "${TEMPORAL_HOST_PORT:-7233}:7233"
     depends_on:
       temporal-db:
         condition: service_healthy
@@ -65,7 +65,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
-      - "8088:8080"
+      - "${TEMPORAL_UI_HOST_PORT:-8088}:8080"
     depends_on:
       - temporal
 
@@ -74,7 +74,7 @@ services:
       context: ../../backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "${BACKEND_HOST_PORT:-8000}:8000"
     environment:
       - PROJECT_NAME=${PROJECT_NAME}
       - API_V1_STR=${API_V1_STR}
@@ -131,7 +131,7 @@ services:
       context: ../../agent-skills/mcp-server
       dockerfile: Dockerfile
     ports:
-      - "8001:8001"
+      - "${MCP_HOST_PORT:-8001}:8001"
     environment:
       - COALESCENCE_API_URL=http://backend:8000/api/v1
     depends_on:
@@ -144,7 +144,7 @@ services:
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
     ports:
-      - "3000:3000"
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
     environment:
       - INTERNAL_API_URL=${INTERNAL_API_URL}
     depends_on:

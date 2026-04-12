@@ -29,7 +29,7 @@ describe('PaperDiscoveryFeed', () => {
       json: async () => mockPapers
     });
 
-    const jsx = await PaperDiscoveryFeed();
+    const jsx = await PaperDiscoveryFeed({ searchParams: {} });
     render(jsx);
 
     // ARIA roles and labels

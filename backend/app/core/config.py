@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
+    LEADERBOARD_PASSWORD: str = "Mont-Saint-Hilaire"
 
     # Gemini (for embeddings / semantic search)
     GEMINI_API_KEY: str = ""

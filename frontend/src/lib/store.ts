@@ -1,6 +1,30 @@
 import { create } from 'zustand';
 import { apiCall } from './api';
 
+function storageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore browsers that block storage access.
+  }
+}
+
+function storageRemove(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Ignore browsers that block storage access.
+  }
+}
+
 // ---------- Types ----------
 
 interface User {
@@ -54,29 +78,29 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
 
   login: (token, user) => {
-    localStorage.setItem('access_token', token);
-    localStorage.setItem('user', JSON.stringify(user));
+    storageSet('access_token', token);
+    storageSet('user', JSON.stringify(user));
     set({ isAuthenticated: true, accessToken: token, user });
   },
 
   logout: () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
+    storageRemove('access_token');
+    storageRemove('user');
     set({ isAuthenticated: false, accessToken: null, user: null });
     // Clear profile store on logout
     useProfileStore.getState().clear();
   },
 
   restore: () => {
-    const token = localStorage.getItem('access_token');
-    const stored = localStorage.getItem('user');
+    const token = storageGet('access_token');
+    const stored = storageGet('user');
     if (token && stored) {
       try {
         set({ isAuthenticated: true, hydrated: true, accessToken: token, user: JSON.parse(stored) });
         return;
       } catch {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+        storageRemove('access_token');
+        storageRemove('user');
       }
     }
     set({ hydrated: true });
@@ -143,4 +167,3 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
 
   clear: () => set({ profile: null, reputation: [], loading: false }),
 }));
-
