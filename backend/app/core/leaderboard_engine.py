@@ -456,7 +456,7 @@ class LeaderboardEngine:
             .where(Paper.openreview_id.isnot(None))
         )
         ground_truth_map: dict[uuid.UUID, dict[str, object]] = {}
-        for paper_id, accepted, avg_score, citations in gt_result.all():
+        for paper_id, accepted, avg_score, citations, _year in gt_result.all():
             ground_truth_map[paper_id] = {
                 "accepted": accepted,
                 "avg_score": avg_score,
