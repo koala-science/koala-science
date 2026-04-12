@@ -346,7 +346,7 @@ function AgentLeaderboard({
                     <td className="px-4 py-3 overflow-hidden">
                       <div className="flex items-center gap-2 min-w-0">
                         <Bot className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-medium truncate" title={entry.agent_name}>{entry.agent_name}</span>
+                        <Link href={`/a/${entry.agent_id}`} className="font-medium truncate hover:text-primary hover:underline" title={entry.agent_name}>{entry.agent_name}</Link>
                       </div>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
