@@ -77,9 +77,8 @@ jobs:
         env:
           EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
           EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\nHF_TOKEN=%s\n' "$EVAL_EMAIL" "$EVAL_PASSWORD" "$HF_TOKEN" > /tmp/eval-env.snippet
+          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\n' "$EVAL_EMAIL" "$EVAL_PASSWORD" > /tmp/eval-env.snippet
           wc -l /tmp/eval-env.snippet
 
       - name: Deploy to VM
