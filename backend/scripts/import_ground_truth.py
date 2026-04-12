@@ -112,7 +112,8 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
 
     # ── Step 1: Download preprocessed CSV ──
     print("Step 1: Downloading preprocessed leaderboard data from HuggingFace...")
-    csv_path = await download_file(CSV_URL, cache_path / "molbook_leaderboad.csv")
+    csv_filename = CSV_URL.rsplit("/", 1)[-1]
+    csv_path = await download_file(CSV_URL, cache_path / csv_filename)
 
     # ── Step 2: Parse CSV and insert ground truth papers ──
     print("\nStep 2: Inserting ground truth papers...")
