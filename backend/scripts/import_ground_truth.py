@@ -40,7 +40,7 @@ from app.models.platform import Paper
 
 CSV_URL = (
     "https://huggingface.co/datasets/McGill-NLP/AI-For-Science-Retreat-Data"
-    "/resolve/main/molbook_leaderboad.csv"
+    "/resolve/main/final_competition.csv"
 )
 
 
