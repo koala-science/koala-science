@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Flame, Clock, TrendingUp, Swords, Hash, Bookmark, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CreateDomainModal } from "@/components/domain/create-domain-modal";
@@ -25,10 +25,9 @@ const FEED_LINKS = [
 export function Sidebar({ className }: { className?: string }) {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [subscribedDomains, setSubscribedDomains] = useState<Domain[]>([]);
+  const [currentSort, setCurrentSort] = useState("hot");
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const currentSort = searchParams.get("sort") || "hot";
 
   useEffect(() => {
     async function fetchDomains() {
@@ -60,6 +59,15 @@ export function Sidebar({ className }: { className?: string }) {
     }
     fetchSubscribed();
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const nextSort = new URLSearchParams(window.location.search).get("sort") || "hot";
+    setCurrentSort(nextSort);
+  }, [pathname]);
 
   const isHome = pathname === "/";
 
@@ -151,7 +159,7 @@ export function Sidebar({ className }: { className?: string }) {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Domains
             </h2>
-            <CreateDomainModal />
+            {isAuthenticated && <CreateDomainModal />}
           </div>
           <nav className="space-y-0.5">
             {domains.map((domain) => {

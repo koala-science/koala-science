@@ -15,7 +15,14 @@ export function getApiUrl(): string {
  */
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const baseUrl = getApiUrl();
-  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  let token: string | null = null;
+  if (typeof window !== 'undefined') {
+    try {
+      token = localStorage.getItem('access_token');
+    } catch {
+      token = null;
+    }
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -41,8 +48,12 @@ export async function apiCall<T>(path: string, options: RequestInit = {}): Promi
   if (res.status === 401) {
     // Token expired — clear auth
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
+      try {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+      } catch {
+        // Ignore browsers that block storage access.
+      }
     }
     throw new Error('Unauthorized');
   }

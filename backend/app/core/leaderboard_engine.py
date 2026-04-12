@@ -2,48 +2,34 @@
 Dynamic leaderboard computation engine.
 
 Computes agent rankings on every request using live platform data and ground
-truth from McGill-NLP/AI-For-Science-Retreat-Data. No static caching — new
-papers, reviews, and votes are reflected immediately.
+truth from McGill-NLP/AI-For-Science-Retreat-Data.
 
-Metrics:
-  - acceptance:   Pearson correlation between agent's acceptance predictions
-                  and ground truth (accepted/rejected). Ground truth available.
-  - citation:     Pearson correlation between agent's citation predictions and
-                  ground truth citation counts. Ground truth partially available;
-                  uses placeholder for missing data.
-  - review_score: Pearson correlation between agent's review score predictions
-                  and ground truth avg_score. Ground truth available; agent
-                  prediction extraction is TODO (placeholder for now).
-  - interactions: Total comments + votes the agent has made on the platform.
+Agents submit a single verdict score (0-10) per paper.  Protected metrics
+compare that verdict against the corresponding ground-truth target and
+compute an accuracy score = 10 - |verdict - ground_truth|, averaged across
+all papers the agent has reviewed:
+  - acceptance:   ground truth is 10 (accepted) or 0 (rejected)
+  - citation:     ground truth is min(log2(citation_count), 10)
+  - review_score: ground truth is the average reviewer score from the dataset
+
+Interactions and net_votes remain native platform metrics.
 """
 from __future__ import annotations
 
-import hashlib
 import math
-import random
+import re
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
-from app.models.platform import Paper, Comment, Vote, Verdict, TargetType
 from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
+from app.models.platform import Comment, Paper, TargetType, Vote
 
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-# Minimum number of verdicts (with ground truth) required for a ranked score.
-# Agents below this threshold appear with score=None ("N/A").
-MIN_VERDICTS_FOR_RANKING = 10_000
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 @dataclass
 class AgentScore:
@@ -57,186 +43,248 @@ class AgentScore:
     downvotes: int = 0
 
 
-# ---------------------------------------------------------------------------
-# Deterministic RNG per (agent, paper, metric) — stable across requests
-# ---------------------------------------------------------------------------
+_SECTION_RE = re.compile(
+    r"(?ims)^##\s*(verdict|recommendation|overall|assessment)\s*$\n(?P<body>.*?)(?=^##\s|\Z)"
+)
+_REVIEWISH_RE = re.compile(
+    r"(?im)^(?:#\s+|##\s*(summary|brief review|review|assessment|analysis|strengths|weaknesses|verdict)\b)"
+)
+_LABELED_SCORE_RE = re.compile(
+    r"(?im)\b(?:score|rating|overall score|overall rating|verdict)\b[^0-9\n]{0,20}"
+    r"(?P<score>\d+(?:\.\d+)?)\s*(?:/|out of)\s*10\b"
+)
+_UNLABELED_SCORE_RE = re.compile(r"(?im)\b(?P<score>\d+(?:\.\d+)?)\s*(?:/|out of)\s*10\b")
+_TEXTUAL_VERDICT_PATTERNS: list[tuple[re.Pattern[str], float]] = [
+    (re.compile(r"\bstrong accept\b", re.I), 9.5),
+    (re.compile(r"\baccept with minor revisions\b", re.I), 8.0),
+    (re.compile(r"\bweak accept\b", re.I), 7.0),
+    (re.compile(r"\bborderline accept\b", re.I), 6.0),
+    (re.compile(r"\blean accept\b", re.I), 6.0),
+    (re.compile(r"\brecommend acceptance\b", re.I), 8.0),
+    (re.compile(r"\bi recommend acceptance\b", re.I), 8.0),
+    (re.compile(r"\baccept\b", re.I), 8.0),
+    (re.compile(r"\brequires significant revisions?\b", re.I), 4.0),
+    (re.compile(r"\bneeds significant revisions?\b", re.I), 4.0),
+    (re.compile(r"\bmajor revisions?\b", re.I), 4.0),
+    (re.compile(r"\bborderline reject\b", re.I), 4.0),
+    (re.compile(r"\bweak reject\b", re.I), 3.0),
+    (re.compile(r"\bstrong reject\b", re.I), 0.5),
+    (re.compile(r"\brecommend rejection\b", re.I), 2.0),
+    (re.compile(r"\bi recommend rejection\b", re.I), 2.0),
+    (re.compile(r"\bborderline\b", re.I), 5.0),
+    (re.compile(r"\breject\b", re.I), 2.0),
+]
+_PROSE_VERDICT_PATTERNS: list[tuple[re.Pattern[str], float]] = [
+    (re.compile(r"\bpromising work that merits further development\b", re.I), 6.0),
+    (re.compile(r"\bnot a research paper\b", re.I), 0.5),
+    (re.compile(r"\bno scientific content\b", re.I), 0.5),
+    (re.compile(r"\bdoes not present any scientific content\b", re.I), 0.5),
+    (re.compile(r"\blacks scientific merit\b", re.I), 0.0),
+    (re.compile(r"\bunsuitable for (?:consideration|publication|peer review)\b", re.I), 0.0),
+    (re.compile(r"\bfails to meet any standard\b", re.I), 0.0),
+    (re.compile(r"\bcannot be independently reproduced\b", re.I), 2.5),
+    (re.compile(r"\brequires substantially more precise justification\b", re.I), 4.5),
+    (re.compile(r"\bhinges entirely on\b", re.I), 4.0),
+    (re.compile(r"\bpotentially severe ethical implications\b", re.I), 3.5),
+    (re.compile(r"\bgenuinely novel approach\b", re.I), 8.5),
+    (re.compile(r"\bstrong contribution\b", re.I), 8.5),
+    (re.compile(r"\bcompelling evidence\b", re.I), 8.0),
+    (re.compile(r"\bincremental but valuable\b", re.I), 6.5),
+    (re.compile(r"\bmethodologically sound and highly impactful\b", re.I), 9.0),
+    (re.compile(r"\bhighly promising and methodologically sound\b", re.I), 8.5),
+    (re.compile(r"\bnovel and methodologically sound contribution\b", re.I), 8.5),
+    (re.compile(r"\boffering significant contributions\b", re.I), 8.5),
+    (re.compile(r"\bvaluable new challenge dataset\b", re.I), 7.0),
+    (re.compile(r"\bmethod with potentially severe ethical implications\b", re.I), 3.5),
+    (re.compile(r"\blean positive\b", re.I), 6.5),
+    (re.compile(r"\blean negative\b", re.I), 3.5),
+]
+_PROSE_POSITIVE_PATTERNS: list[tuple[re.Pattern[str], float]] = [
+    (re.compile(r"\bhighly promising\b", re.I), 1.5),
+    (re.compile(r"\bpromising\b", re.I), 0.7),
+    (re.compile(r"\bgenuinely novel\b", re.I), 1.8),
+    (re.compile(r"\bnovel\b", re.I), 0.6),
+    (re.compile(r"\bstrong contribution\b", re.I), 1.8),
+    (re.compile(r"\bcompelling evidence\b", re.I), 1.6),
+    (re.compile(r"\bmethodologically sound\b", re.I), 1.4),
+    (re.compile(r"\bhighly impactful\b", re.I), 1.5),
+    (re.compile(r"\bimportant\b", re.I), 0.7),
+    (re.compile(r"\bvaluable\b", re.I), 0.6),
+    (re.compile(r"\bsignificant contributions?\b", re.I), 1.2),
+    (re.compile(r"\bstrong evidence\b", re.I), 1.4),
+    (re.compile(r"\brigorous\b", re.I), 1.2),
+    (re.compile(r"\bclean answer\b", re.I), 1.0),
+    (re.compile(r"\bsimple,\s*correct,\s*important\b", re.I), 2.0),
+    (re.compile(r"\breal teeth\b", re.I), 1.5),
+    (re.compile(r"\bclever\b", re.I), 0.5),
+    (re.compile(r"\bconvincing\b", re.I), 1.2),
+    (re.compile(r"\bwell done\b", re.I), 1.0),
+    (re.compile(r"\belegant\b", re.I), 1.0),
+    (re.compile(r"\bcritical re-evaluation\b", re.I), 1.0),
+]
+_PROSE_NEGATIVE_PATTERNS: list[tuple[re.Pattern[str], float]] = [
+    (re.compile(r"\bnot a research paper\b", re.I), 4.0),
+    (re.compile(r"\bno scientific content\b", re.I), 4.0),
+    (re.compile(r"\bdoes not present any scientific content\b", re.I), 4.0),
+    (re.compile(r"\blacks scientific merit\b", re.I), 4.5),
+    (re.compile(r"\bunsuitable\b", re.I), 3.0),
+    (re.compile(r"\bfails to meet\b", re.I), 3.5),
+    (re.compile(r"\bcannot be independently reproduced\b", re.I), 2.5),
+    (re.compile(r"\brequires substantially more precise justification\b", re.I), 1.7),
+    (re.compile(r"\bhinges entirely on\b", re.I), 1.4),
+    (re.compile(r"\brequires further verification\b", re.I), 1.0),
+    (re.compile(r"\binsufficient evidence\b", re.I), 1.6),
+    (re.compile(r"\blacking\b", re.I), 1.0),
+    (re.compile(r"\bdisappointing\b", re.I), 2.0),
+    (re.compile(r"\blearned nothing\b", re.I), 3.0),
+    (re.compile(r"\baudacity to call\b", re.I), 2.5),
+    (re.compile(r"\bcaveats?\b", re.I), 0.7),
+    (re.compile(r"\bskeptical\b", re.I), 1.2),
+    (re.compile(r"\bloose\b", re.I), 0.8),
+    (re.compile(r"\bfragile\b", re.I), 1.0),
+    (re.compile(r"\bunclear\b", re.I), 1.1),
+    (re.compile(r"\bsevere ethical implications\b", re.I), 1.5),
+]
 
-def _seed_for(agent_id: uuid.UUID, paper_id: uuid.UUID, metric: str) -> int:
-    """Create a deterministic seed from agent+paper+metric."""
-    raw = f"{agent_id}:{paper_id}:{metric}"
-    return int(hashlib.sha256(raw.encode()).hexdigest()[:8], 16)
+
+def _clamp_verdict(score: float) -> float:
+    return max(0.0, min(10.0, score))
 
 
-def _agent_quality(agent_id: uuid.UUID, metric: str) -> float:
-    """
-    Deterministic 'quality factor' per agent per metric.
-    Range: [0.1, 0.95] — how well the agent's predictions correlate
-    with ground truth. Higher = better agent.
-    """
-    raw = f"quality:{agent_id}:{metric}"
-    h = int(hashlib.sha256(raw.encode()).hexdigest()[:8], 16)
-    return 0.1 + (h % 8500) / 10000.0  # [0.1, 0.95]
+def _parse_numeric_score(text: str, *, allow_unlabeled: bool) -> float | None:
+    match = _LABELED_SCORE_RE.search(text)
+    if match:
+        return _clamp_verdict(float(match.group("score")))
 
-
-# ---------------------------------------------------------------------------
-# TODO: Agent prediction extraction
-#
-# These three functions are the integration points for real agent evaluation.
-# Each one is responsible for extracting a numerical prediction from an
-# agent's review comments on a given paper. Today they return deterministic
-# pseudo-random placeholders; replacing them with real extraction logic is
-# the main remaining work to make the leaderboard fully data-driven.
-#
-# IMPLEMENTATION ROADMAP
-# ~~~~~~~~~~~~~~~~~~~~~~
-# Phase 1 — Structured field extraction (regex / markdown parsing)
-#   Agent reviews on this platform follow markdown conventions. Many use
-#   structured headers like "## Verdict", "## Assessment", "## Strengths",
-#   "## Weaknesses". Some include explicit scores ("Score: 7/10") or
-#   recommendations ("I recommend acceptance"). A regex-based extractor
-#   that scans for these patterns would cover a meaningful fraction of
-#   reviews without any ML overhead.
-#
-# Phase 2 — LLM-based extraction (Claude API)
-#   For free-form reviews that lack structured fields, call a small/fast
-#   model (e.g., Claude Haiku) with a prompt like:
-#     "Given this paper review, extract: (1) acceptance recommendation
-#      [accept/reject/borderline], (2) numerical score [1-10], (3)
-#      estimated citation impact [low/medium/high]. Return JSON."
-#   Cache the extraction result per (comment_id) so it's only computed
-#   once. Store in a new `comment_extracted_scores` table or as a JSONB
-#   column on Comment.
-#
-# Phase 3 — Aggregation across multiple comments
-#   An agent may leave multiple comments on a paper (initial review +
-#   follow-up replies). The aggregation strategy should:
-#     - Use the LONGEST root-level comment as the primary review source
-#     - Fall back to vote direction (+1/-1) if no extractable score exists
-#     - Weight later comments higher if they contain score revisions
-#       (e.g., "updating my score to 7" overrides the initial score)
-#
-# Phase 4 — Vote-based fallback
-#   If the agent voted on the paper but left no parseable review, use the
-#   vote as a binary acceptance signal: +1 → 0.7, -1 → 0.3 (soft values
-#   rather than hard 0/1 to avoid degenerate correlations).
-# ---------------------------------------------------------------------------
-
-async def _get_agent_verdict_score(
-    agent_id: uuid.UUID,
-    paper_id: uuid.UUID,
-    db: AsyncSession,
-) -> float | None:
-    """
-    Get the agent's raw verdict score (0-10) for a paper.
-    Falls back to vote on the paper (+1 → 7.0, -1 → 3.0).
-    Returns None if the agent has neither a verdict nor a vote.
-    """
-    verdict_result = await db.execute(
-        select(Verdict.score)
-        .where(Verdict.author_id == agent_id, Verdict.paper_id == paper_id)
-    )
-    verdict_score = verdict_result.scalar_one_or_none()
-
-    if verdict_score is not None:
-        return float(verdict_score)
-
-    # Fallback: use vote on the paper as a coarse signal
-    vote_result = await db.execute(
-        select(Vote.vote_value)
-        .where(
-            Vote.voter_id == agent_id,
-            Vote.target_id == paper_id,
-            Vote.target_type == TargetType.PAPER,
-        )
-    )
-    vote_value = vote_result.scalar_one_or_none()
-
-    if vote_value is not None:
-        return 7.0 if vote_value > 0 else 3.0
+    if allow_unlabeled:
+        match = _UNLABELED_SCORE_RE.search(text)
+        if match:
+            return _clamp_verdict(float(match.group("score")))
 
     return None
 
 
-async def extract_agent_acceptance_prediction(
-    agent_id: uuid.UUID,
-    paper_id: uuid.UUID,
-    ground_truth_accepted: bool,
-    db: AsyncSession,
-) -> float | None:
-    """
-    Extract the agent's acceptance prediction as their raw verdict score (0-10).
-    Correlated against binary ground truth (1=accepted, 0=rejected) to measure
-    whether the agent gives higher scores to accepted papers.
-    """
-    return await _get_agent_verdict_score(agent_id, paper_id, db)
+def _parse_textual_verdict(text: str) -> float | None:
+    for pattern, score in _TEXTUAL_VERDICT_PATTERNS:
+        if pattern.search(text):
+            return score
+    return None
 
 
-async def extract_agent_review_score_prediction(
-    agent_id: uuid.UUID,
-    paper_id: uuid.UUID,
-    ground_truth_score: float,
-    db: AsyncSession,
-) -> float | None:
-    """
-    Extract the agent's review score prediction as their raw verdict score (0-10).
-    Correlated against ground truth avg_score (1-10) to measure whether the
-    agent's scores track reviewer consensus.
-    """
-    return await _get_agent_verdict_score(agent_id, paper_id, db)
+def _score_review_prose(text: str) -> float | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+
+    for pattern, score in _PROSE_VERDICT_PATTERNS:
+        if pattern.search(normalized):
+            return score
+
+    positive = sum(weight for pattern, weight in _PROSE_POSITIVE_PATTERNS if pattern.search(normalized))
+    negative = sum(weight for pattern, weight in _PROSE_NEGATIVE_PATTERNS if pattern.search(normalized))
+
+    if positive == 0.0 and negative == 0.0:
+        return None
+
+    return _clamp_verdict(5.0 + positive - negative)
 
 
-async def extract_agent_citation_prediction(
-    agent_id: uuid.UUID,
-    paper_id: uuid.UUID,
-    ground_truth_citations: int | None,
-    db: AsyncSession,
-) -> float | None:
-    """
-    Extract the agent's citation prediction as their raw verdict score (0-10).
-    Correlated against time-normalized citation counts to measure whether the
-    agent gives higher scores to higher-impact papers.
-    """
-    return await _get_agent_verdict_score(agent_id, paper_id, db)
+def _first_heading_line(text: str) -> str | None:
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+        if line.startswith("**") and line.endswith("**") and len(line) > 4:
+            return line.strip("* ").strip()
+    return None
 
 
-# ---------------------------------------------------------------------------
-# Pearson correlation
-# ---------------------------------------------------------------------------
+def _looks_like_review(text: str) -> bool:
+    if len(text) < 300:
+        return False
+    return bool(_REVIEWISH_RE.search(text))
 
-def pearson_correlation(xs: list[float], ys: list[float]) -> float:
+
+def extract_verdict_score(content_markdown: str) -> float | None:
     """
-    Compute Pearson correlation coefficient between two lists.
-    Returns 0.0 if fewer than 3 data points or zero variance.
+    Extract a single verdict score from a review comment.
+
+    Preference order:
+    1. Numeric scores inside explicit verdict/recommendation/overall sections
+    2. Textual recommendations inside those sections
+    3. Labeled numeric scores anywhere in the review
+    4. Textual recommendations anywhere in the review
     """
-    n = len(xs)
-    if n < 3 or n != len(ys):
+    if not content_markdown:
+        return None
+
+    for match in _SECTION_RE.finditer(content_markdown):
+        body = match.group("body").strip()
+        numeric = _parse_numeric_score(body, allow_unlabeled=True)
+        if numeric is not None:
+            return numeric
+
+        textual = _parse_textual_verdict(body)
+        if textual is not None:
+            return textual
+
+        prose = _score_review_prose(body)
+        if prose is not None:
+            return prose
+
+    numeric = _parse_numeric_score(content_markdown, allow_unlabeled=False)
+    if numeric is not None:
+        return numeric
+
+    textual = _parse_textual_verdict(content_markdown)
+    if textual is not None:
+        return textual
+
+    heading = _first_heading_line(content_markdown)
+    if heading:
+        heading_score = _score_review_prose(heading)
+        if heading_score is not None:
+            return heading_score
+
+    if _looks_like_review(content_markdown):
+        return _score_review_prose(content_markdown)
+
+    return None
+
+
+def acceptance_ground_truth_score(accepted: bool) -> float:
+    return 10.0 if accepted else 0.0
+
+
+def citation_ground_truth_score(citations: int | None) -> float | None:
+    if citations is None:
+        return None
+    if citations <= 0:
+        return 0.0
+    # Verdicts are on a 0-10 scale, so we cap the log-scaled citation target.
+    return min(math.log2(citations), 10.0)
+
+
+def mean_absolute_accuracy(predictions: list[float], targets: list[float]) -> float:
+    """
+    Compute the average accuracy score across paired predictions and targets.
+
+    Per-paper accuracy = 10 - |prediction - target|, clamped to [0, 10].
+    Returns the mean across all pairs, or 0.0 if inputs are empty/mismatched.
+    """
+    n = len(predictions)
+    if n == 0 or n != len(targets):
         return 0.0
 
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
+    total = sum(max(0.0, 10.0 - abs(p - t)) for p, t in zip(predictions, targets))
+    return total / n
 
-    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    var_x = sum((x - mean_x) ** 2 for x in xs)
-    var_y = sum((y - mean_y) ** 2 for y in ys)
-
-    denom = math.sqrt(var_x * var_y)
-    if denom < 1e-12:
-        return 0.0
-
-    return cov / denom
-
-
-# ---------------------------------------------------------------------------
-# Core engine
-# ---------------------------------------------------------------------------
 
 class LeaderboardEngine:
     """
     Computes agent leaderboard scores dynamically from live data.
-
-    Each call queries the database for current agent reviews and ground
-    truth, computes correlations, and returns ranked results. No caching —
-    the leaderboard reflects the latest state of the platform.
     """
 
     async def get_agent_leaderboard(
@@ -247,15 +295,6 @@ class LeaderboardEngine:
         skip: int = 0,
         sort_by: str = "score",
     ) -> tuple[list[AgentScore], int]:
-        """
-        Compute the full agent leaderboard for a given metric.
-
-        Returns (entries, total_count) where entries are sorted by
-        sort_by descending and sliced by skip/limit.
-
-        sort_by: "score" (default), "upvotes", or "downvotes"
-        """
-        # Get all agents (delegated + sovereign)
         agent_result = await db.execute(
             select(Actor.id, Actor.name, Actor.actor_type)
             .where(Actor.actor_type.in_([
@@ -269,122 +308,142 @@ class LeaderboardEngine:
         if not agents:
             return [], 0
 
-        # Fetch owner names for delegated agents
-        agent_ids = [a[0] for a in agents]
+        agent_ids = [agent_id for agent_id, _, _ in agents]
         owner_result = await db.execute(
             select(DelegatedAgent.id, HumanAccount.name)
             .join(HumanAccount, DelegatedAgent.owner_id == HumanAccount.id)
             .where(DelegatedAgent.id.in_(agent_ids))
         )
-        owner_map = {aid: oname for aid, oname in owner_result.all()}
-
-        # Compute scores for each agent
-        scores: list[AgentScore] = []
+        owner_map = {agent_id: owner_name for agent_id, owner_name in owner_result.all()}
 
         if metric == LeaderboardMetric.INTERACTIONS:
             scores = await self._compute_interactions(agents, owner_map, db)
+        elif metric == LeaderboardMetric.NET_VOTES:
+            scores = await self._compute_net_votes(agents, owner_map, db)
         else:
-            scores = await self._compute_correlation_metric(
-                agents, owner_map, metric, db
-            )
+            scores = await self._compute_prediction_metric(agents, owner_map, metric, db)
 
-        # Sort descending by the chosen field; agents with no score go to the bottom
-        if sort_by == "upvotes":
-            scores.sort(key=lambda s: s.upvotes, reverse=True)
-        elif sort_by == "downvotes":
-            scores.sort(key=lambda s: s.downvotes, reverse=True)
-        else:
-            scores.sort(key=lambda s: (s.score is not None, s.score or 0), reverse=True)
+        scores.sort(key=lambda score: (-score.score, -score.num_papers_evaluated, score.agent_name.lower()))
 
         total = len(scores)
-        page = scores[skip:skip + limit]
-
-        return page, total
-
-    # ----- Interactions (real count) -----
+        return scores[skip:skip + limit], total
 
     async def _compute_interactions(
         self,
         agents: list,
-        owner_map: dict,
+        owner_map: dict[uuid.UUID, str],
         db: AsyncSession,
     ) -> list[AgentScore]:
-        """Count comments + votes per agent, plus upvotes/downvotes received."""
-        agent_ids = [a[0] for a in agents]
+        results: list[AgentScore] = []
 
-        # Batch: comment counts, paper counts, and upvotes/downvotes per agent
-        comment_stats = await db.execute(
-            select(
-                Comment.author_id,
-                func.count(Comment.id),
-                func.count(func.distinct(Comment.paper_id)),
-                func.coalesce(func.sum(Comment.upvotes), 0),
-                func.coalesce(func.sum(Comment.downvotes), 0),
-            )
-            .where(Comment.author_id.in_(agent_ids))
-            .group_by(Comment.author_id)
-        )
-        comment_map: dict[uuid.UUID, tuple] = {}
-        for aid, n_comments, n_papers, c_up, c_down in comment_stats.all():
-            comment_map[aid] = (n_comments, n_papers, c_up, c_down)
-
-        # Batch: vote counts per agent
-        vote_stats = await db.execute(
-            select(Vote.voter_id, func.count(Vote.id))
-            .where(Vote.voter_id.in_(agent_ids))
-            .group_by(Vote.voter_id)
-        )
-        vote_map = {aid: cnt for aid, cnt in vote_stats.all()}
-
-        # Batch: verdict upvotes/downvotes per agent
-        verdict_stats = await db.execute(
-            select(
-                Verdict.author_id,
-                func.coalesce(func.sum(Verdict.upvotes), 0),
-                func.coalesce(func.sum(Verdict.downvotes), 0),
-            )
-            .where(Verdict.author_id.in_(agent_ids))
-            .group_by(Verdict.author_id)
-        )
-        verdict_map = {aid: (v_up, v_down) for aid, v_up, v_down in verdict_stats.all()}
-
-        results = []
         for agent_id, agent_name, actor_type in agents:
-            n_comments, n_papers, c_up, c_down = comment_map.get(agent_id, (0, 0, 0, 0))
-            n_votes = vote_map.get(agent_id, 0)
-            v_up, v_down = verdict_map.get(agent_id, (0, 0))
+            comment_count = await db.execute(
+                select(func.count(Comment.id)).where(Comment.author_id == agent_id)
+            )
+            vote_count = await db.execute(
+                select(func.count(Vote.id)).where(Vote.voter_id == agent_id)
+            )
+            paper_count = await db.execute(
+                select(func.count(func.distinct(Comment.paper_id)))
+                .where(Comment.author_id == agent_id)
+            )
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
-                agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
+                agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=float(n_comments + n_votes),
-                num_papers_evaluated=n_papers,
-                upvotes=c_up + v_up,
-                downvotes=c_down + v_down,
+                score=float(comment_count.scalar_one() + vote_count.scalar_one()),
+                num_papers_evaluated=paper_count.scalar_one(),
             ))
 
         return results
 
-    # ----- Correlation-based metrics -----
-
-    async def _compute_correlation_metric(
+    async def _compute_net_votes(
         self,
         agents: list,
-        owner_map: dict,
+        owner_map: dict[uuid.UUID, str],
+        db: AsyncSession,
+    ) -> list[AgentScore]:
+        results: list[AgentScore] = []
+
+        for agent_id, agent_name, actor_type in agents:
+            comment_ids_result = await db.execute(
+                select(Comment.id).where(Comment.author_id == agent_id)
+            )
+            comment_ids = [row[0] for row in comment_ids_result.all()]
+
+            net_votes = 0.0
+            if comment_ids:
+                vote_sum = await db.execute(
+                    select(func.coalesce(func.sum(Vote.vote_value), 0))
+                    .where(and_(
+                        Vote.target_type == TargetType.COMMENT,
+                        Vote.target_id.in_(comment_ids),
+                    ))
+                )
+                net_votes = float(vote_sum.scalar_one())
+
+            paper_count = await db.execute(
+                select(func.count(func.distinct(Comment.paper_id)))
+                .where(Comment.author_id == agent_id)
+            )
+
+            results.append(AgentScore(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
+                owner_name=owner_map.get(agent_id),
+                score=net_votes,
+                num_papers_evaluated=paper_count.scalar_one(),
+            ))
+
+        return results
+
+    async def _load_primary_reviews(
+        self,
+        agent_ids: list[uuid.UUID],
+        db: AsyncSession,
+    ) -> dict[tuple[uuid.UUID, uuid.UUID], str]:
+        if not agent_ids:
+            return {}
+
+        comment_result = await db.execute(
+            select(Comment.author_id, Comment.paper_id, Comment.parent_id, Comment.content_markdown)
+            .where(Comment.author_id.in_(agent_ids))
+        )
+
+        primary_reviews: dict[tuple[uuid.UUID, uuid.UUID], tuple[tuple[int, int], str]] = {}
+        for author_id, paper_id, parent_id, content_markdown in comment_result.all():
+            if paper_id is None or not content_markdown:
+                continue
+
+            key = (author_id, paper_id)
+            priority = (1 if parent_id is None else 0, len(content_markdown))
+            current = primary_reviews.get(key)
+
+            if current is None or priority > current[0]:
+                primary_reviews[key] = (priority, content_markdown)
+
+        return {key: content for key, (_, content) in primary_reviews.items()}
+
+    def _ground_truth_value(self, metric: LeaderboardMetric, ground_truth: dict) -> float | None:
+        if metric == LeaderboardMetric.ACCEPTANCE:
+            return acceptance_ground_truth_score(ground_truth["accepted"])
+        if metric == LeaderboardMetric.CITATION:
+            return citation_ground_truth_score(ground_truth["citations"])
+        if metric == LeaderboardMetric.REVIEW_SCORE:
+            avg_score = ground_truth["avg_score"]
+            return float(avg_score) if avg_score is not None else None
+        return None
+
+    async def _compute_prediction_metric(
+        self,
+        agents: list,
+        owner_map: dict[uuid.UUID, str],
         metric: LeaderboardMetric,
         db: AsyncSession,
     ) -> list[AgentScore]:
-        """
-        Compute correlation-based scores for acceptance, citation, or review_score.
-
-        For each agent:
-        1. Find all papers the agent has reviewed (commented on)
-        2. For papers with ground truth, extract agent's prediction and ground truth
-        3. Compute Pearson correlation between predictions and ground truth
-        """
-        # Preload: all papers with ground truth, indexed by paper_id
         gt_result = await db.execute(
             select(
                 Paper.id,
@@ -396,99 +455,57 @@ class LeaderboardEngine:
             .join(GroundTruthPaper, Paper.openreview_id == GroundTruthPaper.openreview_id)
             .where(Paper.openreview_id.isnot(None))
         )
-        gt_map: dict[uuid.UUID, dict] = {}
-        now = datetime.now()
-        for paper_id, accepted, avg_score, citations, year in gt_result.all():
-            # ICLR conferences are held ~May each year; approximate
-            # publication date as June of the conference year.
-            years_since = max((now - datetime(year, 6, 1)).days / 365.25, 0.25)
-            gt_map[paper_id] = {
-                'accepted': accepted,
-                'avg_score': avg_score,
-                'citations': citations,
-                'citations_per_year': (citations / years_since) if citations is not None else None,
+        ground_truth_map: dict[uuid.UUID, dict[str, object]] = {}
+        for paper_id, accepted, avg_score, citations in gt_result.all():
+            ground_truth_map[paper_id] = {
+                "accepted": accepted,
+                "avg_score": avg_score,
+                "citations": citations,
             }
 
-        # Preload: all agent -> paper review links (distinct papers per agent)
-        review_result = await db.execute(
-            select(Comment.author_id, func.array_agg(func.distinct(Comment.paper_id)))
-            .where(Comment.author_id.in_([a[0] for a in agents]))
-            .group_by(Comment.author_id)
-        )
-        agent_papers: dict[uuid.UUID, list[uuid.UUID]] = {}
-        for author_id, paper_ids in review_result.all():
-            agent_papers[author_id] = paper_ids
+        primary_reviews = await self._load_primary_reviews([agent_id for agent_id, _, _ in agents], db)
 
-        results = []
+        agent_papers: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+        verdict_map: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+        for key, content_markdown in primary_reviews.items():
+            agent_id, paper_id = key
+            agent_papers[agent_id].add(paper_id)
 
+            verdict = extract_verdict_score(content_markdown)
+            if verdict is not None:
+                verdict_map[key] = verdict
+
+        results: list[AgentScore] = []
         for agent_id, agent_name, actor_type in agents:
-            reviewed_papers = agent_papers.get(agent_id, [])
+            predictions: list[float] = []
+            ground_truths: list[float] = []
 
-            # Filter to papers that have ground truth
-            gt_papers = [pid for pid in reviewed_papers if pid in gt_map]
-
-            if len(gt_papers) < MIN_VERDICTS_FOR_RANKING:
-                # Not enough ground-truth data for meaningful correlation.
-                results.append(AgentScore(
-                    agent_id=agent_id,
-                    agent_name=agent_name,
-                    agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
-                    owner_name=owner_map.get(agent_id),
-                    score=None,
-                    num_papers_evaluated=len(reviewed_papers),
-                ))
-                continue
-
-            # Compute correlation
-            predictions = []
-            ground_truths = []
-
-            for paper_id in gt_papers:
-                gt = gt_map[paper_id]
-
-                if metric == LeaderboardMetric.ACCEPTANCE:
-                    pred = await extract_agent_acceptance_prediction(
-                        agent_id, paper_id, gt['accepted'], db
-                    )
-                    gt_val = 1.0 if gt['accepted'] else 0.0
-                elif metric == LeaderboardMetric.REVIEW_SCORE:
-                    if gt['avg_score'] is None:
-                        continue
-                    pred = await extract_agent_review_score_prediction(
-                        agent_id, paper_id, gt['avg_score'], db
-                    )
-                    gt_val = gt['avg_score']
-                elif metric == LeaderboardMetric.CITATION:
-                    if gt['citations_per_year'] is None:
-                        continue
-                    pred = await extract_agent_citation_prediction(
-                        agent_id, paper_id, gt['citations'], db
-                    )
-                    gt_val = gt['citations_per_year']
-                else:
+            for paper_id in agent_papers.get(agent_id, set()):
+                verdict = verdict_map.get((agent_id, paper_id))
+                ground_truth = ground_truth_map.get(paper_id)
+                if verdict is None or ground_truth is None:
                     continue
 
-                if pred is not None:
-                    predictions.append(pred)
-                    ground_truths.append(gt_val)
+                ground_truth_value = self._ground_truth_value(metric, ground_truth)
+                if ground_truth_value is None:
+                    continue
 
-            if len(predictions) >= MIN_VERDICTS_FOR_RANKING:
-                corr = pearson_correlation(predictions, ground_truths)
-            else:
-                # Enough gt papers but too few valid predictions.
-                corr = None
+                predictions.append(verdict)
+                ground_truths.append(ground_truth_value)
+
+            if not predictions:
+                continue
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
-                agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
+                agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(corr, 4) if corr is not None else None,
-                num_papers_evaluated=len(reviewed_papers),
+                score=round(mean_absolute_accuracy(predictions, ground_truths), 4),
+                num_papers_evaluated=len(predictions),
             ))
 
         return results
 
 
-# Module-level engine instance
 engine = LeaderboardEngine()

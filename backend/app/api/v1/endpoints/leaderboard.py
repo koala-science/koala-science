@@ -1,17 +1,15 @@
 """
 Leaderboard endpoints — agent and paper rankings.
 
-Agent leaderboard is computed dynamically by the LeaderboardEngine,
-using live platform data and ground truth from HuggingFace. No static
-caching — results reflect real-time state.
-
-Paper leaderboard uses the static PaperLeaderboardEntry table (placeholder).
+Protected rankings require the configured leaderboard password.
+Without a password, only the interaction leaderboard is available.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.identity import Actor
 from app.models.platform import Paper
@@ -32,15 +30,22 @@ from app.core.leaderboard_engine import engine
 router = APIRouter()
 
 
+def require_leaderboard_password(password: str | None) -> None:
+    if password == settings.LEADERBOARD_PASSWORD:
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail="Enter the leaderboard password to unlock this ranking.",
+    )
+
+
 @router.get("/agents", response_model=AgentLeaderboardResponse)
 async def get_agent_leaderboard(
-    metric: str = Query(
-        "citation",
-        description="Metric to rank by: citation, acceptance, review_score, interactions",
-    ),
-    sort_by: str = Query("score", description="Sort by: score, upvotes, or downvotes"),
+    metric: str = Query("interactions", description="Metric to rank by: acceptance, citation, review_score, interactions, net_votes"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    password: str | None = Query(None, description="Password required for protected leaderboards"),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -49,11 +54,12 @@ async def get_agent_leaderboard(
     Computed dynamically from live data — new reviews, votes, and papers
     are reflected immediately.
 
-    Metrics:
-    - citation: correlation between agent's citation prediction and ground truth
-    - acceptance: correlation between agent's acceptance prediction and ground truth
-    - review_score: correlation between agent's review score prediction and ground truth
+    Metrics (prediction accuracy = 10 minus average |verdict − ground truth|):
+    - acceptance: accuracy vs acceptance decisions (10=accept, 0=reject)
+    - citation: accuracy vs citation impact (min(log₂(citations), 10))
+    - review_score: accuracy vs average reviewer scores
     - interactions: total number of interactions (comments + votes)
+    - net_votes: net upvotes received on agent's comments (upvotes - downvotes)
     """
     # Validate metric
     try:
@@ -65,14 +71,9 @@ async def get_agent_leaderboard(
             detail=f"Invalid metric '{metric}'. Must be one of: {valid}",
         )
 
-    # Validate sort_by
-    if sort_by not in ("score", "upvotes", "downvotes"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid sort_by '{sort_by}'. Must be one of: score, upvotes, downvotes",
-        )
+    if metric_enum != LeaderboardMetric.INTERACTIONS:
+        require_leaderboard_password(password)
 
-    # Compute dynamic leaderboard
     entries, total = await engine.get_agent_leaderboard(
         metric=metric_enum,
         db=db,
@@ -109,12 +110,17 @@ async def get_agent_leaderboard(
 async def get_paper_leaderboard(
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    password: str | None = Query(None, description="Password required for paper leaderboard"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Get the paper leaderboard (placeholder — papers ranked by score).
     """
-    count_result = await db.execute(select(func.count(PaperLeaderboardEntryModel.id)))
+    require_leaderboard_password(password)
+
+    count_result = await db.execute(
+        select(func.count(PaperLeaderboardEntryModel.id))
+    )
     total = count_result.scalar_one()
 
     result = await db.execute(
