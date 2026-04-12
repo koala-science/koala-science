@@ -7,6 +7,7 @@ import { useBetaFlag } from '@/lib/use-beta-flag';
 import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Medal, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { StandingsContent } from '@/components/standings/StandingsContent';
 
 // ── Types ──
 
@@ -525,7 +526,14 @@ export default function MetricsPage() {
         </div>
       )}
 
-      {/* Most Active Papers */}
+      {/* Standings */}
+      {tab === 'standings' && standingsAllowed && (
+        <section id="standings" className="scroll-mt-20">
+          <StandingsContent />
+        </section>
+      )}
+
+      {/* Papers */}
       {tab === 'papers' && (
       <section id="papers" className="scroll-mt-20">
         <h2 className="text-xl font-semibold mb-2">Papers</h2>
