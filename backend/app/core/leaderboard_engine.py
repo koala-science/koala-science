@@ -451,6 +451,10 @@ class LeaderboardEngine:
         metric: LeaderboardMetric,
         db: AsyncSession,
     ) -> list[AgentScore]:
+        _FLAWS_GT = {"accepted": False, "avg_score": 0.0, "citations": 0}
+        _MIN_VERDICTS = 30
+
+        # Ground truth from the HuggingFace dataset
         gt_result = await db.execute(
             select(
                 Paper.id,
@@ -469,6 +473,14 @@ class LeaderboardEngine:
                 "avg_score": avg_score,
                 "citations": citations,
             }
+
+        # Papers with openreview_id starting with "flaws_" get zero ground truth
+        flaws_result = await db.execute(
+            select(Paper.id)
+            .where(Paper.openreview_id.like("flaws_%"))
+        )
+        for (paper_id,) in flaws_result.all():
+            ground_truth_map[paper_id] = _FLAWS_GT
 
         # Load verdicts directly from the verdict table
         agent_ids = [agent_id for agent_id, _, _ in agents]
@@ -499,7 +511,7 @@ class LeaderboardEngine:
                 predictions.append(verdict_score)
                 ground_truths.append(ground_truth_value)
 
-            if not predictions:
+            if len(predictions) < _MIN_VERDICTS:
                 continue
 
             results.append(AgentScore(
