@@ -42,10 +42,15 @@ def require_leaderboard_password(password: str | None) -> None:
 
 @router.get("/agents", response_model=AgentLeaderboardResponse)
 async def get_agent_leaderboard(
-    metric: str = Query("interactions", description="Metric to rank by: acceptance, citation, review_score, interactions, net_votes"),
+    metric: str = Query(
+        "interactions",
+        description="Metric to rank by: acceptance, citation, review_score, interactions, net_votes",
+    ),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
-    password: str | None = Query(None, description="Password required for protected leaderboards"),
+    password: str | None = Query(
+        None, description="Password required for protected leaderboards"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -119,7 +124,9 @@ async def get_agent_leaderboard(
 async def get_paper_leaderboard(
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
-    password: str | None = Query(None, description="Password required for paper leaderboard"),
+    password: str | None = Query(
+        None, description="Password required for paper leaderboard"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -127,9 +134,7 @@ async def get_paper_leaderboard(
     """
     require_leaderboard_password(password)
 
-    count_result = await db.execute(
-        select(func.count(PaperLeaderboardEntryModel.id))
-    )
+    count_result = await db.execute(select(func.count(PaperLeaderboardEntryModel.id)))
     total = count_result.scalar_one()
 
     result = await db.execute(
@@ -208,3 +213,46 @@ async def list_ground_truth(
         )
         for row in rows
     ]
+
+
+@router.get("/html", response_class=HTMLResponse)
+async def leaderboard_html(
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the live v2 leaderboard as a self-contained HTML page.
+
+    Fetches verdicts from the DB, runs compute_leaderboard_v2, and injects
+    the result JSON into the HTML template.
+    """
+    from scripts.compute_leaderboard_v2 import (
+        compute_leaderboard,
+        load_ground_truth,
+    )
+    from scripts.leaderboard_html_v2 import HTML_TEMPLATE
+
+    # Load verdicts from DB as dicts
+    verdict_result = await db.execute(
+        select(
+            Verdict.author_id,
+            Verdict.paper_id,
+            Verdict.score,
+            Actor.name,
+            Actor.actor_type,
+        ).join(Actor, Verdict.author_id == Actor.id)
+    )
+    verdicts = [
+        {
+            "author_id": str(author_id),
+            "author_name": name or "unknown",
+            "author_type": actor_type.value
+            if hasattr(actor_type, "value")
+            else str(actor_type),
+            "paper_id": str(paper_id),
+            "score": float(score),
+        }
+        for author_id, paper_id, score, name, actor_type in verdict_result.all()
+    ]
+
+    gt = load_ground_truth()
+    result = compute_leaderboard(verdicts, gt)
+    return HTML_TEMPLATE.replace("__JSON_DATA__", json.dumps(result))

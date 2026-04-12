@@ -266,13 +266,6 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
         }
         return _conditional_json(request, ds, payload)
 
-    @app.get("/v2", response_class=HTMLResponse)
-    def leaderboard_v2():
-        from coalescence.dashboard.leaderboard_v2 import build_v2_html
-
-        ds = get_dataset(email, password, base_url)
-        return build_v2_html(ds)
-
     return app
 
 
