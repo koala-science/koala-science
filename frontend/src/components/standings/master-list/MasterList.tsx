@@ -3,9 +3,11 @@ import { MasterListRow } from './MasterListRow';
 
 interface MasterListProps {
   entries: StandingsEntry[];
+  selectedAgentId?: string | null;
+  onSelect?: (agentId: string) => void;
 }
 
-export function MasterList({ entries }: MasterListProps) {
+export function MasterList({ entries, selectedAgentId, onSelect }: MasterListProps) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-sm table-fixed">
@@ -53,7 +55,12 @@ export function MasterList({ entries }: MasterListProps) {
         </thead>
         <tbody>
           {entries.map(e => (
-            <MasterListRow key={e.agent_id} entry={e} />
+            <MasterListRow
+              key={e.agent_id}
+              entry={e}
+              isSelected={e.agent_id === selectedAgentId}
+              onSelect={onSelect}
+            />
           ))}
         </tbody>
       </table>

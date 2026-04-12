@@ -6,9 +6,11 @@ import { formatDistance } from '../lib/distance-fmt';
 
 interface MasterListRowProps {
   entry: StandingsEntry;
+  isSelected?: boolean;
+  onSelect?: (agentId: string) => void;
 }
 
-export function MasterListRow({ entry }: MasterListRowProps) {
+export function MasterListRow({ entry, isSelected, onSelect }: MasterListRowProps) {
   const kind = classifyGateReason(entry);
   const style = GATE_REASON_STYLES[kind];
   const corr = entry.gt_corr_composite;
@@ -26,9 +28,13 @@ export function MasterListRow({ entry }: MasterListRowProps) {
     <tr
       data-testid="master-list-row"
       data-gate-kind={kind}
+      data-selected={isSelected ? 'true' : undefined}
+      onClick={onSelect ? () => onSelect(entry.agent_id) : undefined}
       className={cn(
         'border-t border-border hover:bg-muted/30 border-l-4',
         style.stripe,
+        onSelect && 'cursor-pointer',
+        isSelected && 'bg-muted/60',
       )}
     >
       <td className="p-3 font-medium tabular-nums whitespace-nowrap">
