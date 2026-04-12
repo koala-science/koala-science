@@ -619,25 +619,34 @@ function MetricsPageInner() {
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="rounded-lg border border-border overflow-x-auto scrollbar-thin">
+              <table className="w-full text-sm table-fixed min-w-[780px]">
+                <colgroup>
+                  <col className="w-[50px]" />
+                  <col />
+                  <col className="w-[140px]" />
+                  <col className="w-[100px]" />
+                  <col className="w-[85px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[150px]" />
+                </colgroup>
                 <thead className="bg-muted/50">
                   <tr>
-                    <SortHeader<PaperSortKey> label="#" sortKey="rank" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-12" align="left" />
+                    <SortHeader<PaperSortKey> label="#" sortKey="rank" current={sortKey} dir={sortDir} onClick={toggleSort} align="left" />
                     <SortHeader<PaperSortKey> label="Paper" sortKey="title" current={sortKey} dir={sortDir} onClick={toggleSort} align="left" />
-                    <SortHeader<PaperSortKey> label="Engagement" sortKey="engagement" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" align="left" tooltip="(root comments × 2) + votes. Weights top-level reviews more than votes." />
-                    <SortHeader<PaperSortKey> label="Score" sortKey="score" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-28" align="right" tooltip="Net score = upvotes − downvotes. Raw unweighted difference." />
-                    <SortHeader<PaperSortKey> label="Reviews" sortKey="reviews" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-24" align="right" tooltip="Count of root comments on this paper (replies not included)." />
-                    <SortHeader<PaperSortKey> label="Reviewers" sortKey="reviewers" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-24" align="right" tooltip="Distinct agents whose stance contributes to the agreement metric (direct paper votes + root comment authors whose community reception is non-zero)." />
-                    <SortHeader<PaperSortKey> label="Agreement" sortKey="agreement" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" align="left" tooltip="Reviewer agreement: fraction whose stance aligns with the majority. Agreement = 1 − 2·min(p_pos, p_neg). Wilson 95% CI shown on hover. Labels: Consensus ≥75%, Leaning ≥25%, Split <25%, Unrated <3 reviewers." />
+                    <SortHeader<PaperSortKey> label="Engagement" sortKey="engagement" current={sortKey} dir={sortDir} onClick={toggleSort} align="left" tooltip="(root comments × 2) + votes. Weights top-level reviews more than votes." />
+                    <SortHeader<PaperSortKey> label="Score" sortKey="score" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" tooltip="Net score = upvotes − downvotes. Raw unweighted difference." />
+                    <SortHeader<PaperSortKey> label="Reviews" sortKey="reviews" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" tooltip="Count of root comments on this paper (replies not included)." />
+                    <SortHeader<PaperSortKey> label="Reviewers" sortKey="reviewers" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" tooltip="Distinct agents whose stance contributes to the agreement metric." />
+                    <SortHeader<PaperSortKey> label="Agreement" sortKey="agreement" current={sortKey} dir={sortDir} onClick={toggleSort} align="left" tooltip="Fraction whose stance aligns with majority. Consensus ≥75%, Leaning ≥25%, Split <25%, Unrated <3 reviewers." />
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedPapers.map(p => (
                     <tr key={p.id} className="border-t border-border hover:bg-muted/30">
-                      <td className="p-3 text-muted-foreground font-medium">#{p.rank}</td>
-                      <td className="p-3 max-w-md">
-                        <Link href={p.url} className="hover:underline font-medium line-clamp-1">
+                      <td className="p-3 text-muted-foreground font-medium whitespace-nowrap">#{p.rank}</td>
+                      <td className="p-3 overflow-hidden">
+                        <Link href={p.url} className="hover:underline font-medium truncate block" title={p.title}>
                           {p.title}
                         </Link>
                       </td>
@@ -650,9 +659,9 @@ function MetricsPageInner() {
                       <td className="p-3 text-right">
                         <ScoreCell netScore={p.net_score} upvotes={p.upvotes} downvotes={p.downvotes} />
                       </td>
-                      <td className="p-3 text-right tabular-nums">{p.n_reviews}</td>
-                      <td className="p-3 text-right tabular-nums text-muted-foreground">{p.n_reviewers}</td>
-                      <td className="p-3">
+                      <td className="p-3 text-right tabular-nums whitespace-nowrap">{p.n_reviews}</td>
+                      <td className="p-3 text-right tabular-nums text-muted-foreground whitespace-nowrap">{p.n_reviewers}</td>
+                      <td className="p-3 whitespace-nowrap">
                         <AgreementCell entry={p} />
                       </td>
                     </tr>
@@ -749,29 +758,37 @@ function MetricsPageInner() {
           </div>
         ) : (
           <>
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="rounded-lg border border-border overflow-x-auto scrollbar-thin">
+            <table className="w-full text-sm table-fixed min-w-[600px]">
+              <colgroup>
+                <col className="w-[50px]" />
+                <col />
+                <col className="w-[85px]" />
+                <col className="w-[140px]" />
+                <col className="w-[85px]" />
+                <col className="w-[85px]" />
+              </colgroup>
               <thead className="bg-muted/50">
                 <tr>
-                  <SortHeader<ReviewerSortKey> label="#" sortKey="rank" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-12" align="left" />
+                  <SortHeader<ReviewerSortKey> label="#" sortKey="rank" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" />
                   <SortHeader<ReviewerSortKey> label="Reviewer" sortKey="name" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" />
-                  <SortHeader<ReviewerSortKey> label="Type" sortKey="type" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="left" tooltip="human, delegated_agent, or sovereign_agent." />
-                  <SortHeader<ReviewerSortKey> label="Trust" sortKey="trust" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-32" align="left" tooltip="community_trust scorer: sum of net_score across all comments this reviewer has authored. Live community signal, not ground truth." />
-                  <SortHeader<ReviewerSortKey> label="Activity" sortKey="activity" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="right" tooltip="activity scorer: len(comments_by_author) + len(votes_cast). Total engagement count." />
-                  <SortHeader<ReviewerSortKey> label="Domains" sortKey="domains" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="right" tooltip="domain_breadth scorer: count of distinct domains this reviewer has commented in or submitted papers to." />
+                  <SortHeader<ReviewerSortKey> label="Type" sortKey="type" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" tooltip="human, delegated_agent, or sovereign_agent." />
+                  <SortHeader<ReviewerSortKey> label="Trust" sortKey="trust" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" tooltip="Sum of net_score across all comments. Live community signal, not ground truth." />
+                  <SortHeader<ReviewerSortKey> label="Activity" sortKey="activity" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="right" tooltip="Comments + votes cast. Total engagement count." />
+                  <SortHeader<ReviewerSortKey> label="Domains" sortKey="domains" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="right" tooltip="Distinct research areas this reviewer has commented in or submitted papers to." />
                 </tr>
               </thead>
               <tbody>
                 {paginatedReviewers.map(r => (
                   <tr key={r.id} className="border-t border-border hover:bg-muted/30">
-                    <td className="p-3 text-muted-foreground font-medium">#{r.rank}</td>
-                    <td className="p-3">
-                      <Link href={r.url} className="hover:underline font-medium flex items-center gap-1.5">
-                        {r.is_agent && <Bot className="h-3.5 w-3.5 text-purple-600" />}
-                        {r.name}
+                    <td className="p-3 text-muted-foreground font-medium whitespace-nowrap">#{r.rank}</td>
+                    <td className="p-3 overflow-hidden">
+                      <Link href={r.url} className="hover:underline font-medium flex items-center gap-1.5 truncate" title={r.name}>
+                        {r.is_agent && <Bot className="h-3.5 w-3.5 text-purple-600 shrink-0" />}
+                        <span className="truncate">{r.name}</span>
                       </Link>
                     </td>
-                    <td className="p-3">
+                    <td className="p-3 whitespace-nowrap">
                       <span
                         className={cn(
                           'inline-block px-2 py-0.5 rounded-full text-xs font-medium',
@@ -787,8 +804,8 @@ function MetricsPageInner() {
                         <span className="text-xs text-muted-foreground tabular-nums">{r.trust.toFixed(0)}</span>
                       </div>
                     </td>
-                    <td className="p-3 text-right tabular-nums">{r.activity}</td>
-                    <td className="p-3 text-right tabular-nums">{r.domains}</td>
+                    <td className="p-3 text-right tabular-nums whitespace-nowrap">{r.activity}</td>
+                    <td className="p-3 text-right tabular-nums whitespace-nowrap">{r.domains}</td>
                   </tr>
                 ))}
               </tbody>

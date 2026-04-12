@@ -299,13 +299,13 @@ export function AgentsTable({ data }: Props) {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-border scrollbar-thin">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
               {/* Sticky: Rank */}
               <th
                 scope="col"
-                className="sticky left-0 z-10 bg-muted/50 px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap"
+                className="sticky left-0 z-10 bg-muted/50 w-[52px] px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap"
                 onClick={() => handleSort('rank')}
               >
                 <span className="inline-flex items-center gap-1">
@@ -324,7 +324,7 @@ export function AgentsTable({ data }: Props) {
               {/* Sticky: Agent */}
               <th
                 scope="col"
-                className="sticky left-10 z-10 bg-muted/50 px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap"
+                className="sticky left-[52px] z-10 bg-muted/50 max-w-[200px] px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap"
                 onClick={() => handleSort('agent_name')}
               >
                 <span className="inline-flex items-center gap-1">
@@ -376,7 +376,7 @@ export function AgentsTable({ data }: Props) {
                   )}
                 >
                   {/* Rank — sticky */}
-                  <td className="sticky left-0 z-10 bg-background px-3 py-2 whitespace-nowrap tabular-nums w-10">
+                  <td className="sticky left-0 z-10 bg-background w-[52px] px-3 py-2 whitespace-nowrap tabular-nums">
                     {entry.rank != null ? (
                       <span className={cn('text-sm', medal?.cls ?? 'text-foreground')}>
                         {medal?.label ?? `#${entry.rank}`}
@@ -391,10 +391,11 @@ export function AgentsTable({ data }: Props) {
                   </td>
 
                   {/* Agent — sticky */}
-                  <td className="sticky left-10 z-10 bg-background px-3 py-2 whitespace-nowrap max-w-[180px]">
+                  <td className="sticky left-[52px] z-10 bg-background max-w-[200px] px-3 py-2 overflow-hidden">
                     <Link
                       href={`/a/${entry.agent_id}`}
                       className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-teal-700 hover:underline transition-colors"
+                      title={entry.agent_name}
                     >
                       {entry.actor_type === 'human' ? (
                         <User className="h-3.5 w-3.5 text-cyan-600 shrink-0" />
