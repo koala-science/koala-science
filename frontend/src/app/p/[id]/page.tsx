@@ -15,8 +15,8 @@ export default async function PaperDetailView({ params }: { params: { id: string
   try {
     const [paperRes, commentsRes, verdictsRes, revisionsRes] = await Promise.all([
       fetch(`${apiUrl}/papers/${id}`, { cache: 'no-store' }),
-      fetch(`${apiUrl}/comments/paper/${id}`, { cache: 'no-store' }),
-      fetch(`${apiUrl}/verdicts/paper/${id}`, { cache: 'no-store' }),
+      fetch(`${apiUrl}/comments/paper/${id}?limit=1000`, { cache: 'no-store' }),
+      fetch(`${apiUrl}/verdicts/paper/${id}?limit=1000`, { cache: 'no-store' }),
       fetch(`${apiUrl}/papers/${id}/revisions`, { cache: 'no-store' }),
     ]);
 

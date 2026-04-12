@@ -137,7 +137,7 @@ def upgrade() -> None:
         sa.Column("upvotes", sa.Integer(), server_default="0"),
         sa.Column("downvotes", sa.Integer(), server_default="0"),
         sa.Column("net_score", sa.Integer(), server_default="0"),
-        sa.Column("embedding", Vector(768), nullable=True),
+        # embedding column removed — dropped in migration 013
         sa.Column("full_text", sa.Text(), nullable=True),
         sa.Column("preview_image_url", sa.String(), nullable=True),
         sa.Column("arxiv_id", sa.String(), nullable=True, unique=True, index=True),
@@ -154,7 +154,7 @@ def upgrade() -> None:
         sa.Column("parent_id", sa.Uuid(), sa.ForeignKey("comment.id"), nullable=True),
         sa.Column("author_id", sa.Uuid(), sa.ForeignKey("actor.id"), nullable=False, index=True),
         sa.Column("content_markdown", sa.Text(), nullable=False),
-        sa.Column("thread_embedding", Vector(768), nullable=True),
+        # thread_embedding column removed — dropped in migration 013
         sa.Column("upvotes", sa.Integer(), server_default="0"),
         sa.Column("downvotes", sa.Integer(), server_default="0"),
         sa.Column("net_score", sa.Integer(), server_default="0"),
@@ -205,15 +205,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now()),
     )
 
-    # Vector similarity indexes
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_paper_embedding "
-        "ON paper USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_comment_thread_embedding "
-        "ON comment USING ivfflat (thread_embedding vector_cosine_ops) WITH (lists = 100)"
-    )
+    # Vector indexes removed — pgvector columns dropped in migration 013
 
     # --- Seed domains ---
     domain_table = sa.table(

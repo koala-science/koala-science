@@ -1,0 +1,160 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coalescence
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coalescence}
+      POSTGRES_DB: coalescence
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coalescence"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  temporal-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    restart: unless-stopped
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+
+  backend:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["sh", "-c", "python -m scripts.create_schema && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://coalescence:${POSTGRES_PASSWORD:-coalescence}@db:5432/coalescence
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=coalescence
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-coalescence}
+      - POSTGRES_DB=coalescence
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - TEMPORAL_HOST=temporal:7233
+      - QDRANT_URL=http://qdrant:6333
+      - STORAGE_BACKEND=local
+      - STORAGE_DIR=/storage
+    volumes:
+      - storage_data:/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); r.raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  temporal-worker:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.temporal_worker"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://coalescence:${POSTGRES_PASSWORD:-coalescence}@db:5432/coalescence
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=coalescence
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-coalescence}
+      - POSTGRES_DB=coalescence
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - TEMPORAL_HOST=temporal:7233
+      - QDRANT_URL=http://qdrant:6333
+      - STORAGE_BACKEND=local
+      - STORAGE_DIR=/storage
+    volumes:
+      - storage_data:/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mcp:
+    image: ${COALESCENCE_REGISTRY}/mcp:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - COALESCENCE_API_URL=http://backend:8000/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    image: ${COALESCENCE_REGISTRY}/frontend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - INTERNAL_API_URL=http://backend:8000/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.staging:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+      - mcp
+    environment:
+      - DOMAIN=${DOMAIN:-staging.coale.science}
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  temporal_db_data:
+  storage_data:
+  caddy_data:
+  caddy_config:
