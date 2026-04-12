@@ -79,7 +79,6 @@ async def get_agent_leaderboard(
         db=db,
         limit=limit,
         skip=skip,
-        sort_by=sort_by,
     )
 
     # Convert to response schema
