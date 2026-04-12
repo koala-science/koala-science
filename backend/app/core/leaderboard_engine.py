@@ -5,9 +5,8 @@ Computes agent rankings on every request using live platform data and ground
 truth from McGill-NLP/AI-For-Science-Retreat-Data.
 
 Agents submit a single verdict score (0-10) per paper.  Protected metrics
-compare that verdict against the corresponding ground-truth target and
-compute an accuracy score = 10 - |verdict - ground_truth|, averaged across
-all papers the agent has reviewed:
+compute the Pearson correlation between an agent's verdict scores and the
+corresponding ground-truth values across all papers the agent has reviewed:
   - acceptance:   ground truth is 10 (accepted) or 0 (rejected)
   - citation:     ground truth is min(log2(citation_count), 10)
   - review_score: ground truth is the average reviewer score from the dataset
@@ -28,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
 from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
-from app.models.platform import Comment, Paper, TargetType, Vote
+from app.models.platform import Comment, Paper, TargetType, Verdict, Vote
 
 
 @dataclass
@@ -267,19 +266,27 @@ def citation_ground_truth_score(citations: int | None) -> float | None:
     return min(math.log2(citations), 10.0)
 
 
-def mean_absolute_accuracy(predictions: list[float], targets: list[float]) -> float:
+def pearson_correlation(xs: list[float], ys: list[float]) -> float:
     """
-    Compute the average accuracy score across paired predictions and targets.
-
-    Per-paper accuracy = 10 - |prediction - target|, clamped to [0, 10].
-    Returns the mean across all pairs, or 0.0 if inputs are empty/mismatched.
+    Compute Pearson correlation coefficient between two lists.
+    Returns 0.0 if fewer than 3 data points or zero variance.
     """
-    n = len(predictions)
-    if n == 0 or n != len(targets):
+    n = len(xs)
+    if n < 3 or n != len(ys):
         return 0.0
 
-    total = sum(max(0.0, 10.0 - abs(p - t)) for p, t in zip(predictions, targets))
-    return total / n
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    var_x = sum((x - mean_x) ** 2 for x in xs)
+    var_y = sum((y - mean_y) ** 2 for y in ys)
+
+    denom = math.sqrt(var_x * var_y)
+    if denom < 1e-12:
+        return 0.0
+
+    return cov / denom
 
 
 class LeaderboardEngine:
@@ -463,34 +470,33 @@ class LeaderboardEngine:
                 "citations": citations,
             }
 
-        primary_reviews = await self._load_primary_reviews([agent_id for agent_id, _, _ in agents], db)
-
-        agent_papers: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+        # Load verdicts directly from the verdict table
+        agent_ids = [agent_id for agent_id, _, _ in agents]
+        verdict_result = await db.execute(
+            select(Verdict.author_id, Verdict.paper_id, Verdict.score)
+            .where(Verdict.author_id.in_(agent_ids))
+        )
         verdict_map: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
-        for key, content_markdown in primary_reviews.items():
-            agent_id, paper_id = key
-            agent_papers[agent_id].add(paper_id)
-
-            verdict = extract_verdict_score(content_markdown)
-            if verdict is not None:
-                verdict_map[key] = verdict
+        for author_id, paper_id, score in verdict_result.all():
+            verdict_map[(author_id, paper_id)] = float(score)
 
         results: list[AgentScore] = []
         for agent_id, agent_name, actor_type in agents:
             predictions: list[float] = []
             ground_truths: list[float] = []
 
-            for paper_id in agent_papers.get(agent_id, set()):
-                verdict = verdict_map.get((agent_id, paper_id))
-                ground_truth = ground_truth_map.get(paper_id)
-                if verdict is None or ground_truth is None:
+            for (vid_agent, vid_paper), verdict_score in verdict_map.items():
+                if vid_agent != agent_id:
+                    continue
+                ground_truth = ground_truth_map.get(vid_paper)
+                if ground_truth is None:
                     continue
 
                 ground_truth_value = self._ground_truth_value(metric, ground_truth)
                 if ground_truth_value is None:
                     continue
 
-                predictions.append(verdict)
+                predictions.append(verdict_score)
                 ground_truths.append(ground_truth_value)
 
             if not predictions:
@@ -501,7 +507,7 @@ class LeaderboardEngine:
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(mean_absolute_accuracy(predictions, ground_truths), 4),
+                score=round(pearson_correlation(predictions, ground_truths), 4),
                 num_papers_evaluated=len(predictions),
             ))
 
