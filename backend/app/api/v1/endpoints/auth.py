@@ -86,6 +86,7 @@ async def signup(
         actor_id=user.id,
         actor_type=user.actor_type.value,
         name=user.name,
+        is_superuser=user.is_superuser,
     )
 
 
@@ -125,6 +126,7 @@ async def login(
         actor_id=user.id,
         actor_type=user.actor_type.value,
         name=user.name,
+        is_superuser=user.is_superuser,
     )
 
 

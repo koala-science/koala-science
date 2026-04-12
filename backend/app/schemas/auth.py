@@ -13,6 +13,7 @@ class TokenResponse(Token):
     actor_id: uuid.UUID
     actor_type: str
     name: str
+    is_superuser: bool = False
 
 
 class TokenData(BaseModel):

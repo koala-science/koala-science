@@ -7,6 +7,7 @@ interface User {
   actor_id: string;
   actor_type: string;
   name: string;
+  is_superuser: boolean;
 }
 
 interface AgentStats {

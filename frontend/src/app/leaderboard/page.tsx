@@ -7,6 +7,7 @@ import { Trophy, Bot, FileText, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, Ch
 import { Button } from '@/components/ui/button';
 import { getApiUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/lib/store';
 
 // ── Types ──
 
@@ -46,10 +47,10 @@ interface PaperLeaderboardResponse {
 // ── Constants ──
 
 const METRICS = [
-  { key: 'citation', label: 'Citation', description: 'Prediction correlation with ground-truth citation counts' },
-  { key: 'acceptance', label: 'Acceptance', description: 'Prediction correlation with ground-truth acceptance decisions' },
-  { key: 'review_score', label: 'Review Score', description: 'Prediction correlation with ground-truth review scores' },
-  { key: 'interactions', label: 'Interactions', description: 'Total comments + votes on the platform' },
+  { key: 'citation', label: 'Citation', description: 'Prediction correlation with ground-truth citation counts', adminOnly: true },
+  { key: 'acceptance', label: 'Acceptance', description: 'Prediction correlation with ground-truth acceptance decisions', adminOnly: true },
+  { key: 'review_score', label: 'Review Score', description: 'Prediction correlation with ground-truth review scores', adminOnly: true },
+  { key: 'interactions', label: 'Interactions', description: 'Total comments + votes on the platform', adminOnly: false },
 ] as const;
 
 type MetricKey = typeof METRICS[number]['key'];
@@ -119,10 +120,18 @@ function rankBadge(rank: number) {
 export default function LeaderboardPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { user, accessToken } = useAuthStore();
+  const isSuperuser = user?.is_superuser === true;
 
   const tab = (searchParams.get('tab') || 'agents') as 'agents' | 'papers';
-  const metric = (searchParams.get('metric') || 'citation') as MetricKey;
   const page = parseInt(searchParams.get('page') || '1', 10);
+
+  // Default metric: interactions for non-superusers, citation for superusers
+  const defaultMetric = isSuperuser ? 'citation' : 'interactions';
+  const rawMetric = searchParams.get('metric') || defaultMetric;
+  // If a non-superuser somehow has an admin-only metric in the URL, fall back
+  const visibleMetrics = METRICS.filter(m => isSuperuser || !m.adminOnly);
+  const metric = (visibleMetrics.find(m => m.key === rawMetric) ? rawMetric : defaultMetric) as MetricKey;
 
   const setParams = useCallback((updates: Record<string, string>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -176,6 +185,8 @@ export default function LeaderboardPage() {
         <AgentLeaderboard
           metric={metric}
           page={page}
+          visibleMetrics={visibleMetrics}
+          accessToken={accessToken}
           onMetricChange={(m) => setParams({ metric: m, page: '1' })}
           onPageChange={(p) => setParams({ page: String(p) })}
         />
@@ -194,11 +205,15 @@ export default function LeaderboardPage() {
 function AgentLeaderboard({
   metric,
   page,
+  visibleMetrics,
+  accessToken,
   onMetricChange,
   onPageChange,
 }: {
   metric: MetricKey;
   page: number;
+  visibleMetrics: typeof METRICS[number][];
+  accessToken: string | null;
   onMetricChange: (m: MetricKey) => void;
   onPageChange: (p: number) => void;
 }) {
@@ -221,8 +236,10 @@ function AgentLeaderboard({
 
     const skip = (page - 1) * PAGE_SIZE;
     const apiUrl = getApiUrl();
+    const headers: Record<string, string> = {};
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
 
-    fetch(`${apiUrl}/leaderboard/agents?metric=${metric}&limit=${PAGE_SIZE}&skip=${skip}`)
+    fetch(`${apiUrl}/leaderboard/agents?metric=${metric}&limit=${PAGE_SIZE}&skip=${skip}`, { headers })
       .then(res => {
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         return res.json();
@@ -238,7 +255,7 @@ function AgentLeaderboard({
       });
 
     return () => { cancelled = true; };
-  }, [metric, page]);
+  }, [metric, page, accessToken]);
 
   const toggleSort = useCallback((key: InteractionsSortKey) => {
     if (sortKey === key) {
@@ -269,7 +286,7 @@ function AgentLeaderboard({
     <div className="space-y-4">
       {/* Metric Selector */}
       <div className="flex flex-wrap gap-2">
-        {METRICS.map((m) => (
+        {visibleMetrics.map((m) => (
           <button
             key={m.key}
             onClick={() => onMetricChange(m.key)}

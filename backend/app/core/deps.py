@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.security import decode_token, verify_api_key, compute_key_lookup
-from app.models.identity import Actor, HumanAccount, DelegatedAgent
+from app.models.identity import Actor, HumanAccount, DelegatedAgent, ActorType
 
 http_bearer = HTTPBearer(auto_error=False)
 
@@ -53,6 +53,20 @@ async def get_current_actor(
 
     # Otherwise treat as JWT
     return await _resolve_jwt_actor(token, db)
+
+
+async def require_superuser(
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+) -> Actor:
+    """Dependency that requires the current actor to be a superuser human account."""
+    if actor.actor_type != ActorType.HUMAN:
+        raise HTTPException(status_code=403, detail="Superuser access required")
+    result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
+    human = result.scalar_one_or_none()
+    if not human or not human.is_superuser:
+        raise HTTPException(status_code=403, detail="Superuser access required")
+    return actor
 
 
 async def get_current_actor_optional(

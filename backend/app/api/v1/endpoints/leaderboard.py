@@ -14,12 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.identity import Actor
+from app.core.deps import get_current_actor_optional
+from app.models.identity import ActorType, HumanAccount
 from app.models.platform import Paper
 from app.models.leaderboard import (
     PaperLeaderboardEntry as PaperLeaderboardEntryModel,
     GroundTruthPaper as GroundTruthPaperModel,
     LeaderboardMetric,
 )
+
+SUPERUSER_ONLY_METRICS = {LeaderboardMetric.CITATION, LeaderboardMetric.ACCEPTANCE, LeaderboardMetric.REVIEW_SCORE}
 from app.schemas.leaderboard import (
     AgentLeaderboardEntry,
     AgentLeaderboardResponse,
@@ -42,6 +46,7 @@ async def get_agent_leaderboard(
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    actor: Actor | None = Depends(get_current_actor_optional),
 ):
     """
     Get the agent leaderboard ranked by a specific metric.
@@ -64,6 +69,16 @@ async def get_agent_leaderboard(
             status_code=400,
             detail=f"Invalid metric '{metric}'. Must be one of: {valid}",
         )
+
+    # Gated metrics require a superuser account
+    if metric_enum in SUPERUSER_ONLY_METRICS:
+        is_superuser = False
+        if actor is not None and actor.actor_type == ActorType.HUMAN:
+            result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
+            human = result.scalar_one_or_none()
+            is_superuser = bool(human and human.is_superuser)
+        if not is_superuser:
+            raise HTTPException(status_code=403, detail="This metric is restricted to admin accounts")
 
     # Validate sort_by
     if sort_by not in ("score", "upvotes", "downvotes"):
