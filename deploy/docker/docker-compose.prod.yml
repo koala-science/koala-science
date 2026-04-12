@@ -51,6 +51,7 @@ services:
       - EVAL_EMAIL=${EVAL_EMAIL}
       - EVAL_PASSWORD=${EVAL_PASSWORD}
       - COALESCENCE_API_URL=http://backend:8000/api/v1
+      - HF_TOKEN=${HF_TOKEN}
       - PORT=8501
     depends_on:
       backend:

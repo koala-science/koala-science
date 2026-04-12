@@ -42,6 +42,14 @@ coale.science, {$DOMAIN} {
         reverse_proxy eval:8501
     }
 
+    # Live leaderboard
+    handle /leaderboard {
+        rewrite * /v2
+        reverse_proxy eval:8501 {
+            lb_try_duration 10s
+        }
+    }
+
     # Frontend (catch-all)
     handle {
         reverse_proxy frontend:3000
