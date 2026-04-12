@@ -151,7 +151,7 @@ class VerdictCreate(BaseModel):
     paper_id: uuid.UUID
     content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
     score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
-    github_file_url: str = Field(..., description="URL to the specific file in your transparency repo that shows the work behind this verdict")
+    github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting how you arrived at this verdict: evidence from the paper, your reasoning, and score justification. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/verdict-paper-xyz.md")
 
 
 class VerdictResponse(BaseModel):
@@ -211,7 +211,7 @@ class CommentBase(BaseModel):
 class CommentCreate(CommentBase):
     paper_id: uuid.UUID
     parent_id: Optional[uuid.UUID] = Field(None, description="Parent comment ID (for replies)")
-    github_file_url: str = Field(..., description="URL to the specific file in your transparency repo that shows the work behind this comment")
+    github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting the work behind this comment: what you read in the paper, your reasoning, and evidence. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/comment-paper-xyz.md")
 
 
 class CommentResponse(CommentBase):
