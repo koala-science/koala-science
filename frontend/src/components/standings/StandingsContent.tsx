@@ -1,14 +1,14 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
-import { Medal } from 'lucide-react';
+import { Suspense, useState } from 'react';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { useStandingsData } from './hooks/useStandingsData';
-import { useStandingsSelection } from './hooks/useStandingsSelection';
-import { useStandingsFilters } from './hooks/useStandingsFilters';
 import { GateStrip } from './gate-strip/GateStrip';
-import { MasterList } from './master-list/MasterList';
-import { DetailPane } from './detail-pane/DetailPane';
-import { StandingsLayout } from './StandingsLayout';
+import { KpiRibbon } from './KpiRibbon';
+import { ProvisionalBanner } from './ProvisionalBanner';
+import { AgentsTable } from './AgentsTable';
+import { ScoringExplainer } from './ScoringExplainer';
 
 function SkeletonBlock() {
   return (
@@ -22,45 +22,20 @@ function SkeletonBlock() {
   );
 }
 
-// Inner component that uses useSearchParams; wrapped in Suspense per the
-// Next.js 14 app-router constraint.
-function StandingsInner() {
+function AgentsInner() {
   const { data, error } = useStandingsData();
-  const { selectedAgentId, setAgent } = useStandingsSelection();
-  const filterResult = useStandingsFilters(data?.entries ?? []);
-  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-
-  // Default selection: first passer, else first-by-distance. Written to
-  // URL only when the param is absent so sharable links win.
-  useEffect(() => {
-    if (!data || selectedAgentId) return;
-    const entries = data.entries;
-    if (!entries.length) return;
-    const first = entries.find(e => e.passed_gate) ?? entries[0];
-    if (first) setAgent(first.agent_id);
-  }, [data, selectedAgentId, setAgent]);
-
-  const selectedEntry = useMemo(() => {
-    if (!data || !selectedAgentId) return null;
-    return data.entries.find(e => e.agent_id === selectedAgentId) ?? null;
-  }, [data, selectedAgentId]);
-
-  const handleSelect = (agentId: string) => {
-    setAgent(agentId);
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setMobileDrawerOpen(true);
-    }
-  };
+  const [chartOpen, setChartOpen] = useState(false);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-4">
+    <div className="space-y-4">
       <div>
-        <h1 className="font-heading text-3xl font-bold flex items-center gap-2">
-          <Medal className="h-7 w-7 text-amber-600" />
-          Standings
-        </h1>
+        <Link href="/leaderboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+          <ArrowLeft className="h-3 w-3" />
+          Competition Leaderboard
+        </Link>
+        <h2 className="text-xl font-semibold">Agents</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Who is actually in the running. Gate by ground-truth correlation, rank by peer trust.
+          Agent diagnostics — gate status, correlation breakdown, peer alignment.
         </p>
       </div>
 
@@ -76,31 +51,19 @@ function StandingsInner() {
       {data === null && !error ? (
         <SkeletonBlock />
       ) : data ? (
-        <StandingsLayout
-          gateStrip={
-            <GateStrip
-              data={data}
-              selectedAgentId={selectedAgentId}
-              onSelect={handleSelect}
-            />
-          }
-          masterList={
-            <MasterList
-              data={data}
-              entries={filterResult.filteredEntries}
-              selectedAgentId={selectedAgentId}
-              onSelect={handleSelect}
-              filters={filterResult.filters}
-              setSort={filterResult.setSort}
-              toggleReason={filterResult.toggleReason}
-              setPassersOnly={filterResult.setPassersOnly}
-              setQuery={filterResult.setQuery}
-            />
-          }
-          detailPane={<DetailPane entry={selectedEntry} data={data} />}
-          isDetailOpenMobile={mobileDrawerOpen}
-          onCloseDetail={() => setMobileDrawerOpen(false)}
-        />
+        <>
+          <KpiRibbon data={data} chartOpen={chartOpen} onToggleChart={() => setChartOpen(v => !v)} />
+
+          {chartOpen && data.n_gt_matched_papers > 0 && (
+            <GateStrip data={data} selectedAgentId={null} onSelect={() => {}} />
+          )}
+
+          <ProvisionalBanner visible={data.n_gt_matched_papers === 0} />
+
+          <AgentsTable data={data} />
+
+          <ScoringExplainer />
+        </>
       ) : null}
     </div>
   );
@@ -109,7 +72,7 @@ function StandingsInner() {
 export function StandingsContent() {
   return (
     <Suspense fallback={<SkeletonBlock />}>
-      <StandingsInner />
+      <AgentsInner />
     </Suspense>
   );
 }
