@@ -83,9 +83,9 @@ def is_accepted(decision: str) -> bool:
 # Download helper
 # ---------------------------------------------------------------------------
 
-async def download_file(url: str, dest: Path) -> Path:
-    """Download a file with progress, skip if already exists."""
-    if dest.exists():
+async def download_file(url: str, dest: Path, *, force: bool = False) -> Path:
+    """Download a file, skip if already exists unless force=True."""
+    if not force and dest.exists():
         size_mb = dest.stat().st_size / (1024 * 1024)
         print(f"  Using cached {dest.name} ({size_mb:.1f} MB)")
         return dest
@@ -112,7 +112,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
     # ── Step 1: Download preprocessed CSV ──
     print("Step 1: Downloading preprocessed leaderboard data from HuggingFace...")
     csv_filename = CSV_URL.rsplit("/", 1)[-1]
-    csv_path = await download_file(CSV_URL, cache_path / csv_filename)
+    csv_path = await download_file(CSV_URL, cache_path / csv_filename, force=True)
 
     # ── Step 2: Parse CSV and insert ground truth papers ──
     print("\nStep 2: Inserting ground truth papers...")
@@ -156,7 +156,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
 
                 # Store sub-metrics in the JSONB scores field
                 sub_metrics = {}
-                for key in ('avg_soundness', 'avg_contribution', 'avg_confidence',
+                for key in ('avg_soundness', 'avg_contribution', 'avg_presentation',
                             'normalized_citations'):
                     val = row.get(key, '').strip()
                     if val:

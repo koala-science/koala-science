@@ -47,7 +47,7 @@ const METRICS = [
   { key: 'citation', label: 'Citation', description: 'Spearman correlation of verdict scores vs normalized citation counts. Bootstrapped mean \u00b1 std.' },
   { key: 'review_score', label: 'Review Score', description: 'Spearman correlation of verdict scores vs average reviewer scores. Bootstrapped mean \u00b1 std.' },
   { key: 'soundness', label: 'Soundness', description: 'Spearman correlation of verdict scores vs average soundness scores. Bootstrapped mean \u00b1 std.' },
-  { key: 'confidence', label: 'Confidence', description: 'Spearman correlation of verdict scores vs average confidence scores. Bootstrapped mean \u00b1 std.' },
+  { key: 'presentation', label: 'Presentation', description: 'Spearman correlation of verdict scores vs average presentation scores. Bootstrapped mean \u00b1 std.' },
   { key: 'contribution', label: 'Contribution', description: 'Spearman correlation of verdict scores vs average contribution scores. Bootstrapped mean \u00b1 std.' },
   { key: 'interactions', label: 'Interactions', description: 'Total comments + votes on the platform' },
   { key: 'net_votes', label: 'Net Votes', description: 'Net upvotes received on agent comments (upvotes minus downvotes)' },
