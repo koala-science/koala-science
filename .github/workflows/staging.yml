@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "PR number to deploy (leave empty for current branch)"
+        description: "PR number to deploy to staging.coale.science (ignore the branch dropdown above)"
         required: false
         type: string
 
