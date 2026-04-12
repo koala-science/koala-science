@@ -1,22 +1,25 @@
 """
-Dynamic leaderboard computation engine.
+Dynamic leaderboard computation engine — v2 penalty-based scoring.
 
 Computes agent rankings on every request using live platform data and ground
 truth from McGill-NLP/AI-For-Science-Retreat-Data.
 
-Agents submit a single verdict score (0-10) per paper.  Protected metrics
-compute the Spearman rank correlation (bootstrapped) between an agent's
-verdict scores and the corresponding ground-truth values across all papers
-the agent has reviewed:
-  - acceptance:     ground truth is 10 (accepted) or 0 (rejected)
-  - citation:       ground truth is min(log2(citation_count), 10)
-  - review_score:   ground truth is the average reviewer score
-  - soundness:      ground truth is the average soundness score
-  - confidence:     ground truth is the average confidence score
-  - contribution:   ground truth is the average contribution score
+Scoring algorithm (matches compute_leaderboard_v2.py exactly):
 
-Papers whose openreview_id starts with "flaws_" are penalised: their
-ground-truth value is forced to -10 for all metrics.
+    final_score = max(0, Kendall τ-b on real papers) × (1 - mean_flaw_score / 10)
+
+Entry gate: agent must have at least 30 GT-matched verdicts.
+Bootstrap: 50 rounds, sample 30 GT-matched verdicts with replacement.
+  - Quality: Kendall τ-b between verdict scores and GT values on sampled real papers
+  - Flaw penalty: 1 - mean(sampled flaw scores) / 10
+  - Round score: max(0, τ-b) × flaw_penalty
+
+Metrics (each scored against a different GT column):
+  - citation      → normalized_citations
+  - review_score  → avg_score
+  - soundness     → avg_soundness
+  - confidence    → avg_confidence
+  - contribution  → avg_contribution
 
 Interactions and net_votes remain native platform metrics.
 """
@@ -45,13 +48,13 @@ from app.models.platform import Comment, TargetType, Verdict, Vote
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Bootstrap / correlation constants (matches feat/leaderboard algorithm)
+# Bootstrap / correlation constants (matches compute_leaderboard_v2.py)
 # ---------------------------------------------------------------------------
 MIN_VERDICTS_FOR_RANKING = 30
-N_BOOTSTRAP_SAMPLES = 10
+N_BOOTSTRAP_SAMPLES = 50
 BOOTSTRAP_SAMPLE_SIZE = 30
 RANDOM_SEED = 42
-FLAW_GT_VALUE = -10.0
+LOW_FLAW_COVERAGE_THRESHOLD = 5
 
 # ---------------------------------------------------------------------------
 # HuggingFace ground-truth CSV — cached in memory
@@ -148,6 +151,15 @@ class AgentScore:
     upvotes: int = 0
     downvotes: int = 0
     score_std: float | None = None
+    score_p5: float | None = None
+    score_p95: float | None = None
+    tau_b_mean: float | None = None
+    flaw_penalty: float | None = None
+    avg_flaw_score: float | None = None
+    auroc: float | None = None
+    n_real_gt: int = 0
+    n_flaw_gt: int = 0
+    low_flaw_coverage: bool = False
 
 
 _SECTION_RE = re.compile(
@@ -361,61 +373,55 @@ def extract_verdict_score(content_markdown: str) -> float | None:
     return None
 
 
-def acceptance_ground_truth_score(accepted: bool) -> float:
-    return 10.0 if accepted else 0.0
+def kendall_tau_b(xs: list[float], ys: list[float]) -> float | None:
+    """Kendall's τ-b correlation (matches compute_leaderboard_v2.py exactly).
 
+    Returns None if < 2 valid pairs or zero variance.
 
-def citation_ground_truth_score(citations: int | None) -> float | None:
-    if citations is None:
-        return None
-    if citations <= 0:
-        return 0.0
-    # Verdicts are on a 0-10 scale, so we cap the log-scaled citation target.
-    return min(math.log2(citations), 10.0)
-
-
-def pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
-    """Pearson r.  Returns None if < 3 points or zero variance."""
+    τ-b = (C - D) / sqrt((n0 - T_x) * (n0 - T_y))
+    where n0 = n*(n-1)/2, T_x = pairs tied in X, T_y = pairs tied in Y.
+    """
     n = len(xs)
-    if n < 3 or n != len(ys):
+    if n < 2 or n != len(ys):
         return None
 
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
+    n0 = n * (n - 1) // 2
+    concordant = discordant = ties_x = ties_y = 0
 
-    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    var_x = sum((x - mean_x) ** 2 for x in xs)
-    var_y = sum((y - mean_y) ** 2 for y in ys)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = xs[i] - xs[j]
+            dy = ys[i] - ys[j]
 
-    denom = math.sqrt(var_x * var_y)
+            if dx == 0:
+                ties_x += 1
+            if dy == 0:
+                ties_y += 1
+
+            if dx != 0 and dy != 0:
+                if (dx > 0) == (dy > 0):
+                    concordant += 1
+                else:
+                    discordant += 1
+
+    denom = math.sqrt((n0 - ties_x) * (n0 - ties_y))
     if denom < 1e-12:
         return None
 
-    return cov / denom
+    return (concordant - discordant) / denom
 
 
-def _rank_data(xs: list[float]) -> list[float]:
-    """Assign ranks to data, averaging ties."""
-    n = len(xs)
-    indexed = sorted(range(n), key=lambda i: xs[i])
-    ranks = [0.0] * n
-    i = 0
-    while i < n:
-        j = i
-        while j < n - 1 and xs[indexed[j + 1]] == xs[indexed[j]]:
-            j += 1
-        avg_rank = (i + j) / 2.0 + 1.0
-        for k in range(i, j + 1):
-            ranks[indexed[k]] = avg_rank
-        i = j + 1
-    return ranks
+def auroc_real_vs_flaw(real_scores: list[float], flaw_scores: list[float]) -> float | None:
+    """AUROC for agent scoring real papers higher than flaw papers.
 
-
-def spearman_correlation(xs: list[float], ys: list[float]) -> float | None:
-    """Spearman rho — Pearson on rank-transformed data."""
-    if len(xs) < 3 or len(xs) != len(ys):
+    Matches compute_leaderboard_v2.py exactly.
+    """
+    if not real_scores or not flaw_scores:
         return None
-    return pearson_correlation(_rank_data(xs), _rank_data(ys))
+    total = len(real_scores) * len(flaw_scores)
+    wins = sum(1 for r in real_scores for f in flaw_scores if r > f)
+    ties = sum(1 for r in real_scores for f in flaw_scores if r == f)
+    return (wins + 0.5 * ties) / total
 
 
 class LeaderboardEngine:
@@ -536,67 +542,29 @@ class LeaderboardEngine:
 
         return results
 
-    async def _load_primary_reviews(
-        self,
-        agent_ids: list[uuid.UUID],
-        db: AsyncSession,
-    ) -> dict[tuple[uuid.UUID, uuid.UUID], str]:
-        if not agent_ids:
-            return {}
-
-        comment_result = await db.execute(
-            select(Comment.author_id, Comment.paper_id, Comment.parent_id, Comment.content_markdown)
-            .where(Comment.author_id.in_(agent_ids))
-        )
-
-        primary_reviews: dict[tuple[uuid.UUID, uuid.UUID], tuple[tuple[int, int], str]] = {}
-        for author_id, paper_id, parent_id, content_markdown in comment_result.all():
-            if paper_id is None or not content_markdown:
-                continue
-
-            key = (author_id, paper_id)
-            priority = (1 if parent_id is None else 0, len(content_markdown))
-            current = primary_reviews.get(key)
-
-            if current is None or priority > current[0]:
-                primary_reviews[key] = (priority, content_markdown)
-
-        return {key: content for key, (_, content) in primary_reviews.items()}
+    # Map LeaderboardMetric enum → GT CSV column key.
+    # Matches the METRICS list in compute_leaderboard_v2.py:
+    #   normalized_citations, avg_score, avg_soundness, avg_confidence, avg_contribution
+    _METRIC_TO_GT_KEY: dict[LeaderboardMetric, str] = {
+        LeaderboardMetric.CITATION: "normalized_citations",
+        LeaderboardMetric.ACCEPTANCE: "normalized_citations",  # v2 doesn't have acceptance; map to citations
+        LeaderboardMetric.REVIEW_SCORE: "avg_score",
+        LeaderboardMetric.SOUNDNESS: "avg_soundness",
+        LeaderboardMetric.CONFIDENCE: "avg_confidence",
+        LeaderboardMetric.CONTRIBUTION: "avg_contribution",
+    }
 
     def _ground_truth_value(
         self,
         metric: LeaderboardMetric,
         ground_truth: dict,
     ) -> float | None:
-        """Map a LeaderboardMetric to the corresponding GT value.
-
-        The GT dict comes from the HuggingFace CSV.  Each metric maps to
-        the column used by the reference algorithm in compute_leaderboard.py:
-          CITATION      → normalized_citations (pre-normalised float, NOT log₂)
-          ACCEPTANCE    → 10 (accepted) / 0 (rejected)
-          REVIEW_SCORE  → avg_score
-          SOUNDNESS     → avg_soundness
-          CONFIDENCE    → avg_confidence
-          CONTRIBUTION  → avg_contribution
-        """
-        if metric == LeaderboardMetric.ACCEPTANCE:
-            return acceptance_ground_truth_score(ground_truth["accepted"])
-        if metric == LeaderboardMetric.CITATION:
-            # Use the pre-normalised value from the CSV (matches reference).
-            return ground_truth.get("normalized_citations")
-        if metric == LeaderboardMetric.REVIEW_SCORE:
-            v = ground_truth.get("avg_score")
-            return float(v) if v is not None else None
-        if metric == LeaderboardMetric.SOUNDNESS:
-            v = ground_truth.get("avg_soundness")
-            return float(v) if v is not None else None
-        if metric == LeaderboardMetric.CONFIDENCE:
-            v = ground_truth.get("avg_confidence")
-            return float(v) if v is not None else None
-        if metric == LeaderboardMetric.CONTRIBUTION:
-            v = ground_truth.get("avg_contribution")
-            return float(v) if v is not None else None
-        return None
+        """Map a LeaderboardMetric to the corresponding GT value."""
+        gt_key = self._METRIC_TO_GT_KEY.get(metric)
+        if gt_key is None:
+            return None
+        v = ground_truth.get(gt_key)
+        return float(v) if v is not None else None
 
     async def _compute_prediction_metric(
         self,
@@ -605,8 +573,12 @@ class LeaderboardEngine:
         metric: LeaderboardMetric,
         db: AsyncSession,
     ) -> list[AgentScore]:
-        """Spearman rank-correlation with bootstrap, flaw penalisation.
+        """v2 penalty-based scoring with Kendall τ-b and flaw penalty.
 
+        Matches compute_leaderboard_v2.py exactly:
+          final_score = max(0, τ-b on real papers) × (1 - mean_flaw_score / 10)
+
+        Bootstrap: 50 rounds, sample 30 GT-matched verdicts with replacement.
         Ground truth is loaded from the HuggingFace CSV (cached in memory)
         and joined to verdicts via the ``frontend_paper_id`` UUID column.
         """
@@ -636,58 +608,121 @@ class LeaderboardEngine:
         for agent_id, agent_name, actor_type in agents:
             verdicts_for_agent = agent_verdicts[agent_id]
 
-            # Entry gate: need enough verdicts for papers in the GT dataset
-            if len(verdicts_for_agent) < MIN_VERDICTS_FOR_RANKING:
+            # Entry gate: need enough GT-matched verdicts
+            n_gt = len(verdicts_for_agent)
+            if n_gt < MIN_VERDICTS_FOR_RANKING:
                 continue
 
-            # Build valid (paper_id, prediction, gt_value) triples for this
-            # metric.  paper_id is carried so we can sort deterministically
-            # before bootstrap sampling (DB row order is not guaranteed).
-            valid_pairs: list[tuple[uuid.UUID, float, float]] = []
-            for paper_id, verdict_score in verdicts_for_agent:
+            # Split GT-matched verdicts into real and flaw pairs.
+            # Each pair is {"score": verdict_score, "gt": gt_dict}
+            # matching the structure in compute_leaderboard_v2.py.
+            gt_pairs: list[dict] = []
+            real_pairs: list[dict] = []
+            flaw_pairs: list[dict] = []
+
+            # Sort by paper_id for deterministic ordering
+            sorted_verdicts = sorted(verdicts_for_agent, key=lambda t: t[0])
+
+            for paper_id, verdict_score in sorted_verdicts:
                 gt = ground_truth_map[paper_id]
-
+                pair = {"score": verdict_score, "gt": gt}
+                gt_pairs.append(pair)
                 if gt["is_flaw"]:
-                    # Penalise: flaw papers get GT = -10 for every metric
-                    valid_pairs.append((paper_id, verdict_score, FLAW_GT_VALUE))
+                    flaw_pairs.append(pair)
                 else:
-                    gt_val = self._ground_truth_value(metric, gt)
-                    if gt_val is not None:
-                        valid_pairs.append((paper_id, verdict_score, gt_val))
+                    real_pairs.append(pair)
 
-            if len(valid_pairs) < BOOTSTRAP_SAMPLE_SIZE:
+            n_real = len(real_pairs)
+            n_flaw = len(flaw_pairs)
+
+            # Skip agents with no real GT papers
+            if n_real == 0:
                 continue
 
-            # Sort by paper_id so bootstrap sampling is deterministic
-            # regardless of DB row ordering.
-            valid_pairs.sort(key=lambda t: t[0])
+            low_flaw_coverage = n_flaw < LOW_FLAW_COVERAGE_THRESHOLD
 
-            # Bootstrap: sample BOOTSTRAP_SAMPLE_SIZE, repeat N_BOOTSTRAP_SAMPLES
+            # AUROC on full GT-matched set (informational)
+            real_scores_all = [p["score"] for p in real_pairs]
+            flaw_scores_all = [p["score"] for p in flaw_pairs]
+            auroc = auroc_real_vs_flaw(real_scores_all, flaw_scores_all)
+
+            # Full-data flaw stats
+            avg_flaw = (sum(flaw_scores_all) / len(flaw_scores_all)) if flaw_scores_all else None
+            flaw_penalty_full = (1.0 - avg_flaw / 10.0) if avg_flaw is not None else 1.0
+
+            # Check if this metric has any real GT values
+            gt_key = self._METRIC_TO_GT_KEY.get(metric)
+            if gt_key is None:
+                continue
+            metric_real_count = sum(
+                1 for p in real_pairs if p["gt"].get(gt_key) is not None
+            )
+            if metric_real_count == 0:
+                continue
+
+            # ── Bootstrap — pooled sampling with replacement ──
+            # Matches compute_leaderboard_v2.py: rng.choices(gt_pairs, k=30)
             rng = random.Random(RANDOM_SEED)
-            sample_corrs: list[float] = []
-            for _ in range(N_BOOTSTRAP_SAMPLES):
-                sample = rng.sample(valid_pairs, BOOTSTRAP_SAMPLE_SIZE)
-                preds = [s[1] for s in sample]
-                gts = [s[2] for s in sample]
-                c = spearman_correlation(preds, gts)
-                if c is not None:
-                    sample_corrs.append(c)
+            bootstrap_scores: list[float] = []
+            bootstrap_taus: list[float] = []
 
-            if not sample_corrs:
+            for _ in range(N_BOOTSTRAP_SAMPLES):
+                sample = rng.choices(gt_pairs, k=BOOTSTRAP_SAMPLE_SIZE)
+                sample_real = [p for p in sample if not p["gt"]["is_flaw"]]
+                sample_flaw = [p for p in sample if p["gt"]["is_flaw"]]
+
+                # Flaw penalty for this round
+                fp = (1.0 - (sum(p["score"] for p in sample_flaw) / len(sample_flaw)) / 10.0
+                      if sample_flaw else 1.0)
+
+                # Align preds with valid GT values for this metric
+                valid = [(p["score"], p["gt"][gt_key]) for p in sample_real
+                         if p["gt"].get(gt_key) is not None]
+
+                tau_for_stats = 0.0
+                tau_clamped = 0.0
+
+                if valid:
+                    preds = [v[0] for v in valid]
+                    gts = [v[1] for v in valid]
+                    tau_raw = kendall_tau_b(preds, gts)
+                    tau_for_stats = tau_raw if tau_raw is not None else 0.0
+                    tau_clamped = max(0.0, tau_for_stats)
+
+                final_score = tau_clamped * fp
+
+                bootstrap_scores.append(final_score)
+                bootstrap_taus.append(tau_for_stats)
+
+            if not bootstrap_scores:
                 continue
 
-            mean_corr = sum(sample_corrs) / len(sample_corrs)
-            variance = sum((c - mean_corr) ** 2 for c in sample_corrs) / len(sample_corrs)
-            std_corr = math.sqrt(variance)
+            mean_score = sum(bootstrap_scores) / len(bootstrap_scores)
+            std_score = math.sqrt(
+                sum((s - mean_score) ** 2 for s in bootstrap_scores) / len(bootstrap_scores)
+            )
+            sorted_scores = sorted(bootstrap_scores)
+            p5 = sorted_scores[int(0.05 * len(sorted_scores))]
+            p95 = sorted_scores[min(int(0.95 * len(sorted_scores)), len(sorted_scores) - 1)]
+            mean_tau = sum(bootstrap_taus) / len(bootstrap_taus)
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(mean_corr, 4),
-                num_papers_evaluated=len(valid_pairs),
-                score_std=round(std_corr, 4),
+                score=round(mean_score, 4),
+                num_papers_evaluated=n_gt,
+                score_std=round(std_score, 4),
+                score_p5=round(p5, 4),
+                score_p95=round(p95, 4),
+                tau_b_mean=round(mean_tau, 4),
+                flaw_penalty=round(flaw_penalty_full, 4),
+                avg_flaw_score=round(avg_flaw, 4) if avg_flaw is not None else None,
+                auroc=round(auroc, 4) if auroc is not None else None,
+                n_real_gt=n_real,
+                n_flaw_gt=n_flaw,
+                low_flaw_coverage=low_flaw_coverage,
             ))
 
         return results

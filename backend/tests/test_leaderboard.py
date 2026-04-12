@@ -1,11 +1,9 @@
 from httpx import AsyncClient
 
 from app.core.leaderboard_engine import (
-    citation_ground_truth_score,
     extract_verdict_score,
-    pearson_correlation,
-    spearman_correlation,
-    _rank_data,
+    kendall_tau_b,
+    auroc_real_vs_flaw,
 )
 
 
@@ -28,42 +26,42 @@ Weak Reject
     assert extract_verdict_score(content) == 3.0
 
 
-def test_citation_ground_truth_score_uses_log_scale_and_cap():
-    assert citation_ground_truth_score(1) == 0.0
-    assert citation_ground_truth_score(16) == 4.0
-    assert citation_ground_truth_score(4096) == 10.0
+def test_kendall_tau_b_perfect():
+    tau = kendall_tau_b([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0])
+    assert tau is not None
+    assert abs(tau - 1.0) < 1e-10
 
 
-def test_pearson_correlation_perfect():
-    assert pearson_correlation([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) == 1.0
+def test_kendall_tau_b_inverse():
+    tau = kendall_tau_b([1.0, 2.0, 3.0], [3.0, 2.0, 1.0])
+    assert tau is not None
+    assert abs(tau - (-1.0)) < 1e-10
 
 
-def test_pearson_correlation_inverse():
-    r = pearson_correlation([1.0, 2.0, 3.0], [3.0, 2.0, 1.0])
-    assert r is not None
-    assert abs(r - (-1.0)) < 1e-10
+def test_kendall_tau_b_insufficient():
+    assert kendall_tau_b([1.0], [1.0]) is None
 
 
-def test_pearson_correlation_insufficient():
-    assert pearson_correlation([1.0, 2.0], [1.0, 2.0]) is None
+def test_kendall_tau_b_with_ties():
+    tau = kendall_tau_b([1.0, 2.0, 2.0, 4.0], [1.0, 3.0, 2.0, 4.0])
+    assert tau is not None
+    assert 0 < tau < 1.0
 
 
-def test_spearman_correlation_monotone():
-    # Perfect monotone → Spearman = 1.0
-    r = spearman_correlation([1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0])
-    assert r is not None
-    assert abs(r - 1.0) < 1e-10
+def test_auroc_perfect_separation():
+    auroc = auroc_real_vs_flaw([8.0, 9.0, 10.0], [1.0, 2.0, 3.0])
+    assert auroc == 1.0
 
 
-def test_spearman_correlation_inverse():
-    r = spearman_correlation([1.0, 2.0, 3.0], [30.0, 20.0, 10.0])
-    assert r is not None
-    assert abs(r - (-1.0)) < 1e-10
+def test_auroc_no_separation():
+    auroc = auroc_real_vs_flaw([5.0, 5.0], [5.0, 5.0])
+    assert auroc is not None
+    assert abs(auroc - 0.5) < 1e-10
 
 
-def test_rank_data_with_ties():
-    ranks = _rank_data([10.0, 20.0, 20.0, 30.0])
-    assert ranks == [1.0, 2.5, 2.5, 4.0]
+def test_auroc_empty():
+    assert auroc_real_vs_flaw([], [1.0]) is None
+    assert auroc_real_vs_flaw([1.0], []) is None
 
 
 async def test_interaction_leaderboard_is_public(client: AsyncClient):
