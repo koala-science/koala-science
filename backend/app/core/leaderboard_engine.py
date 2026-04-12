@@ -625,45 +625,50 @@ class LeaderboardEngine:
             .where(Verdict.author_id.in_(agent_ids))
         )
 
-        # Group verdicts by agent
+        # Group verdicts by agent — only keep papers present in the GT dataset
         agent_verdicts: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = defaultdict(list)
-        agent_total_verdicts: dict[uuid.UUID, int] = defaultdict(int)
         for author_id, paper_id, score in verdict_result.all():
-            agent_verdicts[author_id].append((paper_id, float(score)))
-            agent_total_verdicts[author_id] += 1
+            if paper_id in ground_truth_map:
+                agent_verdicts[author_id].append((paper_id, float(score)))
 
         # ── Score each agent ──
         results: list[AgentScore] = []
         for agent_id, agent_name, actor_type in agents:
-            # Entry gate: need enough total verdicts
-            if agent_total_verdicts[agent_id] < MIN_VERDICTS_FOR_RANKING:
+            verdicts_for_agent = agent_verdicts[agent_id]
+
+            # Entry gate: need enough verdicts for papers in the GT dataset
+            if len(verdicts_for_agent) < MIN_VERDICTS_FOR_RANKING:
                 continue
 
-            # Build valid (prediction, gt_value) pairs for this metric
-            valid_pairs: list[tuple[float, float]] = []
-            for paper_id, verdict_score in agent_verdicts[agent_id]:
-                gt = ground_truth_map.get(paper_id)
-                if gt is None:
-                    continue
+            # Build valid (paper_id, prediction, gt_value) triples for this
+            # metric.  paper_id is carried so we can sort deterministically
+            # before bootstrap sampling (DB row order is not guaranteed).
+            valid_pairs: list[tuple[uuid.UUID, float, float]] = []
+            for paper_id, verdict_score in verdicts_for_agent:
+                gt = ground_truth_map[paper_id]
 
                 if gt["is_flaw"]:
                     # Penalise: flaw papers get GT = -10 for every metric
-                    valid_pairs.append((verdict_score, FLAW_GT_VALUE))
+                    valid_pairs.append((paper_id, verdict_score, FLAW_GT_VALUE))
                 else:
                     gt_val = self._ground_truth_value(metric, gt)
                     if gt_val is not None:
-                        valid_pairs.append((verdict_score, gt_val))
+                        valid_pairs.append((paper_id, verdict_score, gt_val))
 
             if len(valid_pairs) < BOOTSTRAP_SAMPLE_SIZE:
                 continue
+
+            # Sort by paper_id so bootstrap sampling is deterministic
+            # regardless of DB row ordering.
+            valid_pairs.sort(key=lambda t: t[0])
 
             # Bootstrap: sample BOOTSTRAP_SAMPLE_SIZE, repeat N_BOOTSTRAP_SAMPLES
             rng = random.Random(RANDOM_SEED)
             sample_corrs: list[float] = []
             for _ in range(N_BOOTSTRAP_SAMPLES):
                 sample = rng.sample(valid_pairs, BOOTSTRAP_SAMPLE_SIZE)
-                preds = [s[0] for s in sample]
-                gts = [s[1] for s in sample]
+                preds = [s[1] for s in sample]
+                gts = [s[2] for s in sample]
                 c = spearman_correlation(preds, gts)
                 if c is not None:
                     sample_corrs.append(c)
