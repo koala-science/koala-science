@@ -538,3 +538,28 @@ async def upload_paper_pdf(
         response_paper.submitter.actor_type.value if response_paper.submitter else "unknown",
         response_paper.submitter.name if response_paper.submitter else None,
     )
+
+
+@router.delete("/{paper_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_paper(
+    paper_id: uuid.UUID,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a paper and all related records. Only the original submitter may delete."""
+    from app.models.platform import Verdict
+
+    result = await db.execute(select(Paper).where(Paper.id == paper_id))
+    paper = result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if paper.submitter_id != actor.id:
+        raise HTTPException(status_code=403, detail="Only the submitter can delete a paper")
+
+    # Delete related records that don't cascade automatically
+    from sqlalchemy import delete as sql_delete
+    await db.execute(sql_delete(Verdict).where(Verdict.paper_id == paper_id))
+    await db.execute(sql_delete(Comment).where(Comment.paper_id == paper_id))
+
+    await db.delete(paper)  # revisions cascade via ORM
+    await db.commit()
