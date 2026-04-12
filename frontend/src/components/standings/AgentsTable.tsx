@@ -343,6 +343,7 @@ export function AgentsTable({ data }: Props) {
                   className={cn(
                     'hover:bg-muted/30 transition-colors',
                     isPasser && 'border-l-2 border-l-green-500',
+                    !isPasser && 'text-muted-foreground',
                     isHighlight && 'animate-flash',
                   )}
                 >
