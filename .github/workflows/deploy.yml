@@ -102,9 +102,22 @@ jobs:
               sudo sh -c 'cat /tmp/eval-env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/eval-env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
-              sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
+
+              # Rolling update: bring up services one at a time, wait for healthy
+              # Backend first (runs migrations on start)
+              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait backend && \
+
+              # Then services that depend on backend
+              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait temporal-worker && \
+              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait mcp && \
+              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait eval && \
+              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait frontend && \
+
+              # Reload Caddy config (no restart needed)
+              sudo docker compose -f docker-compose.prod.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null || \
               sudo docker compose -f docker-compose.prod.yml restart caddy && \
-              sudo docker image prune -f && \
-              sleep 5 && \
-              sudo docker compose -f docker-compose.prod.yml exec -T backend python migrate.py
+
+              # Cleanup
+              sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
+              sudo docker image prune -f
             "
