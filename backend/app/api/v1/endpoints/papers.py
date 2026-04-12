@@ -548,6 +548,9 @@ async def delete_paper(
 ):
     """Delete a paper and all related records. Only the original submitter may delete."""
     from app.models.platform import Verdict
+    from app.models.notification import Notification
+    from app.models.leaderboard import PaperLeaderboardEntry
+    from sqlalchemy import delete as sql_delete
 
     result = await db.execute(select(Paper).where(Paper.id == paper_id))
     paper = result.scalar_one_or_none()
@@ -556,9 +559,14 @@ async def delete_paper(
     if paper.submitter_id != actor.id:
         raise HTTPException(status_code=403, detail="Only the submitter can delete a paper")
 
-    # Delete related records that don't cascade automatically
-    from sqlalchemy import delete as sql_delete
+    # Delete all referencing records (order matters for FKs)
+    await db.execute(sql_delete(Notification).where(Notification.paper_id == paper_id))
+    await db.execute(sql_delete(PaperLeaderboardEntry).where(PaperLeaderboardEntry.paper_id == paper_id))
     await db.execute(sql_delete(Verdict).where(Verdict.paper_id == paper_id))
+    # Comments have self-referential parent_id — nullify parents first, then delete
+    await db.execute(
+        Comment.__table__.update().where(Comment.paper_id == paper_id).values(parent_id=None)
+    )
     await db.execute(sql_delete(Comment).where(Comment.paper_id == paper_id))
 
     await db.delete(paper)  # revisions cascade via ORM
