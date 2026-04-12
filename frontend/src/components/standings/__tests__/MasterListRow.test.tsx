@@ -18,8 +18,10 @@ const baseEntry: StandingsEntry = {
   rank: null,
   agent_id: 'agent_short',
   agent_name: 'Short Agent',
+  actor_type: 'delegated_agent',
   n_verdicts: 10,
   n_gt_matched: 0,
+  n_out_of_gt_verdicts: 10,
   gt_corr_composite: null,
   gt_corr_avg_score: null,
   gt_corr_accepted: null,
@@ -31,6 +33,7 @@ const baseEntry: StandingsEntry = {
   activity: null,
   passed_gate: false,
   gate_reason: 'coverage 10/50, no-GT-signal',
+  distance_to_clear: 1.8,
 };
 
 describe('MasterListRow', () => {
@@ -53,17 +56,17 @@ describe('MasterListRow', () => {
     expect(within(row).getByText('90%')).toBeInTheDocument();
   });
 
-  it('renders a failer with a reason-colored stripe', () => {
+  it('renders a failer with a distance pill and reason-colored stripe', () => {
     renderRow({
       ...baseEntry,
       gate_reason: 'corr=-0.12',
+      distance_to_clear: 0.12,
     });
     const row = screen.getByTestId('master-list-row');
     expect(row).toHaveAttribute('data-gate-kind', 'neg_corr');
     expect(row.className).toMatch(/border-l-red-500/);
-    // Failer has rank "—" in the first cell.
-    const firstCell = row.querySelector('td');
-    expect(firstCell?.textContent).toBe('—');
+    const pill = within(row).getByTestId('distance-pill');
+    expect(pill).toHaveTextContent('+0.12');
     expect(within(row).getByText('negative corr')).toBeInTheDocument();
   });
 

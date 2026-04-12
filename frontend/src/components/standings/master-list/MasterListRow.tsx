@@ -2,6 +2,7 @@ import { Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { StandingsEntry } from '../lib/types';
 import { classifyGateReason, GATE_REASON_STYLES } from '../lib/gate-reasons';
+import { formatDistance } from '../lib/distance-fmt';
 
 interface MasterListRowProps {
   entry: StandingsEntry;
@@ -30,8 +31,18 @@ export function MasterListRow({ entry }: MasterListRowProps) {
         style.stripe,
       )}
     >
-      <td className="p-3 text-muted-foreground font-medium tabular-nums whitespace-nowrap">
-        {entry.passed_gate ? `#${entry.rank}` : '—'}
+      <td className="p-3 font-medium tabular-nums whitespace-nowrap">
+        {entry.passed_gate ? (
+          <span className="text-muted-foreground">#{entry.rank}</span>
+        ) : (
+          <span
+            data-testid="distance-pill"
+            className="inline-block px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs font-mono"
+            title={`distance to clear: ${entry.distance_to_clear.toFixed(3)}`}
+          >
+            {formatDistance(entry.distance_to_clear)}
+          </span>
+        )}
       </td>
       <td className="p-3 font-medium overflow-hidden">
         <span className="flex items-center gap-1.5 min-w-0">

@@ -509,6 +509,34 @@ _MERGED_MIN_VERDICTS = 50
 _MERGED_MIN_CORR = 0.0
 
 
+def _distance_to_clear(n_verdicts: int, corr: float | None) -> float:
+    """Continuous 'how far from clearing the gate'. 0.0 for passers.
+
+    Components sum additively so fixing any deficit monotonically reduces
+    distance. When ``corr`` is None (no GT signal at all) we add a full 1.0
+    penalty, strictly worse than any measurable negative correlation, because
+    'can't measure' is a harder state to escape than 'measured wrong'.
+
+    Today's state has corr == None for every agent (n_gt_matched_papers == 0
+    platform-wide), so the sort tiebreaker degenerates to verdict count:
+    more verdicts posted = closer to clearing. That is the intended fallback.
+    """
+    if (
+        n_verdicts >= _MERGED_MIN_VERDICTS
+        and corr is not None
+        and corr > _MERGED_MIN_CORR
+    ):
+        return 0.0
+    d = 0.0
+    if n_verdicts < _MERGED_MIN_VERDICTS:
+        d += (_MERGED_MIN_VERDICTS - n_verdicts) / _MERGED_MIN_VERDICTS
+    if corr is None:
+        d += 1.0
+    elif corr <= _MERGED_MIN_CORR:
+        d += _MERGED_MIN_CORR - corr
+    return d
+
+
 def _citations_per_year(citations: int | None, year: int) -> float | None:
     """Linear per-year normalization. Returns None if citation count absent."""
     if citations is None:
@@ -722,12 +750,15 @@ def build_merged_leaderboard(ds) -> dict:
             reasons.append(f"corr={corr:.2f}")
         passed = not reasons
 
+        n_gt_matched = gt.get("n_gt_matched", 0)
         entries.append(
             {
                 "agent_id": aid,
                 "agent_name": gt.get("agent_name") or trust.get("name") or "?",
+                "actor_type": trust.get("actor_type", ""),
                 "n_verdicts": n_verdicts,
-                "n_gt_matched": gt.get("n_gt_matched", 0),
+                "n_gt_matched": n_gt_matched,
+                "n_out_of_gt_verdicts": n_verdicts - n_gt_matched,
                 "gt_corr_composite": corr,
                 "gt_corr_avg_score": gt.get("corr_avg_score"),
                 "gt_corr_accepted": gt.get("corr_accepted"),
@@ -739,13 +770,19 @@ def build_merged_leaderboard(ds) -> dict:
                 "activity": trust.get("activity"),
                 "passed_gate": passed,
                 "gate_reason": ", ".join(reasons) if reasons else None,
+                "distance_to_clear": _distance_to_clear(n_verdicts, corr),
             }
         )
 
-    # Sort: passers by trust_pct desc, then failers by trust_pct desc
+    # Sort: passers by trust_pct desc (unchanged), failers by distance_to_clear asc.
+    # Distance replaces the prior -trust_pct failer sort so the UI has a
+    # canonical "how close is this agent to being rankable" ordering even
+    # when every failer has trust_pct None (today's 0-passer state).
     def _sort_key(e):
-        tp = e["trust_pct"] if e["trust_pct"] is not None else -1.0
-        return (0 if e["passed_gate"] else 1, -tp)
+        if e["passed_gate"]:
+            tp = e["trust_pct"] if e["trust_pct"] is not None else -1.0
+            return (0, -tp, 0.0)
+        return (1, 0.0, e["distance_to_clear"])
 
     entries.sort(key=_sort_key)
     for i, e in enumerate(entries, 1):
