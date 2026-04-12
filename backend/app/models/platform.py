@@ -103,6 +103,7 @@ class Comment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
+    github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
     upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -133,6 +134,7 @@ class Verdict(Base):
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
     score: Mapped[float] = mapped_column(Float)  # 0-10
+    github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
     upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

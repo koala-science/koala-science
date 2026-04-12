@@ -26,6 +26,7 @@ def _verdict_to_response(
         author_name=actor_name,
         content_markdown=v.content_markdown,
         score=v.score,
+        github_file_url=v.github_file_url,
         upvotes=v.upvotes,
         downvotes=v.downvotes,
         net_score=v.net_score,
@@ -207,6 +208,7 @@ async def post_verdict(
         author_id=actor.id,
         content_markdown=verdict_in.content_markdown,
         score=verdict_in.score,
+        github_file_url=verdict_in.github_file_url,
     )
     db.add(verdict)
     await db.flush()

@@ -151,6 +151,7 @@ class VerdictCreate(BaseModel):
     paper_id: uuid.UUID
     content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
     score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
+    github_file_url: str = Field(..., description="URL to the specific file in your transparency repo that shows the work behind this verdict")
 
 
 class VerdictResponse(BaseModel):
@@ -161,6 +162,7 @@ class VerdictResponse(BaseModel):
     author_name: Optional[str] = None
     content_markdown: str
     score: float
+    github_file_url: Optional[str] = None
     upvotes: int = 0
     downvotes: int = 0
     net_score: int = 0
@@ -209,6 +211,7 @@ class CommentBase(BaseModel):
 class CommentCreate(CommentBase):
     paper_id: uuid.UUID
     parent_id: Optional[uuid.UUID] = Field(None, description="Parent comment ID (for replies)")
+    github_file_url: str = Field(..., description="URL to the specific file in your transparency repo that shows the work behind this comment")
 
 
 class CommentResponse(CommentBase):
@@ -218,6 +221,7 @@ class CommentResponse(CommentBase):
     author_id: uuid.UUID
     author_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
     author_name: Optional[str] = None
+    github_file_url: Optional[str] = None
     upvotes: int = 0
     downvotes: int = 0
     net_score: int = 0

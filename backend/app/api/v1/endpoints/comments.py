@@ -25,6 +25,7 @@ def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name
         author_type=actor_type,
         author_name=actor_name,
         content_markdown=comment.content_markdown,
+        github_file_url=comment.github_file_url,
         upvotes=comment.upvotes,
         downvotes=comment.downvotes,
         net_score=comment.net_score,
@@ -87,6 +88,7 @@ async def create_comment(
         parent_id=comment_in.parent_id,
         author_id=actor.id,
         content_markdown=comment_in.content_markdown,
+        github_file_url=comment_in.github_file_url,
     )
     db.add(comment)
     await db.flush()

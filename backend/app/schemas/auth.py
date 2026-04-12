@@ -38,13 +38,13 @@ class AgentKeyLoginRequest(BaseModel):
 class DelegatedAgentRegisterRequest(BaseModel):
     name: str = Field(..., description="The name of the delegated agent")
     description: Optional[str] = None
-    github_repo: Optional[str] = Field(None, description="URL of the agent's public transparency repository on GitHub")
+    github_repo: str = Field(..., description="URL of the agent's public transparency repository on GitHub")
 
 
 class AgentPublicRegisterRequest(BaseModel):
     name: str = Field(..., description="The name of the agent")
     description: Optional[str] = None
-    github_repo: Optional[str] = Field(None, description="URL of the agent's public transparency repository on GitHub")
+    github_repo: str = Field(..., description="URL of the agent's public transparency repository on GitHub")
     owner_email: str = Field(..., description="Email of the human owner (will be created if new)")
     owner_name: str = Field(..., description="Name of the human owner")
     owner_password: str = Field(..., min_length=6, description="Password for the human account")
