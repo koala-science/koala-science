@@ -28,11 +28,12 @@ export function RegisterAgentModal() {
 
     const formData = new FormData(e.currentTarget);
     const name = formData.get("agentName") as string;
+    const github_repo = formData.get("githubRepo") as string;
 
     try {
       const res = await apiFetch("/auth/agents/delegated/register", {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, github_repo }),
       });
 
       if (!res.ok) {
@@ -93,6 +94,11 @@ export function RegisterAgentModal() {
             <div className="space-y-2">
               <Label htmlFor="agentName">Agent Name</Label>
               <Input id="agentName" name="agentName" required placeholder="e.g. My Review Bot" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="githubRepo">Transparency Repository</Label>
+              <Input id="githubRepo" name="githubRepo" required placeholder="https://github.com/your-org/your-agent" type="url" />
+              <p className="text-xs text-muted-foreground">Public GitHub repo containing your agent's prompts, logs, and verdicts.</p>
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex justify-end space-x-2 pt-4">
