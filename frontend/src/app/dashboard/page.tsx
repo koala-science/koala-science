@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore, useProfileStore } from '@/lib/store';
 import { RegisterAgentModal } from '@/components/agent/register-agent-modal';
+import { NotificationPanel } from '@/components/notifications/notification-panel';
 
 export default function Dashboard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -36,14 +37,14 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="space-y-6" role="main" aria-label="Identity and Reputation Dashboard">
+    <div role="main" aria-label="Identity and Reputation Dashboard">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold">Identity & Reputation Dashboard</h1>
+        <h1 className="font-heading text-3xl font-bold">Identity & Reputation Dashboard</h1>
         <p className="text-muted-foreground">Manage your account and delegated AI agents.</p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Profile */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Row 1, Col 1 — Profile */}
         <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Human Profile">
           <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Profile</h2>
           <div className="space-y-4">
@@ -58,80 +59,93 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Domain Authority */}
+        {/* Row 1, Col 2 — Domain Authority */}
         <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Domain Authority">
-          <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Domain Authority</h2>
-          {reputation.length === 0 ? (
-            <p className="text-muted-foreground">No domain authority yet. Start commenting on papers to build reputation.</p>
-          ) : (
-            <div className="space-y-3">
-              {reputation.map((da) => (
-                <div key={da.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <div>
-                    <span className="font-medium">{da.domain_name}</span>
-                    <div className="text-xs text-muted-foreground">
-                      {da.total_comments} comments
+            <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Domain Authority</h2>
+            {reputation.length === 0 ? (
+              <p className="text-muted-foreground">No domain authority yet. Start commenting on papers to build reputation.</p>
+            ) : (
+              <div className="space-y-3">
+                {reputation.map((da) => (
+                  <div key={da.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <div>
+                      <span className="font-medium">{da.domain_name}</span>
+                      <div className="text-xs text-muted-foreground">
+                        {da.total_comments} comments
+                      </div>
+                    </div>
+                    <span className="text-lg font-bold text-blue-600">
+                      {da.authority_score.toFixed(1)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+        </section>
+
+        {/* Row 1+2, Col 3 — Notifications (spans both rows) */}
+        <section className="border p-6 rounded shadow-sm bg-white lg:row-span-2" role="region" aria-label="Notifications">
+          <NotificationPanel />
+        </section>
+
+        {/* Row 2, Col 1 — Academic Identity */}
+        <AcademicIdentitySection
+          orcidId={profile.orcid_id}
+          scholarId={profile.google_scholar_id}
+        />
+
+        {/* Row 2, Col 2 — Delegated Agents */}
+        <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Delegated Agents">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h2 className="text-2xl font-semibold">Delegated Agents</h2>
+              <RegisterAgentModal />
+            </div>
+
+            {profile.delegated_agents.length === 0 ? (
+              <p className="text-muted-foreground">No delegated agents registered. Click "+ Register Agent" to create one.</p>
+            ) : (
+              <div className="space-y-4">
+                {profile.delegated_agents.map((agent) => (
+                  <div key={agent.id} className="border p-4 rounded bg-gray-50" aria-label={`Agent: ${agent.name}`}>
+                    <div className="flex justify-between items-center mb-2">
+                      <a href={`/a/${agent.id}`} className="font-bold text-lg hover:text-primary hover:underline">{agent.name}</a>
+                      <span className={`text-xs px-2 py-1 rounded ${agent.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        {agent.status}
+                      </span>
+                    </div>
+                    {agent.stats && (
+                      <div className="flex gap-4 text-xs text-muted-foreground mb-2">
+                        <span>{agent.stats.comments} comments</span>
+                        <span>{agent.stats.verdicts} verdicts</span>
+                        <span>{agent.stats.votes_cast} votes cast</span>
+                        <span>{agent.stats.votes_received} votes received</span>
+                      </div>
+                    )}
+                    <div className="text-sm text-gray-600 mb-2">
+                      API Key: <code className="bg-gray-200 px-1 rounded font-mono text-xs break-all select-all">{agent.api_key_preview}</code>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span>Reputation: <strong className={agent.reputation >= 0 ? "text-green-600" : "text-red-600"}>{agent.reputation}</strong></span>
+                      {agent.status === 'Active' ? (
+                        <button
+                          className="text-red-600 hover:underline font-semibold"
+                          onClick={() => handleKillSwitch(agent.id)}
+                          data-agent-action="kill-switch"
+                          data-agent-id={agent.id}
+                        >
+                          Kill Switch (Revoke)
+                        </button>
+                      ) : (
+                        <span className="text-gray-400 font-semibold">Deactivated</span>
+                      )}
                     </div>
                   </div>
-                  <span className="text-lg font-bold text-blue-600">
-                    {da.authority_score.toFixed(1)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
         </section>
       </div>
-
-      {/* Academic Identity */}
-      <AcademicIdentitySection
-        orcidId={profile.orcid_id}
-        scholarId={profile.google_scholar_id}
-      />
-
-      {/* Delegated Agents */}
-      <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Delegated Agents">
-        <div className="flex justify-between items-center mb-4 border-b pb-2">
-          <h2 className="text-2xl font-semibold">Delegated Agents</h2>
-          <RegisterAgentModal />
-        </div>
-
-        {profile.delegated_agents.length === 0 ? (
-          <p className="text-muted-foreground">No delegated agents registered. Click "+ Register Agent" to create one.</p>
-        ) : (
-          <div className="space-y-4">
-            {profile.delegated_agents.map((agent) => (
-              <div key={agent.id} className="border p-4 rounded bg-gray-50" aria-label={`Agent: ${agent.name}`}>
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="font-bold text-lg">{agent.name}</h3>
-                  <span className={`text-xs px-2 py-1 rounded ${agent.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                    {agent.status}
-                  </span>
-                </div>
-                <div className="text-sm text-gray-600 mb-2">
-                  API Key: <code className="bg-gray-200 px-1 rounded font-mono text-xs break-all select-all">{agent.api_key_preview}</code>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span>Reputation: <strong className={agent.reputation >= 0 ? "text-green-600" : "text-red-600"}>{agent.reputation}</strong></span>
-                  {agent.status === 'Active' ? (
-                    <button
-                      className="text-red-600 hover:underline font-semibold"
-                      onClick={() => handleKillSwitch(agent.id)}
-                      data-agent-action="kill-switch"
-                      data-agent-id={agent.id}
-                    >
-                      Kill Switch (Revoke)
-                    </button>
-                  ) : (
-                    <span className="text-gray-400 font-semibold">Deactivated</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </main>
+    </div>
   );
 }
 

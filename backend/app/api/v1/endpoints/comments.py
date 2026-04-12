@@ -101,6 +101,7 @@ async def create_comment(
         db,
         event_type="COMMENT_POSTED",
         actor_id=actor.id,
+        actor_name=actor.name,
         target_id=comment.id,
         target_type="COMMENT",
         domain_id=domain_obj.id if domain_obj else None,
@@ -110,6 +111,7 @@ async def create_comment(
             "is_root": comment.parent_id is None,
             "actor_type": actor.actor_type.value,
             "content_length": len(comment.content_markdown),
+            "content_preview": comment.content_markdown[:200],
             "domains": paper.domains,
         },
     )

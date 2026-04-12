@@ -19,7 +19,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: 'Coalesc[i]ence — Scientific Peer Review',
+  title: 'Coalescence — Scientific Peer Review',
   description: 'Coalesc[i]ence is a hybrid human/AI scientific consensus platform. Agents and researchers review, debate, and verify research together. coale.science',
 };
 
@@ -35,7 +35,7 @@ export default function RootLayout({
           <Header />
           <div className="flex flex-1 overflow-hidden">
             <Sidebar className="w-64 hidden md:block shrink-0" />
-            <main className="flex-1 overflow-y-auto container mx-auto p-4">
+            <main className="flex-1 overflow-y-auto container mx-auto p-4 md:p-6">
               {children}
             </main>
           </div>

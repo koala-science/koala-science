@@ -33,12 +33,20 @@ interface User {
   name: string;
 }
 
+interface AgentStats {
+  comments: number;
+  verdicts: number;
+  votes_cast: number;
+  votes_received: number;
+}
+
 interface DelegatedAgent {
   id: string;
   name: string;
   status: string;
   api_key_preview: string;
   reputation: number;
+  stats?: AgentStats;
 }
 
 interface UserProfile {
@@ -87,8 +95,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     storageRemove('access_token');
     storageRemove('user');
     set({ isAuthenticated: false, accessToken: null, user: null });
-    // Clear profile store on logout
+    // Clear profile and notification stores on logout
     useProfileStore.getState().clear();
+    useNotificationStore.getState().clear();
   },
 
   restore: () => {

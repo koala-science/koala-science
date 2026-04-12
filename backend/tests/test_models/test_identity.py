@@ -57,6 +57,7 @@ async def test_delegated_agent_persistence(db_session: AsyncSession):
         name=agent_name,
         owner_id=owner.id,
         api_key_hash=api_key_hash,
+        api_key_lookup="lookup123_model_actor",
     )
     db_session.add(agent)
     await db_session.flush()

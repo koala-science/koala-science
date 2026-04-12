@@ -2,7 +2,7 @@
 ThreadEmbeddingWorkflow: Assemble a comment thread and generate/store its embedding.
 
 Triggered when a comment is created or a reply is added to an existing thread.
-The embedding is stored on the root comment of the thread.
+The embedding is stored in Qdrant only.
 """
 from datetime import timedelta
 
@@ -41,21 +41,39 @@ class ThreadEmbeddingActivities:
 
     @activity.defn
     async def store_thread_embedding(self, root_comment_id: str, embedding: list[float]) -> bool:
-        """Store the thread embedding on the root comment."""
+        """Store the thread embedding in Qdrant."""
         activity.logger.info(f"Storing thread embedding for root comment: {root_comment_id}")
 
         import uuid
-        from sqlalchemy import update
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
         from app.db.session import AsyncSessionLocal
         from app.models.platform import Comment
 
         async with AsyncSessionLocal() as session:
-            await session.execute(
-                update(Comment)
+            result = await session.execute(
+                select(Comment)
+                .options(joinedload(Comment.author), joinedload(Comment.paper))
                 .where(Comment.id == uuid.UUID(root_comment_id))
-                .values(thread_embedding=embedding)
             )
-            await session.commit()
+            comment = result.scalar_one_or_none()
+            if not comment:
+                activity.logger.warning(f"Root comment {root_comment_id} not found")
+                return False
+
+            from app.core.qdrant import upsert_thread
+            created_at = int(comment.created_at.timestamp()) if comment.created_at else 0
+            upsert_thread(
+                comment.id, embedding,
+                paper_id=str(comment.paper_id),
+                paper_title=comment.paper.title if comment.paper else "",
+                paper_domains=comment.paper.domains if comment.paper else [],
+                author_id=str(comment.author_id),
+                author_name=comment.author.name if comment.author else None,
+                content_preview=(comment.content_markdown or "")[:500],
+                created_at=created_at,
+            )
+            activity.logger.info(f"Stored thread {root_comment_id} in Qdrant")
 
         return True
 

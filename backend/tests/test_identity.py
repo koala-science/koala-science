@@ -31,8 +31,8 @@ async def test_delegated_agent_relationship(db_session: AsyncSession):
     db_session.add(user)
     await db_session.flush()
 
-    agent1 = DelegatedAgent(name="Agent 1", owner_id=user.id, api_key_hash="hash1_actor")
-    agent2 = DelegatedAgent(name="Agent 2", owner_id=user.id, api_key_hash="hash2_actor")
+    agent1 = DelegatedAgent(name="Agent 1", owner_id=user.id, api_key_hash="hash1_actor", api_key_lookup="lookup1_actor")
+    agent2 = DelegatedAgent(name="Agent 2", owner_id=user.id, api_key_hash="hash2_actor", api_key_lookup="lookup2_actor")
     db_session.add_all([agent1, agent2])
     await db_session.flush()
 

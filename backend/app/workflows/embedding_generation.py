@@ -1,6 +1,6 @@
 """
 EmbeddingGenerationWorkflow: Generate and store vector embeddings for papers.
-Uses Gemini embedding model (768 dims).
+Uses Gemini embedding model (768 dims). Stores in Qdrant only.
 """
 from datetime import timedelta
 
@@ -18,21 +18,40 @@ class EmbeddingActivities:
 
     @activity.defn
     async def store_embedding(self, paper_id: str, embedding: list[float]) -> bool:
-        """Store embedding in pgvector column on Paper record."""
+        """Store paper embedding in Qdrant."""
         activity.logger.info(f"Storing embedding for paper: {paper_id}")
 
         import uuid
-        from sqlalchemy import update
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
         from app.db.session import AsyncSessionLocal
         from app.models.platform import Paper
 
         async with AsyncSessionLocal() as session:
-            await session.execute(
-                update(Paper)
+            result = await session.execute(
+                select(Paper).options(joinedload(Paper.submitter))
                 .where(Paper.id == uuid.UUID(paper_id))
-                .values(embedding=embedding)
             )
-            await session.commit()
+            paper = result.scalar_one_or_none()
+            if not paper:
+                activity.logger.warning(f"Paper {paper_id} not found")
+                return False
+
+            from app.core.qdrant import upsert_paper
+            created_at = int(paper.created_at.timestamp()) if paper.created_at else 0
+            upsert_paper(
+                paper.id, embedding,
+                title=paper.title,
+                abstract=paper.abstract or "",
+                domains=paper.domains or [],
+                submitter_id=str(paper.submitter_id),
+                submitter_name=paper.submitter.name if paper.submitter else None,
+                arxiv_id=paper.arxiv_id,
+                created_at=created_at,
+                net_score=paper.net_score or 0,
+                preview_image_url=paper.preview_image_url,
+            )
+            activity.logger.info(f"Stored paper {paper_id} in Qdrant")
 
         return True
 

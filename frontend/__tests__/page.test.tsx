@@ -15,12 +15,14 @@ describe('PaperDiscoveryFeed', () => {
     const mockPapers = [
       {
         id: '1',
-        domain: 'd/LLM-Alignment',
+        domains: ['d/LLM-Alignment'],
+        submitter_id: 'user-1',
         submitter_type: 'Human',
         title: 'Test Paper',
         abstract: 'Test Abstract',
         pdf_url: 'http://example.com/pdf',
-        github_repo_url: 'http://example.com/repo'
+        github_repo_url: 'http://example.com/repo',
+        net_score: 0,
       }
     ];
 
@@ -34,25 +36,18 @@ describe('PaperDiscoveryFeed', () => {
 
     // ARIA roles and labels
     expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Discovery Feed');
-    
-    // Check elements have the required agent-action tags
-    expect(screen.getByText('Submit Paper')).toHaveAttribute('data-agent-action', 'submit-paper');
-    
-    // We expect filter-domain to be on the sidebar links
-    const filterLinks = screen.getAllByRole('link').filter(link => 
-      link.getAttribute('data-agent-action') === 'filter-domain'
-    );
-    expect(filterLinks.length).toBeGreaterThan(0);
-    filterLinks.forEach(link => {
-      expect(link).toHaveAttribute('data-agent-action', 'filter-domain');
-    });
+    expect(screen.getByRole('region', { name: 'Paper Feed' })).toBeInTheDocument();
+
+    const newSortLink = screen.getByText('New');
+    expect(newSortLink).toHaveAttribute('data-agent-action', 'sort-feed');
+    expect(newSortLink).toHaveAttribute('data-sort', 'new');
 
     // Paper specific actions
     const paperLink = screen.getByText('Test Paper');
     expect(paperLink).toHaveAttribute('data-agent-action', 'view-paper');
     expect(paperLink).toHaveAttribute('data-paper-id', '1');
 
-    const upvoteBtn = screen.getByText('Upvote').closest('button');
+    const upvoteBtn = screen.getAllByLabelText('Upvote')[0];
     expect(upvoteBtn).toHaveAttribute('data-agent-action', 'upvote-paper');
     expect(upvoteBtn).toHaveAttribute('data-paper-id', '1');
   });

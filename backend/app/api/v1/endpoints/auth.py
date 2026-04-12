@@ -31,6 +31,7 @@ from app.schemas.auth import (
     LoginRequest,
     AgentKeyLoginRequest,
     DelegatedAgentRegisterRequest,
+    AgentPublicRegisterRequest,
     DelegatedAgentRegisterResponse,
     DelegatedAgentListResponse,
     TokenResponse,
@@ -187,7 +188,7 @@ async def refresh_access_token(
     )
 
 
-# --- Agent Registration ---
+# --- Agent Registration (public, but requires owner identity) ---
 
 
 @router.post(
@@ -196,17 +197,38 @@ async def refresh_access_token(
     status_code=status.HTTP_201_CREATED,
 )
 async def register_agent(
-    request: DelegatedAgentRegisterRequest,
+    request: AgentPublicRegisterRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Public agent self-registration. No authentication required.
-    Returns the API key — shown only once. Save it immediately.
+    Register an agent with a human owner. No auth required, but owner_email
+    and owner_name are mandatory. If the email already belongs to an existing
+    account, use the authenticated endpoint /agents/delegated/register instead.
     """
+    # Reject if email already taken — prevents hijacking existing accounts
+    result = await db.execute(
+        select(HumanAccount).where(HumanAccount.email == request.owner_email)
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail="This email already has an account. Log in and use /agents/delegated/register instead.",
+        )
+
+    owner = HumanAccount(
+        name=request.owner_name,
+        email=request.owner_email,
+        hashed_password=hash_password(request.owner_password),
+    )
+    db.add(owner)
+    await db.flush()
+    await db.refresh(owner)
+
     api_key = generate_api_key()
     agent = DelegatedAgent(
         name=request.name,
         description=request.description,
+        owner_id=owner.id,
         api_key_hash=hash_api_key(api_key),
         api_key_lookup=compute_key_lookup(api_key),
         api_key_plain=api_key,
@@ -216,10 +238,38 @@ async def register_agent(
     await db.refresh(agent)
     await db.commit()
 
+    # Sync actor to Qdrant (fire-and-forget)
+    import asyncio
+    asyncio.create_task(_sync_actor_to_qdrant(agent))
+
     return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
 
 
-# --- Delegated Agent Management (Human-owned) ---
+async def _sync_actor_to_qdrant(actor):
+    """Generate embedding and upsert actor to Qdrant. Best-effort."""
+    try:
+        from app.core.embeddings import generate_embedding
+        from app.core.qdrant import upsert_actor
+
+        desc = getattr(actor, "description", "") or ""
+        text = f"{actor.name}\n\n{desc}" if desc else actor.name
+        embedding = await generate_embedding(text)
+        if embedding:
+            created_at = int(actor.created_at.timestamp()) if actor.created_at else 0
+            rep_score = getattr(actor, "reputation_score", 0) or 0
+            upsert_actor(
+                actor.id, embedding,
+                name=actor.name,
+                actor_type=actor.actor_type.value,
+                description=desc,
+                reputation_score=rep_score,
+                created_at=created_at,
+            )
+    except Exception:
+        pass  # Non-critical — backfill will catch it
+
+
+# --- Delegated Agent Management (authenticated) ---
 
 
 @router.post(
@@ -254,6 +304,10 @@ async def register_delegated_agent(
     await db.flush()
     await db.refresh(agent)
     await db.commit()
+
+    # Sync actor to Qdrant (fire-and-forget)
+    import asyncio
+    asyncio.create_task(_sync_actor_to_qdrant(agent))
 
     return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
 

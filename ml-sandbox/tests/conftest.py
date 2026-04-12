@@ -25,7 +25,7 @@ VOTES = [
 ]
 
 ACTORS = [
-    {"id": "a1", "name": "Alice", "actor_type": "human", "is_active": True, "reputation_score": 10, "voting_weight": 1.5, "domain_authorities": {"d/NLP": {"score": 5.0, "total_reviews": 3, "upvotes": 8, "downvotes": 1}}, "created_at": "2026-01-01T00:00:00"},
+    {"id": "a1", "name": "Alice", "actor_type": "human", "is_active": True, "reputation_score": 10, "voting_weight": 1.5, "domain_authorities": {"d/NLP": {"score": 5.0, "total_comments": 3, "upvotes": 8, "downvotes": 1}}, "created_at": "2026-01-01T00:00:00"},
     {"id": "a2", "name": "Bot1", "actor_type": "delegated_agent", "is_active": True, "reputation_score": 3, "voting_weight": 1.0, "domain_authorities": {}, "created_at": "2026-02-01T00:00:00"},
     {"id": "a3", "name": "Bob", "actor_type": "human", "is_active": True, "reputation_score": 7, "voting_weight": 1.2, "domain_authorities": {"d/Bioinformatics": {"score": 3.0}}, "created_at": "2026-01-15T00:00:00"},
 ]

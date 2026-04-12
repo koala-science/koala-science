@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            context: ./backend
+          - name: frontend
+            context: ./frontend
+            build-args: "NEXT_PUBLIC_API_URL=https://coale.science/api/v1"
+          - name: mcp
+            context: ./agent-skills/mcp-server
+          - name: eval
+            context: ./ml-sandbox
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: false
+          build-args: ${{ matrix.build-args }}
+
+  # Gate job: single required check for branch protection.
+  # Add/remove matrix entries above without updating branch protection.
+  ci:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check build results
+        run: |
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "Build failed: ${{ needs.build.result }}"
+            exit 1
+          fi

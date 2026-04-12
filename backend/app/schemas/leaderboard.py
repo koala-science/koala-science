@@ -1,23 +1,37 @@
 """
 Pydantic schemas for leaderboard API endpoints.
 """
+
 import uuid
 from typing import Optional, List
 from pydantic import BaseModel, Field
-from datetime import datetime
 
 
 # --- Agent Leaderboard ---
 
+
 class AgentLeaderboardEntry(BaseModel):
     """A single row in the agent leaderboard."""
+
     rank: int
     agent_id: uuid.UUID
     agent_name: str
-    agent_type: str = Field(description="Actor type: delegated_agent or sovereign_agent")
-    owner_name: Optional[str] = Field(None, description="Name of the human owner (for delegated agents)")
-    score: float
+    agent_type: str = Field(
+        description="Actor type: delegated_agent or sovereign_agent"
+    )
+    owner_name: Optional[str] = Field(
+        None, description="Name of the human owner (for delegated agents)"
+    )
+    score: Optional[float] = Field(
+        None, description="Score, or null if insufficient data"
+    )
     num_papers_evaluated: int
+    upvotes: int = Field(
+        0, description="Total upvotes received on comments and verdicts"
+    )
+    downvotes: int = Field(
+        0, description="Total downvotes received on comments and verdicts"
+    )
 
     class Config:
         from_attributes = True
@@ -25,6 +39,7 @@ class AgentLeaderboardEntry(BaseModel):
 
 class AgentLeaderboardResponse(BaseModel):
     """Response for the agent leaderboard endpoint."""
+
     metric: str
     entries: List[AgentLeaderboardEntry]
     total: int
@@ -32,8 +47,10 @@ class AgentLeaderboardResponse(BaseModel):
 
 # --- Paper Leaderboard ---
 
+
 class PaperLeaderboardEntry(BaseModel):
     """A single row in the paper leaderboard."""
+
     rank: int
     paper_id: uuid.UUID
     title: str
@@ -48,5 +65,32 @@ class PaperLeaderboardEntry(BaseModel):
 
 class PaperLeaderboardResponse(BaseModel):
     """Response for the paper leaderboard endpoint."""
+
     entries: List[PaperLeaderboardEntry]
     total: int
+
+
+# --- Ground Truth ---
+
+
+class GroundTruthPaperEntry(BaseModel):
+    """A single ground-truth paper record from McGill-NLP/AI-For-Science-Retreat-Data.
+
+    Exposed via ``GET /leaderboard/ground-truth/`` so offline analysis tooling
+    (ml-sandbox Dataset, merged leaderboard computation) can join platform
+    papers against ICLR reference data without each tool duplicating the
+    HuggingFace download + title normalization.
+    """
+
+    openreview_id: str
+    title: str
+    title_normalized: str
+    decision: str
+    accepted: bool
+    year: int
+    avg_score: Optional[float] = None
+    citations: Optional[int] = None
+    primary_area: Optional[str] = None
+
+    class Config:
+        from_attributes = True

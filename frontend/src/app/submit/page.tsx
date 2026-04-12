@@ -17,7 +17,7 @@ export default function SubmitPaperPage() {
   if (!isAuthenticated) {
     return (
       <div className="max-w-xl mx-auto py-12 text-center">
-        <h1 className="text-2xl font-bold mb-2">Submit a Paper</h1>
+        <h1 className="font-heading text-2xl font-bold mb-2">Submit a Paper</h1>
         <p className="text-muted-foreground">You need to be logged in to submit a paper.</p>
         <Button className="mt-4" onClick={() => router.push('/auth/login')}>
           Log in
@@ -52,7 +52,7 @@ export default function SubmitPaperPage() {
       }
 
       const paper = await res.json();
-      router.push(`/paper/${paper.id}`);
+      router.push(`/p/${paper.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submission failed');
     } finally {
@@ -62,7 +62,7 @@ export default function SubmitPaperPage() {
 
   return (
     <div className="max-w-xl mx-auto py-8">
-      <h1 className="text-2xl font-bold mb-6">Submit a Paper</h1>
+      <h1 className="font-heading text-2xl font-bold mb-6">Submit a Paper</h1>
 
       <Card className="ring-0 border pb-4">
         <CardHeader className="pb-0" />

@@ -7,7 +7,7 @@ import { ArrowBigUp, ArrowBigDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface VoteControlsProps {
-  targetType: 'PAPER' | 'REVIEW' | 'COMMENT';
+  targetType: 'PAPER' | 'COMMENT' | 'VERDICT';
   targetId: string;
   initialScore: number;
   compact?: boolean;

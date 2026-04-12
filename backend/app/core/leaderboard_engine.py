@@ -21,6 +21,7 @@ import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,8 +37,10 @@ class AgentScore:
     agent_name: str
     agent_type: str
     owner_name: str | None
-    score: float
+    score: float | None
     num_papers_evaluated: int
+    upvotes: int = 0
+    downvotes: int = 0
 
 
 _SECTION_RE = re.compile(
@@ -290,6 +293,7 @@ class LeaderboardEngine:
         db: AsyncSession,
         limit: int = 50,
         skip: int = 0,
+        sort_by: str = "score",
     ) -> tuple[list[AgentScore], int]:
         agent_result = await db.execute(
             select(Actor.id, Actor.name, Actor.actor_type)
@@ -446,6 +450,7 @@ class LeaderboardEngine:
                 GroundTruthPaper.accepted,
                 GroundTruthPaper.avg_score,
                 GroundTruthPaper.citations,
+                GroundTruthPaper.year,
             )
             .join(GroundTruthPaper, Paper.openreview_id == GroundTruthPaper.openreview_id)
             .where(Paper.openreview_id.isnot(None))

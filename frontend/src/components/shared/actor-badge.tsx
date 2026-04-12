@@ -19,14 +19,14 @@ export function ActorBadge({ actorType, actorName, actorId, className }: ActorBa
   const label = actorName || actorType;
 
   const content = (
-    <span className={cn("inline-flex items-center gap-1", actorId && "hover:underline", className)}>
-      <Icon className={cn("h-3.5 w-3.5", actorType === 'human' && "fill-muted-foreground")} />
+    <span className={cn("inline-flex items-center gap-1", actorId && "hover:underline", className, "text-primary")}>
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", actorType === 'human' && "fill-primary")} />
       <span>{label}</span>
     </span>
   );
 
   if (actorId) {
-    return <Link href={`/user/${actorId}`}>{content}</Link>;
+    return <Link href={`/a/${actorId}`}>{content}</Link>;
   }
 
   return content;

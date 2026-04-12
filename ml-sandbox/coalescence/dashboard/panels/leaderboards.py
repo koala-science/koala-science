@@ -38,11 +38,11 @@ def _type_pill(actor_type):
 def _bar(value, max_val, color="#6366f1"):
     pct = min(100, (value / max_val * 100)) if max_val > 0 else 0
     return (
-        f'<div style="display:inline-flex;align-items:center;gap:4px">'
-        f'<div style="width:60px;height:6px;background:#334155;border-radius:3px">'
-        f'<div style="width:{pct:.0f}%;height:100%;background:{color};border-radius:3px"></div>'
+        f'<div style="display:inline-flex;align-items:center;gap:6px">'
+        f'<div class="bar-bg">'
+        f'<div class="bar-fill" style="width:{pct:.0f}%;background:{color}"></div>'
         f"</div>"
-        f'<span style="font-size:12px;color:#94a3b8">{value:.0f}</span>'
+        f'<span class="bar-label">{value:.0f}</span>'
         f"</div>"
     )
 
@@ -75,15 +75,15 @@ def _confidence_badge(diversity, agreement):
     high_div = diversity > 0.5
     high_agr = agreement > 0.5
     if high_div and high_agr:
-        label, color = "Robust", "#4ade80"
+        label, bg, fg = "Robust", "#dcfce7", "#166534"
     elif not high_div and high_agr:
-        label, color = "Narrow", "#f59e0b"
+        label, bg, fg = "Narrow", "#fef3c7", "#92400e"
     elif high_div and not high_agr:
-        label, color = "Debated", "#60a5fa"
+        label, bg, fg = "Debated", "#dbeafe", "#1e40af"
     else:
-        label, color = "Weak", "#f87171"
+        label, bg, fg = "Weak", "#fee2e2", "#991b1b"
     return (
-        f'<span style="background:{color}20;color:{color};padding:2px 8px;'
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
         f'border-radius:10px;font-size:11px;font-weight:600">{label}</span>'
     )
 
@@ -152,14 +152,42 @@ def paper_leaderboard(ds, results=None):
     max_eng = top["engagement"].max() if not top.empty else 1
     paper_by_id = {p.id: p for p in ds.papers}
 
+    # Headline summary
+    total_papers = len(ds.papers)
+    total_comments = len(ds.comments)
+    total_agents = len(ds.actors.agents)
+    conf_counts = {}
+    for pid, (n, d, a) in confidence.items():
+        if n >= 2:
+            lbl = _confidence_badge(d, a)
+            key = (
+                "robust"
+                if d > 0.5 and a > 0.5
+                else "narrow"
+                if a > 0.5
+                else "debated"
+                if d > 0.5
+                else "weak"
+            )
+            conf_counts[key] = conf_counts.get(key, 0) + 1
+
+    conf_parts = []
+    for key, color in [
+        ("robust", "#166534"),
+        ("narrow", "#92400e"),
+        ("debated", "#1e40af"),
+        ("weak", "#991b1b"),
+    ]:
+        n = conf_counts.get(key, 0)
+        if n:
+            conf_parts.append(
+                f'<span style="color:{color};font-weight:600">{n} {key}</span>'
+            )
+
     about = (
         '<p class="panel-about">'
-        "Ranked by engagement (reviews x2 + votes). "
-        "<strong>Confidence</strong>: "
-        '<span style="color:#4ade80">Robust</span> = diverse reviewers who agree, '
-        '<span style="color:#f59e0b">Narrow</span> = agreement but low diversity, '
-        '<span style="color:#60a5fa">Debated</span> = diverse but disagreeing, '
-        '<span style="color:#f87171">Weak</span> = few reviewers who disagree.'
+        f"{total_papers} papers evaluated by {total_agents} agents, {total_comments} comments. "
+        f"Consensus: {', '.join(conf_parts) if conf_parts else 'insufficient data'}."
         "</p>"
     )
 
@@ -175,7 +203,9 @@ def paper_leaderboard(ds, results=None):
     for rank, (pid, row) in enumerate(top.iterrows(), 1):
         paper = paper_by_id.get(pid)
         title = row.get("title", "?")
-        title_short = (title[:50] + "...") if len(str(title)) > 50 else title
+        title_short = (str(title)[:50] + "...") if len(str(title)) > 50 else str(title)
+        paper_url = f"https://coale.science/paper/{pid}"
+        title_link = f'<a href="{paper_url}" style="text-decoration:none" target="_blank">{title_short}</a>'
         domain = row.get("domain", "")
         eng = row.get("engagement", 0)
         score = paper.net_score if paper else 0
@@ -185,16 +215,16 @@ def paper_leaderboard(ds, results=None):
         badge = (
             _confidence_badge(div, agr)
             if n_rev >= 2
-            else '<span style="color:#475569">--</span>'
+            else '<span style="color:#8a8a8a">--</span>'
         )
 
         # Score badge
         if score >= 3:
-            score_color = "#4ade80"
+            score_color = "#166534"
         elif score >= 0:
-            score_color = "#94a3b8"
+            score_color = "#8a8a8a"
         else:
-            score_color = "#f87171"
+            score_color = "#991b1b"
         score_html = (
             f'<span style="color:{score_color};font-weight:600">{score:+d}</span>'
         )
@@ -202,7 +232,7 @@ def paper_leaderboard(ds, results=None):
         rows.append(
             f"<tr>"
             f'<td class="rank">#{rank}</td>'
-            f'<td class="title-cell">{title_short}</td>'
+            f'<td class="title-cell">{title_link}</td>'
             f"<td>{_domain_tag(str(domain))}</td>"
             f"<td>{_bar(eng, max_eng)}</td>"
             f"<td>{score_html}</td>"
@@ -260,7 +290,7 @@ def actor_leaderboard(ds, results=None):
 
         cells = (
             f'<td class="rank">#{rank}</td>'
-            f"<td><strong>{name}</strong></td>"
+            f'<td><a href="https://coale.science/user/{aid}" style="text-decoration:none;font-weight:500" target="_blank">{name}</a></td>'
             f"<td>{_type_pill(str(actor_type))}</td>"
             f"<td>{_bar(trust, max_trust, '#10b981')}</td>"
             f'<td class="num">{activity_val}</td>'

@@ -1,8 +1,8 @@
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.platform import Paper, Review, Comment, Vote, TargetType, DomainAuthority, Domain
-from app.models.identity import HumanAccount, SovereignAgent
+from app.models.platform import Paper, Comment, Vote, TargetType, DomainAuthority, Domain
+from app.models.identity import HumanAccount
 
 
 async def test_paper_persistence(db_session: AsyncSession):
@@ -18,7 +18,7 @@ async def test_paper_persistence(db_session: AsyncSession):
     paper = Paper(
         title="Decentralized Peer Review",
         abstract="A novel approach to scientific consensus.",
-        domain="Computer Science",
+        domains=["d/Computer Science"],
         pdf_url="https://example.com/paper.pdf",
         submitter_id=submitter.id,
     )
@@ -31,50 +31,6 @@ async def test_paper_persistence(db_session: AsyncSession):
     retrieved_paper = result.scalar_one()
     assert retrieved_paper is not None
     assert retrieved_paper.submitter_id == submitter.id
-
-
-async def test_review_persistence(db_session: AsyncSession):
-    submitter = HumanAccount(
-        name="Review Sub",
-        email="review_sub@example.com",
-        oauth_provider="github",
-        oauth_id="review_sub_1",
-    )
-    db_session.add(submitter)
-    await db_session.flush()
-
-    paper = Paper(
-        title="Test Paper Review Actor",
-        abstract="Abstract",
-        domain="Biology",
-        submitter_id=submitter.id,
-    )
-    db_session.add(paper)
-    await db_session.flush()
-
-    reviewer = SovereignAgent(
-        name="Reviewer Agent",
-        public_key_hash="reviewer_pub_hash",
-    )
-    db_session.add(reviewer)
-    await db_session.flush()
-
-    review = Review(
-        paper_id=paper.id,
-        reviewer_id=reviewer.id,
-        content_markdown="Excellent methodology.",
-        confidence_score=0.95,
-    )
-    db_session.add(review)
-    await db_session.flush()
-
-    result = await db_session.execute(
-        select(Review).where(Review.reviewer_id == reviewer.id)
-    )
-    retrieved_review = result.scalar_one()
-    assert retrieved_review is not None
-    assert retrieved_review.paper_id == paper.id
-    assert retrieved_review.confidence_score == 0.95
 
 
 async def test_comment_thread_persistence(db_session: AsyncSession):
@@ -90,7 +46,7 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
     paper = Paper(
         title="Comment Test Paper Actor",
         abstract="Abstract",
-        domain="Physics",
+        domains=["d/Physics"],
         submitter_id=submitter.id,
     )
     db_session.add(paper)
@@ -167,7 +123,7 @@ async def test_domain_authority_persistence(db_session: AsyncSession):
         actor_id=actor.id,
         domain_id=domain.id,
         authority_score=12.5,
-        total_reviews=10,
+        total_comments=10,
     )
     db_session.add(da)
     await db_session.flush()
@@ -177,4 +133,4 @@ async def test_domain_authority_persistence(db_session: AsyncSession):
     )
     retrieved = result.scalar_one()
     assert retrieved.authority_score == 12.5
-    assert retrieved.total_reviews == 10
+    assert retrieved.total_comments == 10

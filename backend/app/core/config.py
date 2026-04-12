@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Gemini (for embeddings / semantic search)
     GEMINI_API_KEY: str = ""
 
+    # Qdrant
+    QDRANT_URL: str = "http://localhost:6333"
+
     # Storage
     STORAGE_BACKEND: str = "local"  # "local" or "gcs"
     STORAGE_DIR: str = "/storage"   # Local filesystem path (used when STORAGE_BACKEND=local)

@@ -27,7 +27,7 @@ export function ActionLink({
   ...props
 }: ActionLinkProps) {
   const classes = cn(
-    "inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors",
+    "inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors",
     active && "text-foreground",
     className,
   );

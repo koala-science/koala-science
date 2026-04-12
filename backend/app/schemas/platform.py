@@ -133,6 +133,66 @@ class PaperResponse(PaperBase):
     downvotes: int = 0
     net_score: int = 0
     arxiv_id: Optional[str] = None
+    current_version: int = Field(1, description="Latest revision version number")
+    revision_count: int = Field(1, description="Total number of revisions")
+    latest_revision: Optional["PaperRevisionResponse"] = Field(
+        None, description="Latest revision details (title, abstract, changelog, etc.)"
+    )
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- Verdict ---
+
+class VerdictCreate(BaseModel):
+    paper_id: uuid.UUID
+    content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
+    score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
+
+
+class VerdictResponse(BaseModel):
+    id: uuid.UUID
+    paper_id: uuid.UUID
+    author_id: uuid.UUID
+    author_type: str
+    author_name: Optional[str] = None
+    content_markdown: str
+    score: float
+    upvotes: int = 0
+    downvotes: int = 0
+    net_score: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- Paper Revision ---
+
+class PaperRevisionBase(BaseModel):
+    title: str = Field(..., description="Title for this revision")
+    abstract: str = Field(..., description="Abstract for this revision")
+    pdf_url: Optional[str] = Field(None, description="URL to the PDF document")
+    github_repo_url: Optional[str] = Field(None, description="URL to the GitHub repository")
+    changelog: Optional[str] = Field(None, description="Optional summary of what changed")
+
+
+class PaperRevisionCreate(PaperRevisionBase):
+    pass
+
+
+class PaperRevisionResponse(PaperRevisionBase):
+    id: uuid.UUID
+    paper_id: uuid.UUID
+    version: int
+    created_by_id: uuid.UUID
+    created_by_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    created_by_name: Optional[str] = None
+    preview_image_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -200,7 +260,7 @@ class DomainAuthorityResponse(BaseModel):
     domain_id: uuid.UUID
     domain_name: Optional[str] = None
     authority_score: float
-    total_reviews: int
+    total_comments: int
     total_upvotes_received: int
     total_downvotes_received: int
     created_at: datetime
@@ -226,6 +286,18 @@ class InteractionEventResponse(BaseModel):
         from_attributes = True
 
 
+class ActorExportEntry(BaseModel):
+    """Minimal actor record for bulk export — no joins."""
+    id: uuid.UUID
+    name: str
+    actor_type: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # --- User Profile ---
 
 # --- Search ---
@@ -245,7 +317,26 @@ class SearchResultThread(BaseModel):
     root_comment: "CommentResponse"
 
 
-SearchResult = SearchResultPaper | SearchResultThread
+class SearchResultActor(BaseModel):
+    type: str = "actor"
+    score: float
+    actor_id: uuid.UUID
+    name: str
+    actor_type: str
+    description: Optional[str] = None
+    reputation_score: int = 0
+
+
+class SearchResultDomain(BaseModel):
+    type: str = "domain"
+    score: float
+    domain_id: uuid.UUID
+    name: str
+    description: str = ""
+    paper_count: int = 0
+
+
+SearchResult = SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain
 
 
 # --- Generic ---
@@ -284,6 +375,39 @@ class OrcidCallbackResponse(BaseModel):
 class ScholarLinkResponse(BaseModel):
     google_scholar_id: str
     message: str
+
+
+# --- Notifications ---
+
+class NotificationResponse(BaseModel):
+    id: uuid.UUID
+    recipient_id: uuid.UUID
+    notification_type: str
+    actor_id: uuid.UUID
+    actor_name: Optional[str] = None
+    paper_id: Optional[uuid.UUID] = None
+    paper_title: Optional[str] = None
+    comment_id: Optional[uuid.UUID] = None
+    summary: str
+    payload: Optional[Dict[str, Any]] = None
+    is_read: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationListResponse(BaseModel):
+    notifications: List["NotificationResponse"]
+    unread_count: int
+    total: int
+
+
+class NotificationMarkReadRequest(BaseModel):
+    notification_ids: List[uuid.UUID] = Field(
+        default_factory=list,
+        description="IDs to mark as read. Empty list = mark all as read.",
+    )
 
 
 # --- User Activity ---

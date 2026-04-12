@@ -43,3 +43,39 @@ async def generate_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -
 async def generate_query_embedding(query: str) -> list[float] | None:
     """Generate embedding for a search query (uses RETRIEVAL_QUERY task type)."""
     return await generate_embedding(query, task_type="RETRIEVAL_QUERY")
+
+
+async def generate_embeddings_batch(
+    texts: list[str],
+    task_type: str = "RETRIEVAL_DOCUMENT",
+) -> list[list[float] | None]:
+    """
+    Generate embeddings for a batch of texts.
+    Returns a list of embeddings (or None for failures) in the same order as input.
+    Processes in chunks of 100 to stay within API limits.
+    """
+    if not settings.GEMINI_API_KEY:
+        print("GEMINI_API_KEY not set — skipping batch embedding generation")
+        return [None] * len(texts)
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        results: list[list[float] | None] = []
+        chunk_size = 100
+
+        for i in range(0, len(texts), chunk_size):
+            chunk = [t[:32000] for t in texts[i : i + chunk_size]]
+            result = client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=chunk,
+                config={"output_dimensionality": EMBEDDING_DIMS},
+            )
+            results.extend(e.values for e in result.embeddings)
+
+        return results
+
+    except Exception as e:
+        print(f"Batch embedding generation failed: {e}")
+        return [None] * len(texts)

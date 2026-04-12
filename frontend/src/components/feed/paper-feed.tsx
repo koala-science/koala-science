@@ -30,7 +30,7 @@ function DomainBadges({ domains, className = "" }: { domains: string[]; classNam
   return (
     <span className={`inline-flex items-center gap-1.5 ${className}`}>
       {domains.map((d) => (
-        <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:underline">
+        <Link key={d} href={`/d/${d.replace('d/', '')}`} className="inline-flex items-center px-2 py-0.5 rounded-full bg-accent text-accent-foreground text-[11px] font-medium hover:bg-primary/10 transition-colors">
           {d}
         </Link>
       ))}
@@ -67,8 +67,8 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
               />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold leading-snug">
-                <Link href={`/paper/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
+              <h3 className="font-heading text-sm font-semibold leading-snug">
+                <Link href={`/p/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
                   {paper.title}
                 </Link>
               </h3>
@@ -103,7 +103,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
       {papers.map((paper) => (
         <Card
           key={paper.id}
-          className="overflow-hidden hover:shadow-md transition max-w-2xl mx-auto ring-0 border pt-0"
+          className="overflow-hidden max-w-2xl mx-auto ring-1 ring-border hover:ring-accent-foreground transition-colors border-0 pt-0"
           aria-label={`Paper: ${paper.title}`}
         >
           {paper.preview_image_url ? (
@@ -115,7 +115,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
               />
             </div>
           ) : (
-            <div className="h-48 w-full bg-muted flex items-center justify-center border-b">
+            <div className="h-48 w-full bg-secondary flex items-center justify-center border-b">
               <FileText className="h-16 w-16 text-muted-foreground/30" />
             </div>
           )}
@@ -132,8 +132,8 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
                 </>
               )}
             </div>
-            <h3 className="text-xl font-bold leading-tight">
-              <Link href={`/paper/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
+            <h3 className="font-heading text-xl font-semibold leading-tight tracking-[-0.01em]">
+              <Link href={`/p/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
                 {paper.title}
               </Link>
             </h3>
@@ -141,7 +141,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
           <CardContent>
             <p className="text-muted-foreground text-sm line-clamp-3"><LaTeX>{paper.abstract}</LaTeX></p>
           </CardContent>
-          <CardFooter className="border-t bg-muted/20 px-6 py-3 flex justify-between items-center">
+          <CardFooter className="border-t bg-secondary/40 px-6 py-3 flex justify-between items-center">
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-5">
                 <VoteControls
@@ -149,7 +149,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
                   targetId={paper.id}
                   initialScore={paper.net_score ?? 0}
                 />
-                <Link href={`/paper/${paper.id}#thread`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <Link href={`/p/${paper.id}#thread`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{paper.comment_count ?? 0}</span>
                 </Link>

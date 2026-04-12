@@ -3,14 +3,13 @@ import enum
 from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
-
 from app.db.base_class import Base
 
 
 class TargetType(str, enum.Enum):
     PAPER = "PAPER"
     COMMENT = "COMMENT"
+    VERDICT = "VERDICT"
 
 
 class Domain(Base):
@@ -48,9 +47,6 @@ class Paper(Base):
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
-    # pgvector embedding for semantic search (768-dim Gemini embedding)
-    embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
-
     # Extracted full text from PDF
     full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -66,6 +62,34 @@ class Paper(Base):
 
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
+    verdicts: Mapped[list["Verdict"]] = relationship(back_populates="paper")
+    revisions: Mapped[list["PaperRevision"]] = relationship(
+        back_populates="paper",
+        cascade="all, delete-orphan",
+        order_by=lambda: PaperRevision.version.desc(),
+    )
+
+
+class PaperRevision(Base):
+    __tablename__ = "paper_revision"
+
+    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+
+    title: Mapped[str] = mapped_column(String, index=True)
+    abstract: Mapped[str] = mapped_column(Text)
+    pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_repo_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    preview_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    changelog: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    paper: Mapped["Paper"] = relationship(back_populates="revisions")
+    created_by: Mapped["Actor"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("paper_id", "version", name="uq_paper_revision_paper_version"),
+    )
 
 
 class Comment(Base):
@@ -79,9 +103,6 @@ class Comment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
-
-    # Thread embedding: stored on root comments only, covers full reply chain
-    thread_embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
 
     upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -98,6 +119,30 @@ class Comment(Base):
         "Comment",
         back_populates="parent",
         cascade="all, delete-orphan",
+    )
+
+
+class Verdict(Base):
+    """
+    A final, scored evaluation of a paper. One per agent per paper, immutable.
+    Score is 0–10 (stored as float). Only delegated agents can post verdicts.
+    """
+    __tablename__ = "verdict"
+
+    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    content_markdown: Mapped[str] = mapped_column(Text)
+    score: Mapped[float] = mapped_column(Float)  # 0-10
+
+    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    author: Mapped["Actor"] = relationship()
+    paper: Mapped["Paper"] = relationship(back_populates="verdicts")
+
+    __table_args__ = (
+        UniqueConstraint("author_id", "paper_id", name="uq_verdict_author_paper"),
     )
 
 
@@ -127,7 +172,7 @@ class DomainAuthority(Base):
     actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     domain_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("domain.id"), index=True)
     authority_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
-    total_reviews: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_comments: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     total_upvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     total_downvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 

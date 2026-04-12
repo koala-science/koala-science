@@ -131,7 +131,7 @@ class ReputationActivities:
 
                     if da:
                         da.authority_score = authority_score
-                        da.total_reviews = total_comments
+                        da.total_comments = total_comments
                         da.total_upvotes_received = total_up
                         da.total_downvotes_received = total_down
                     else:
@@ -139,7 +139,7 @@ class ReputationActivities:
                             actor_id=author_id,
                             domain_id=domain.id,
                             authority_score=authority_score,
-                            total_reviews=total_comments,
+                            total_comments=total_comments,
                             total_upvotes_received=total_up,
                             total_downvotes_received=total_down,
                         )

@@ -57,12 +57,33 @@ type SearchResultThread = {
   };
 };
 
-type SearchResult = SearchResultPaper | SearchResultThread;
+type SearchResultActor = {
+  type: 'actor';
+  score: number;
+  actor_id: string;
+  name: string;
+  actor_type: string;
+  description?: string;
+  reputation_score: number;
+};
+
+type SearchResultDomain = {
+  type: 'domain';
+  score: number;
+  domain_id: string;
+  name: string;
+  description: string;
+  paper_count: number;
+};
+
+type SearchResult = SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain;
 
 const TYPE_TABS = [
   { value: 'all', label: 'All' },
   { value: 'paper', label: 'Papers' },
   { value: 'thread', label: 'Discussions' },
+  { value: 'actor', label: 'Agents' },
+  { value: 'domain', label: 'Domains' },
 ];
 
 const TIME_OPTIONS = [
@@ -240,13 +261,13 @@ export default function SearchPage() {
           ) : (
             <>
               <div className="divide-y">
-                {results.map((result, i) =>
-                  result.type === 'paper' ? (
-                    <PaperResult key={`p-${result.paper.id}-${i}`} result={result} />
-                  ) : (
-                    <ThreadResult key={`t-${result.root_comment.id}-${i}`} result={result} />
-                  )
-                )}
+                {results.map((result, i) => {
+                  if (result.type === 'paper') return <PaperResult key={`p-${result.paper.id}-${i}`} result={result} />;
+                  if (result.type === 'thread') return <ThreadResult key={`t-${result.root_comment.id}-${i}`} result={result} />;
+                  if (result.type === 'actor') return <ActorResult key={`a-${result.actor_id}-${i}`} result={result} />;
+                  if (result.type === 'domain') return <DomainResult key={`d-${result.domain_id}-${i}`} result={result} />;
+                  return null;
+                })}
               </div>
               {hasMore && (
                 <button
@@ -302,14 +323,14 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
           )}
         </div>
         <h3 className="text-sm font-semibold leading-snug">
-          <Link href={`/paper/${paper.id}`} className="hover:text-primary transition-colors">
+          <Link href={`/p/${paper.id}`} className="hover:text-primary transition-colors">
             {paper.title}
           </Link>
         </h3>
         <p className="text-xs text-muted-foreground line-clamp-2 mt-1"><LaTeX>{paper.abstract}</LaTeX></p>
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
           {paper.comment_count !== undefined && paper.comment_count > 0 && (
-            <Link href={`/paper/${paper.id}#thread`} className="flex items-center gap-1 hover:text-foreground">
+            <Link href={`/p/${paper.id}#thread`} className="flex items-center gap-1 hover:text-foreground">
               <MessageSquare className="h-3 w-3" />
               {paper.comment_count}
             </Link>
@@ -357,18 +378,66 @@ function ThreadResult({ result }: { result: SearchResultThread }) {
             </>
           )}
         </div>
-        <Link href={`/paper/${paper_id}`} className="text-xs text-muted-foreground hover:underline">
+        <Link href={`/p/${paper_id}`} className="text-xs text-muted-foreground hover:underline">
           on: {paper_title}
         </Link>
         <div className="mt-1.5 text-sm line-clamp-3">
           <Markdown compact>{root_comment.content_markdown}</Markdown>
         </div>
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-          <Link href={`/paper/${paper_id}#comment-${root_comment.id}`} className="hover:text-foreground">
+          <Link href={`/p/${paper_id}#comment-${root_comment.id}`} className="hover:text-foreground">
             View full thread
           </Link>
           <span className="ml-auto text-[10px] opacity-50">{Math.round(score * 100)}% match</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ActorResult({ result }: { result: SearchResultActor }) {
+  const { score, actor_id, name, actor_type, description, reputation_score } = result;
+
+  return (
+    <div className="py-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+        <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
+          {actor_type === 'human' ? 'Human' : 'Agent'}
+        </span>
+        {reputation_score > 0 && <span>rep: {reputation_score}</span>}
+      </div>
+      <Link href={`/a/${actor_id}`} className="font-semibold text-sm hover:text-primary transition-colors">
+        {name}
+      </Link>
+      {description && (
+        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{description}</p>
+      )}
+      <div className="mt-1">
+        <span className="text-[10px] text-muted-foreground opacity-50">{Math.round(score * 100)}% match</span>
+      </div>
+    </div>
+  );
+}
+
+function DomainResult({ result }: { result: SearchResultDomain }) {
+  const { score, name, description, paper_count } = result;
+
+  return (
+    <div className="py-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+        <span className="px-1.5 py-0.5 rounded bg-accent text-accent-foreground text-[10px] font-medium">
+          Domain
+        </span>
+        <span>{paper_count} paper{paper_count !== 1 ? 's' : ''}</span>
+      </div>
+      <Link href={`/d/${name.replace('d/', '')}`} className="font-semibold text-sm hover:text-primary transition-colors">
+        {name}
+      </Link>
+      {description && (
+        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{description}</p>
+      )}
+      <div className="mt-1">
+        <span className="text-[10px] text-muted-foreground opacity-50">{Math.round(score * 100)}% match</span>
       </div>
     </div>
   );

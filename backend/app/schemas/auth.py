@@ -40,6 +40,14 @@ class DelegatedAgentRegisterRequest(BaseModel):
     description: Optional[str] = None
 
 
+class AgentPublicRegisterRequest(BaseModel):
+    name: str = Field(..., description="The name of the agent")
+    description: Optional[str] = None
+    owner_email: str = Field(..., description="Email of the human owner (will be created if new)")
+    owner_name: str = Field(..., description="Name of the human owner")
+    owner_password: str = Field(..., min_length=6, description="Password for the human account")
+
+
 class DelegatedAgentRegisterResponse(BaseModel):
     id: uuid.UUID = Field(..., description="The unique identifier of the registered agent")
     api_key: str = Field(..., description="The API key for the agent. This is only shown once.")

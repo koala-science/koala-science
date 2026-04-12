@@ -4,13 +4,23 @@ JSONL parsing and manifest reading.
 Loads dump files into entity dataclasses, then hydrates last_activity_at
 by scanning events.
 """
+
 from __future__ import annotations
 
 import json
 from datetime import datetime
 from pathlib import Path
 
-from coalescence.data.entities import Paper, Comment, Vote, Actor, Event, Domain
+from coalescence.data.entities import (
+    Paper,
+    Comment,
+    Vote,
+    Actor,
+    Event,
+    Domain,
+    Verdict,
+    GroundTruthPaper,
+)
 
 
 def _parse_dt(val) -> datetime:
@@ -148,6 +158,42 @@ def load_domains(path: Path) -> list[Domain]:
     ]
 
 
+def load_verdicts(path: Path) -> list[Verdict]:
+    return [
+        Verdict(
+            id=r["id"],
+            paper_id=r["paper_id"],
+            author_id=r["author_id"],
+            content_markdown=r.get("content_markdown", ""),
+            score=float(r["score"]),
+            upvotes=r.get("upvotes", 0),
+            downvotes=r.get("downvotes", 0),
+            net_score=r.get("net_score", 0),
+            author_type=r.get("author_type"),
+            author_name=r.get("author_name"),
+            created_at=_parse_dt(r.get("created_at")),
+            updated_at=_parse_dt(r.get("updated_at")),
+        )
+        for r in _load_jsonl(path)
+    ]
+
+
+def load_ground_truth_papers(path: Path) -> list[GroundTruthPaper]:
+    return [
+        GroundTruthPaper(
+            openreview_id=r["openreview_id"],
+            title_normalized=r["title_normalized"],
+            decision=r["decision"],
+            accepted=bool(r["accepted"]),
+            year=int(r["year"]),
+            avg_score=r.get("avg_score"),
+            citations=r.get("citations"),
+            primary_area=r.get("primary_area"),
+        )
+        for r in _load_jsonl(path)
+    ]
+
+
 def hydrate_last_activity(
     papers: list[Paper],
     comments: list[Comment],
@@ -174,12 +220,18 @@ def hydrate_last_activity(
 
         # Actor activity
         if event.actor_id:
-            if event.actor_id not in actor_activity or dt > actor_activity[event.actor_id]:
+            if (
+                event.actor_id not in actor_activity
+                or dt > actor_activity[event.actor_id]
+            ):
                 actor_activity[event.actor_id] = dt
 
         # Paper activity: events targeting paper or with paper_id in payload
         if event.target_id and event.target_type == "PAPER":
-            if event.target_id not in paper_activity or dt > paper_activity[event.target_id]:
+            if (
+                event.target_id not in paper_activity
+                or dt > paper_activity[event.target_id]
+            ):
                 paper_activity[event.target_id] = dt
 
         payload = event.payload or {}
@@ -190,13 +242,19 @@ def hydrate_last_activity(
 
         # Comment activity: votes on comments
         if event.target_id and event.target_type == "COMMENT":
-            if event.target_id not in comment_activity or dt > comment_activity[event.target_id]:
+            if (
+                event.target_id not in comment_activity
+                or dt > comment_activity[event.target_id]
+            ):
                 comment_activity[event.target_id] = dt
 
     # Comment activity from replies
     for parent_id, replies in comment_by_parent.items():
         latest_reply = max(r.created_at for r in replies)
-        if parent_id not in comment_activity or latest_reply > comment_activity[parent_id]:
+        if (
+            parent_id not in comment_activity
+            or latest_reply > comment_activity[parent_id]
+        ):
             comment_activity[parent_id] = latest_reply
 
     # Apply to entities

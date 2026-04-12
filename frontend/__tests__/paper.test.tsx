@@ -14,36 +14,47 @@ describe('PaperDetailView', () => {
   it('renders correctly with required data-agent-action tags and ARIA labels', async () => {
     const mockPaper = {
       id: 'paper-123',
-      domain: 'd/LLM-Alignment',
+      domains: ['d/LLM-Alignment'],
+      submitter_id: 'user-1',
+      submitter_type: 'human',
       title: 'Detailed Paper',
       abstract: 'Detailed abstract',
       pdf_url: 'http://example.com/pdf',
-      github_repo_url: 'http://example.com/repo'
+      github_repo_url: 'http://example.com/repo',
+      net_score: 0,
     };
-
-    const mockReviews = [
-      {
-        id: 'rev-1',
-        reviewer_type: 'Agent',
-        confidence_score: 9,
-        content_markdown: 'Great paper.',
-        proof_of_work: { hash: 'abc' }
-      }
-    ];
 
     const mockComments = [
       {
         id: 'com-1',
-        author_type: 'HumanAccount',
+        author_id: 'user-2',
+        author_type: 'human',
         content_markdown: 'I agree.'
+      }
+    ];
+
+    const mockRevisions = [
+      {
+        id: 'rev-1',
+        paper_id: 'paper-123',
+        version: 1,
+        title: 'Detailed Paper',
+        abstract: 'Detailed abstract',
+        pdf_url: 'http://example.com/pdf',
+        github_repo_url: 'http://example.com/repo',
+        changelog: null,
+        created_by_id: 'user-1',
+        created_by_type: 'human',
+        created_at: '2026-04-10T00:00:00Z',
+        updated_at: '2026-04-10T00:00:00Z',
       }
     ];
 
     // fetch is called three times
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => mockPaper })
-      .mockResolvedValueOnce({ ok: true, json: async () => mockReviews })
-      .mockResolvedValueOnce({ ok: true, json: async () => mockComments });
+      .mockResolvedValueOnce({ ok: true, json: async () => mockComments })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockRevisions });
 
     const jsx = await PaperDetailView({ params: { id: 'paper-123' } });
     render(
@@ -53,30 +64,13 @@ describe('PaperDetailView', () => {
     );
 
     // ARIA roles and labels
-    expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Detail and Debate Thread');
+    expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Detail');
     
     // Check download actions
-    const pdfLink = screen.getByText('Open PDF in new tab');
+    const pdfLink = screen.getByText('PDF');
     expect(pdfLink).toHaveAttribute('data-agent-action', 'download-pdf');
-
-    // Wait, the acceptance criteria mention "download, comment, reply, view-proof" 
-    // but the actual code has download-pdf, submit-comment (and input-comment), reply-comment, view-proof
-    
-    // Check view-proof
-    const viewProofContainers = screen.getAllByText(/Attached Proof of Work/);
-    expect(viewProofContainers.length).toBeGreaterThan(0);
-    // The closest parent with data-agent-action
-    expect(viewProofContainers[0].closest('div[data-agent-action="view-proof"]')).toBeInTheDocument();
-
-    // Check comment textarea and submit
-    const textarea = screen.getByPlaceholderText('Add a comment or rebuttal...');
-    expect(textarea).toHaveAttribute('data-agent-action', 'input-comment');
-    expect(screen.getByText('Post Comment')).toHaveAttribute('data-agent-action', 'submit-comment');
-
-    // Check reply
-    const replyButtons = screen.getAllByText('Reply');
-    replyButtons.forEach(btn => {
-      expect(btn).toHaveAttribute('data-agent-action', 'reply-comment');
-    });
+    expect(screen.getByText('Code')).toHaveAttribute('data-agent-action', 'view-code');
+    expect(screen.getByText('1 comments')).toBeInTheDocument();
+    expect(screen.getByText('Revisions')).toBeInTheDocument();
   });
 });

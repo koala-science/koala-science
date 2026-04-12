@@ -1,36 +1,38 @@
 """
-Search endpoint: hybrid text + semantic search across papers and comment threads.
+Search endpoint: semantic search via Qdrant across papers, threads, actors, and domains.
 
 Strategy:
 1. Generate query embedding via Gemini
-2. Search papers and/or threads by vector similarity
-3. Fall back to text-only search if embeddings unavailable
-4. Return mixed results ranked by similarity score
+2. Search relevant Qdrant collections by vector similarity
+3. For papers/threads: load full objects from Postgres by ID
+4. For actors/domains: build response directly from Qdrant payload
+5. Return mixed results ranked by similarity score
 
-Filters: type (paper|thread|all), domain, after/before (unix epoch)
+Filters: type (paper|thread|actor|domain|all), domain, after/before (unix epoch)
 """
+import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, or_
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.platform import Paper, Comment
+from app.models.platform import Paper, PaperRevision, Comment
 from app.schemas.platform import (
-    PaperResponse, CommentResponse,
-    SearchResultPaper, SearchResultThread,
+    PaperResponse, PaperRevisionResponse, CommentResponse,
+    SearchResultPaper, SearchResultThread, SearchResultActor, SearchResultDomain,
 )
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[SearchResultPaper | SearchResultThread])
+@router.get("/", response_model=list[SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain])
 async def search(
     q: str = Query(..., min_length=1, description="Search query"),
-    type: Optional[str] = Query(None, description="paper, thread, or all (default)"),
+    type: Optional[str] = Query(None, description="paper, thread, actor, domain, or all (default)"),
     domain: Optional[str] = Query(None, description="Filter by domain"),
     after: Optional[int] = Query(None, description="Unix epoch — only results created after"),
     before: Optional[int] = Query(None, description="Unix epoch — only results created before"),
@@ -38,14 +40,11 @@ async def search(
     skip: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    """Hybrid search with optional type, domain, and time range filters."""
+    """Semantic search powered by Qdrant."""
     search_type = (type or "all").lower()
-    after_dt = datetime.utcfromtimestamp(after) if after else None
-    before_dt = datetime.utcfromtimestamp(before) if before else None
+    fetch_limit = limit + skip
 
-    fetch_limit = limit + skip  # fetch enough to handle pagination
-
-    # --- Semantic search ---
+    # Generate query embedding
     query_embedding = None
     try:
         from app.core.embeddings import generate_query_embedding
@@ -53,243 +52,179 @@ async def search(
     except Exception:
         pass
 
-    results: list[dict] = []
-    seen_ids: set[str] = set()
+    if not query_embedding:
+        return []
 
-    # --- Semantic search ---
-    if query_embedding:
+    results: list[dict] = []
+
+    try:
         if search_type in ("all", "paper"):
-            results.extend(await _vector_search_papers(
-                db, query_embedding, domain, after_dt, before_dt, fetch_limit
-            ))
+            results.extend(await _search_papers(db, query_embedding, domain, after, before, fetch_limit))
 
         if search_type in ("all", "thread"):
-            results.extend(await _vector_search_threads(
-                db, query_embedding, domain, after_dt, before_dt, fetch_limit
-            ))
+            results.extend(await _search_threads(db, query_embedding, domain, after, before, fetch_limit))
 
-    # Index results by ID for dedup/score merging
-    def _rid(r: dict) -> str:
-        return str(r["paper"]["id"]) if r["type"] == "paper" else str(r["root_comment"]["id"])
+        if search_type in ("all", "actor"):
+            results.extend(_search_actors(query_embedding, fetch_limit))
 
-    result_map: dict[str, dict] = {}
-    for r in results:
-        result_map[_rid(r)] = r
-
-    # --- Always supplement with text search ---
-    text_results: list[dict] = []
-    if search_type in ("all", "paper"):
-        text_results.extend(await _text_search_papers(db, q, domain, after_dt, before_dt, fetch_limit))
-
-    if search_type in ("all", "thread"):
-        text_results.extend(await _text_search_threads(db, q, domain, after_dt, before_dt, fetch_limit))
-
-    # Merge: keep max score for duplicates, add new results
-    for r in text_results:
-        rid = _rid(r)
-        if rid in result_map:
-            if r["score"] > result_map[rid]["score"]:
-                result_map[rid]["score"] = r["score"]
-        else:
-            result_map[rid] = r
-
-    results = list(result_map.values())
+        if search_type in ("all", "domain"):
+            results.extend(_search_domains(query_embedding, fetch_limit))
+    except Exception:
+        pass
 
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[skip:skip + limit]
 
 
-# ---- Vector search helpers ----
+# ---- Search helpers ----
 
-async def _vector_search_papers(
-    db: AsyncSession, embedding, domain, after_dt, before_dt, limit
+
+async def _search_papers(
+    db: AsyncSession, embedding: list[float], domain_val, after, before, limit
 ) -> list[dict]:
-    query = (
-        select(
-            Paper,
-            Paper.embedding.cosine_distance(embedding).label("distance"),
-        )
-        .options(joinedload(Paper.submitter))
-        .where(Paper.embedding.isnot(None))
+    """Search papers via Qdrant, load full objects from Postgres."""
+    from app.core.qdrant import (
+        search_collection, PAPERS_COLLECTION,
+        domain_filter, after_filter, before_filter,
     )
-    query = _apply_paper_filters(query, domain, after_dt, before_dt)
-    query = query.order_by("distance").limit(limit)
 
-    result = await db.execute(query)
-    rows = result.unique().all()
+    filters = []
+    if domain_val:
+        filters.append(domain_filter(domain_val))
+    if after:
+        filters.append(after_filter("created_at", after))
+    if before:
+        filters.append(before_filter("created_at", before))
+
+    hits = search_collection(PAPERS_COLLECTION, embedding, filters=filters or None, limit=limit)
+    if not hits:
+        return []
+
+    paper_ids = [uuid.UUID(h["payload"]["paper_id"]) for h in hits]
+    score_map = {h["payload"]["paper_id"]: h["score"] for h in hits}
+
+    result = await db.execute(
+        select(Paper)
+        .options(joinedload(Paper.submitter), joinedload(Paper.revisions).joinedload(PaperRevision.created_by))
+        .where(Paper.id.in_(paper_ids))
+    )
+    papers = {str(p.id): p for p in result.scalars().unique().all()}
 
     return [
         SearchResultPaper(
-            score=round(1.0 - (row.distance / 2.0), 4),
-            paper=_paper_response(row.Paper),
+            score=score_map.get(str(pid), 0.5),
+            paper=_paper_response(papers[str(pid)]),
         ).model_dump()
-        for row in rows
+        for pid in paper_ids
+        if str(pid) in papers
     ]
 
 
-async def _vector_search_threads(
-    db: AsyncSession, embedding, domain, after_dt, before_dt, limit
+async def _search_threads(
+    db: AsyncSession, embedding: list[float], domain_val, after, before, limit
 ) -> list[dict]:
-    query = (
-        select(
-            Comment,
-            Comment.thread_embedding.cosine_distance(embedding).label("distance"),
-        )
-        .options(joinedload(Comment.author), joinedload(Comment.paper))
-        .where(Comment.thread_embedding.isnot(None))
-        .where(Comment.parent_id.is_(None))  # Root comments only
+    """Search threads via Qdrant, load full comment objects from Postgres."""
+    from app.core.qdrant import (
+        search_collection, THREADS_COLLECTION,
+        paper_domains_filter, after_filter, before_filter,
     )
-    query = _apply_thread_filters(query, domain, after_dt, before_dt)
-    query = query.order_by("distance").limit(limit)
 
-    result = await db.execute(query)
-    rows = result.unique().all()
+    filters = []
+    if domain_val:
+        filters.append(paper_domains_filter(domain_val))
+    if after:
+        filters.append(after_filter("created_at", after))
+    if before:
+        filters.append(before_filter("created_at", before))
 
-    return [
-        SearchResultThread(
-            score=round(1.0 - (row.distance / 2.0), 4),
-            paper_id=row.Comment.paper_id,
-            paper_title=row.Comment.paper.title if row.Comment.paper else "",
-            paper_domains=row.Comment.paper.domains if row.Comment.paper else [],
-            root_comment=_comment_response(row.Comment),
-        ).model_dump()
-        for row in rows
-    ]
+    hits = search_collection(THREADS_COLLECTION, embedding, filters=filters or None, limit=limit)
+    if not hits:
+        return []
 
+    comment_ids = [uuid.UUID(h["payload"]["comment_id"]) for h in hits]
+    score_map = {h["payload"]["comment_id"]: h["score"] for h in hits}
+    payload_map = {h["payload"]["comment_id"]: h["payload"] for h in hits}
 
-# ---- Text search helpers ----
-
-async def _text_search_papers(
-    db: AsyncSession, q: str, domain, after_dt, before_dt, limit
-) -> list[dict]:
-    def _text_score(paper, base: float) -> float:
-        """Boost score if query appears in the title."""
-        if q.lower() in paper.title.lower():
-            return min(base + 0.5, 0.99)
-        return base
-
-    # Try FTS first, fall back to ILIKE if FTS errors or returns nothing
-    try:
-        query = (
-            select(Paper)
-            .options(joinedload(Paper.submitter))
-            .where(
-                func.to_tsvector("english", Paper.title + " " + Paper.abstract).op("@@")(
-                    func.websearch_to_tsquery("english", q)
-                )
-            )
-        )
-        query = _apply_paper_filters(query, domain, after_dt, before_dt)
-        query = query.limit(limit)
-        result = await db.execute(query)
-        papers = result.scalars().unique().all()
-        if papers:
-            return [
-                SearchResultPaper(score=_text_score(p, 0.5), paper=_paper_response(p)).model_dump()
-                for p in papers
-            ]
-    except Exception:
-        await db.rollback()
-
-    # ILIKE fallback
-    query = (
-        select(Paper)
-        .options(joinedload(Paper.submitter))
-        .where(or_(Paper.title.ilike(f"%{q}%"), Paper.abstract.ilike(f"%{q}%")))
-    )
-    query = _apply_paper_filters(query, domain, after_dt, before_dt)
-    query = query.limit(limit)
-    result = await db.execute(query)
-    papers = result.scalars().unique().all()
-    return [
-        SearchResultPaper(score=_text_score(p, 0.3), paper=_paper_response(p)).model_dump()
-        for p in papers
-    ]
-
-
-async def _text_search_threads(
-    db: AsyncSession, q: str, domain, after_dt, before_dt, limit
-) -> list[dict]:
-    # Try FTS first, fall back to ILIKE if FTS errors or returns nothing
-    try:
-        query = (
-            select(Comment)
-            .options(joinedload(Comment.author), joinedload(Comment.paper))
-            .where(Comment.parent_id.is_(None))
-            .where(
-                func.to_tsvector("english", Comment.content_markdown).op("@@")(
-                    func.websearch_to_tsquery("english", q)
-                )
-            )
-        )
-        query = _apply_thread_filters(query, domain, after_dt, before_dt)
-        query = query.limit(limit)
-        result = await db.execute(query)
-        comments = result.scalars().unique().all()
-        if comments:
-            return [
-                SearchResultThread(
-                    score=0.5,
-                    paper_id=c.paper_id,
-                    paper_title=c.paper.title if c.paper else "",
-                    paper_domains=c.paper.domains if c.paper else [],
-                    root_comment=_comment_response(c),
-                ).model_dump()
-                for c in comments
-            ]
-    except Exception:
-        await db.rollback()
-
-    # ILIKE fallback
-    query = (
+    result = await db.execute(
         select(Comment)
         .options(joinedload(Comment.author), joinedload(Comment.paper))
-        .where(Comment.parent_id.is_(None))
-        .where(Comment.content_markdown.ilike(f"%{q}%"))
+        .where(Comment.id.in_(comment_ids))
     )
-    query = _apply_thread_filters(query, domain, after_dt, before_dt)
-    query = query.limit(limit)
-    result = await db.execute(query)
-    comments = result.scalars().unique().all()
+    comments = {str(c.id): c for c in result.scalars().unique().all()}
+
     return [
         SearchResultThread(
-            score=0.3,
-            paper_id=c.paper_id,
-            paper_title=c.paper.title if c.paper else "",
-            paper_domains=c.paper.domains if c.paper else [],
-            root_comment=_comment_response(c),
+            score=score_map.get(str(cid), 0.5),
+            paper_id=uuid.UUID(payload_map[str(cid)]["paper_id"]),
+            paper_title=payload_map[str(cid)].get("paper_title", ""),
+            paper_domains=payload_map[str(cid)].get("paper_domains", []),
+            root_comment=_comment_response(comments[str(cid)]),
         ).model_dump()
-        for c in comments
+        for cid in comment_ids
+        if str(cid) in comments
     ]
 
 
-# ---- Filter helpers ----
+def _search_actors(embedding: list[float], limit: int) -> list[dict]:
+    """Search actors via Qdrant."""
+    from app.core.qdrant import search_collection, ACTORS_COLLECTION
 
-def _apply_paper_filters(query, domain, after_dt, before_dt):
-    if domain:
-        d = domain if domain.startswith("d/") else f"d/{domain}"
-        query = query.where(Paper.domains.any(d))
-    if after_dt:
-        query = query.where(Paper.created_at >= after_dt)
-    if before_dt:
-        query = query.where(Paper.created_at <= before_dt)
-    return query
+    hits = search_collection(ACTORS_COLLECTION, embedding, limit=limit)
+    return [
+        SearchResultActor(
+            score=h["score"],
+            actor_id=uuid.UUID(h["payload"]["actor_id"]),
+            name=h["payload"].get("name", ""),
+            actor_type=h["payload"].get("actor_type", ""),
+            description=h["payload"].get("description"),
+            reputation_score=h["payload"].get("reputation_score", 0),
+        ).model_dump()
+        for h in hits
+    ]
 
 
-def _apply_thread_filters(query, domain, after_dt, before_dt):
-    if domain:
-        d = domain if domain.startswith("d/") else f"d/{domain}"
-        query = query.where(Comment.paper.has(Paper.domains.any(d)))
-    if after_dt:
-        query = query.where(Comment.created_at >= after_dt)
-    if before_dt:
-        query = query.where(Comment.created_at <= before_dt)
-    return query
+def _search_domains(embedding: list[float], limit: int) -> list[dict]:
+    """Search domains via Qdrant."""
+    from app.core.qdrant import search_collection, DOMAINS_COLLECTION
+
+    hits = search_collection(DOMAINS_COLLECTION, embedding, limit=limit)
+    return [
+        SearchResultDomain(
+            score=h["score"],
+            domain_id=uuid.UUID(h["payload"]["domain_id"]),
+            name=h["payload"].get("name", ""),
+            description=h["payload"].get("description", ""),
+            paper_count=h["payload"].get("paper_count", 0),
+        ).model_dump()
+        for h in hits
+    ]
 
 
 # ---- Response builders ----
 
+
+def _revision_to_response(rev: PaperRevision) -> PaperRevisionResponse:
+    return PaperRevisionResponse(
+        id=rev.id,
+        paper_id=rev.paper_id,
+        version=rev.version,
+        created_by_id=rev.created_by_id,
+        created_by_type=rev.created_by.actor_type.value if rev.created_by else "unknown",
+        created_by_name=rev.created_by.name if rev.created_by else None,
+        title=rev.title,
+        abstract=rev.abstract,
+        pdf_url=rev.pdf_url,
+        github_repo_url=rev.github_repo_url,
+        preview_image_url=rev.preview_image_url,
+        changelog=rev.changelog,
+        created_at=rev.created_at,
+        updated_at=rev.updated_at,
+    )
+
+
 def _paper_response(paper: Paper) -> PaperResponse:
+    revisions = getattr(paper, "revisions", None) or []
+    latest = revisions[0] if revisions else None
     return PaperResponse(
         id=paper.id,
         title=paper.title,
@@ -305,6 +240,9 @@ def _paper_response(paper: Paper) -> PaperResponse:
         downvotes=paper.downvotes,
         net_score=paper.net_score,
         arxiv_id=paper.arxiv_id,
+        current_version=latest.version if latest else 1,
+        revision_count=len(revisions) if revisions else 1,
+        latest_revision=_revision_to_response(latest) if latest else None,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )

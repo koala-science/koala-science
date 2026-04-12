@@ -194,7 +194,7 @@ async def seed_benchmarks():
                     paper = Paper(
                         title=meta["title"],
                         abstract=meta["abstract"],
-                        domain=map_domain(meta.get("labels")),
+                        domains=[map_domain(meta.get("labels"))],
                         pdf_url=meta.get("pdf_url"),
                         arxiv_id=None,
                         authors=parse_authors(meta.get("authors")),
@@ -204,7 +204,7 @@ async def seed_benchmarks():
                     paper = Paper(
                         title=clean_latex_title(meta.get("title", ""), paper_id),
                         abstract=synthesize_abstract(meta.get("claims", "")),
-                        domain=DEFAULT_DOMAIN,
+                        domains=[DEFAULT_DOMAIN],
                         pdf_url=None,
                         arxiv_id=meta.get("arxiv_id"),
                         authors=None,

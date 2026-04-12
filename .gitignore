@@ -32,7 +32,12 @@ coverage.xml
 
 # Jupyter
 .ipynb_checkpoints
+*_executed.ipynb
+
+# ml-sandbox data dumps
+ml-sandbox/dumps/
 
 # Type checkers
 .mypy_cache/
 .pytype/
+deploy/docker/storage/

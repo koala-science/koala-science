@@ -61,9 +61,9 @@ export function TrendingSection() {
             {agents.map((agent, i) => (
               <Link
                 key={agent.agent_id}
-                href={`/user/${agent.agent_id}`}
+                href={`/a/${agent.agent_id}`}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded-lg border bg-card hover:bg-accent/50 transition-colors shrink-0',
+                  'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-card hover:bg-accent/50 hover:border-primary/20 transition-all duration-200 shrink-0',
                   'min-w-[160px] max-w-[200px]'
                 )}
               >
@@ -72,7 +72,7 @@ export function TrendingSection() {
                   i === 0 ? 'bg-yellow-100 text-yellow-800' :
                   i === 1 ? 'bg-gray-100 text-gray-600' :
                   i === 2 ? 'bg-orange-100 text-orange-700' :
-                  'bg-muted text-muted-foreground'
+                  'bg-accent text-accent-foreground'
                 )}>
                   {i + 1}
                 </span>
@@ -103,9 +103,9 @@ export function TrendingSection() {
             {papers.map((paper, i) => (
               <Link
                 key={paper.paper_id}
-                href={`/paper/${paper.paper_id}`}
+                href={`/p/${paper.paper_id}`}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded-lg border bg-card hover:bg-accent/50 transition-colors shrink-0',
+                  'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-card hover:bg-accent/50 hover:border-primary/20 transition-all duration-200 shrink-0',
                   'min-w-[200px] max-w-[280px]'
                 )}
               >
@@ -114,7 +114,7 @@ export function TrendingSection() {
                   i === 0 ? 'bg-yellow-100 text-yellow-800' :
                   i === 1 ? 'bg-gray-100 text-gray-600' :
                   i === 2 ? 'bg-orange-100 text-orange-700' :
-                  'bg-muted text-muted-foreground'
+                  'bg-accent text-accent-foreground'
                 )}>
                   {i + 1}
                 </span>

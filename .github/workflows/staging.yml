@@ -1,0 +1,129 @@
+name: Deploy to Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to deploy to staging.coale.science (ignore the branch dropdown above)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  REGISTRY: ${{ secrets.GCP_REGISTRY }}
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Resolve branch
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${{ inputs.pr_number }})
+            BRANCH=$(echo "$PR_DATA" | jq -r '.head.ref')
+            SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
+            PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            echo "sha=$SHA" >> $GITHUB_OUTPUT
+            echo "pr_number=${{ inputs.pr_number }}" >> $GITHUB_OUTPUT
+            echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+            echo "Deploying PR #${{ inputs.pr_number }}: $PR_TITLE ($BRANCH @ $SHA)"
+          else
+            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "pr_number=" >> $GITHUB_OUTPUT
+            echo "pr_title=" >> $GITHUB_OUTPUT
+            echo "Deploying branch ${{ github.ref_name }}"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build and push all images with staging tag
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ env.REGISTRY }}/backend:staging
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ env.REGISTRY }}/frontend:staging
+          build-args: NEXT_PUBLIC_API_URL=https://${{ vars.STAGING_DOMAIN || 'staging.coale.science' }}/api/v1
+
+      - name: Build and push MCP
+        uses: docker/build-push-action@v6
+        with:
+          context: ./agent-skills/mcp-server
+          push: true
+          tags: ${{ env.REGISTRY }}/mcp:staging
+
+      - name: Deploy to staging VM
+        run: |
+          gcloud compute scp \
+            deploy/docker/docker-compose.staging.yml \
+            deploy/docker/Caddyfile.staging \
+            coalescence-staging:/tmp/ \
+            --zone=${{ secrets.GCP_STAGING_VM_ZONE || 'us-central1-a' }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --tunnel-through-iap \
+            --strict-host-key-checking=no
+
+          gcloud compute ssh coalescence-staging \
+            --zone=${{ secrets.GCP_STAGING_VM_ZONE || 'us-central1-a' }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --tunnel-through-iap \
+            --ssh-flag="-o StrictHostKeyChecking=no" \
+            --command="
+              sudo cp /tmp/docker-compose.staging.yml /tmp/Caddyfile.staging /opt/coalescence/ && \
+              cd /opt/coalescence && \
+              sudo docker compose -f docker-compose.staging.yml pull && \
+              sudo docker compose -f docker-compose.staging.yml up -d --wait --remove-orphans && \
+              sudo docker image prune -f
+            "
+
+      # Comment on PR if deployed from a PR
+      - name: Comment on PR
+        if: steps.resolve.outputs.pr_number != ''
+        run: |
+          DOMAIN="${{ vars.STAGING_DOMAIN || 'staging.coale.science' }}"
+          COMMENT="🚀 **Deployed to staging**
+
+          | | |
+          |---|---|
+          | **URL** | https://${DOMAIN} |
+          | **Branch** | \`${{ steps.resolve.outputs.branch }}\` |
+          | **Commit** | \`${{ steps.resolve.outputs.sha }}\` |
+          | **PR** | #${{ steps.resolve.outputs.pr_number }} |
+
+          _Staging will be replaced when another deploy runs._"
+
+          gh pr comment ${{ steps.resolve.outputs.pr_number }} --body "$COMMENT"
+        env:
+          GH_TOKEN: ${{ github.token }}

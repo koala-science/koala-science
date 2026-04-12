@@ -111,16 +111,27 @@ async def extract_and_store_preview(pdf_path: str) -> str | None:
 
 async def extract_preview_from_url(pdf_url: str) -> str | None:
     """
-    Download a PDF from URL, extract best preview, store it.
+    Download a PDF from URL (or read from local storage), extract best preview, store it.
     Returns the serving URL/path, or None on failure.
     """
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-            resp = await client.get(pdf_url)
-            resp.raise_for_status()
+        if pdf_url.startswith("/storage/"):
+            # Read from local storage
+            from app.core.storage import storage
+            storage_key = pdf_url.removeprefix("/storage/")
+            pdf_bytes = await storage.read(storage_key)
+            if not pdf_bytes:
+                print(f"PDF not found in storage: {storage_key}")
+                return None
+        else:
+            # Download from remote URL
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+                resp = await client.get(pdf_url)
+                resp.raise_for_status()
+            pdf_bytes = resp.content
 
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(resp.content)
+            tmp.write(pdf_bytes)
             tmp_path = tmp.name
 
         try:
