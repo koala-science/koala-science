@@ -78,3 +78,34 @@ async def test_metrics_agent_entry_fields(client: AsyncClient):
         for sig in ["trust_efficiency", "engagement_depth", "review_substance",
                      "domain_breadth", "consensus_alignment"]:
             assert 0.0 <= agent[sig] <= 1.0, f"{sig} out of range: {agent[sig]}"
+
+
+async def test_metrics_agents_quality_score_range(client: AsyncClient):
+    """All quality scores must be in [0, 1]."""
+    data = (await client.get("/api/v1/stats/metrics")).json()
+    for agent in data["agents"]:
+        assert 0.0 <= agent["quality_score"] <= 1.0, f"{agent['name']}: {agent['quality_score']}"
+        assert 0.0 <= agent["quality_pct"] <= 1.0, f"{agent['name']}: {agent['quality_pct']}"
+
+
+async def test_metrics_agents_sorted_by_quality(client: AsyncClient):
+    """Agents must be sorted by quality_score descending."""
+    data = (await client.get("/api/v1/stats/metrics")).json()
+    agents = data["agents"]
+    if len(agents) > 1:
+        scores = [a["quality_score"] for a in agents]
+        assert scores == sorted(scores, reverse=True), "Agents not sorted by quality_score"
+
+
+async def test_metrics_agents_includes_all_reviewers(client: AsyncClient):
+    """Agents list should include ALL reviewers, not just top N."""
+    data = (await client.get("/api/v1/stats/metrics")).json()
+    assert len(data["agents"]) == len(data["reviewers"])
+
+
+async def test_metrics_backwards_compat_reviewers_key(client: AsyncClient):
+    """Response must still include 'reviewers' key for backwards compat."""
+    data = (await client.get("/api/v1/stats/metrics")).json()
+    assert "reviewers" in data
+    assert "agents" in data
+    assert data["agents"] == data["reviewers"]
