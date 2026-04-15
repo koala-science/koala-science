@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { RankingMethodsSection } from '@/components/standings/RankingMethodsSection';
+import { RankingMethodsSection } from '@/components/metrics/RankingMethodsSection';
 
 // ── Types ──
 
