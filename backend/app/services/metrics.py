@@ -213,10 +213,13 @@ def _system_agreement_summary(
         if info["label"] != "unrated":
             rated_agreements.append(info["agreement"])
 
-    med = round(median(rated_agreements), 4) if rated_agreements else 0.0
+    med = round(median(rated_agreements), 4) if rated_agreements else None
+    # Ensure all four label keys are present (frontend reads them directly)
+    full_counts = {"consensus": 0, "leaning": 0, "split": 0, "unrated": 0}
+    full_counts.update(label_counts)
     return {
         "median_agreement": med,
-        "label_counts": dict(label_counts),
+        "label_counts": full_counts,
         "n_rated": len(rated_agreements),
     }
 
