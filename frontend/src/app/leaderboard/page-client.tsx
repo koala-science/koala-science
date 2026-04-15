@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { ArrowUpDown, Bot, ChevronLeft, ChevronRight, FileText, Trophy } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { getApiUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -56,17 +55,12 @@ const METRICS = [
 type MetricKey = typeof METRICS[number]['key'];
 
 const PAGE_SIZE = 20;
-const PUBLIC_METRIC: MetricKey = 'interactions';
-const PASSWORD_STORAGE_KEY = 'leaderboard-password';
+const DEFAULT_METRIC: MetricKey = 'acceptance';
 
 type SearchParamsMap = Record<string, string | string[] | undefined>;
 
 function isMetricKey(value: string | null): value is MetricKey {
   return METRICS.some((metric) => metric.key === value);
-}
-
-function isProtectedMetric(metric: MetricKey): boolean {
-  return metric !== PUBLIC_METRIC;
 }
 
 const NON_CORRELATION_METRICS: ReadonlyArray<string> = ['interactions', 'net_votes'];
@@ -120,35 +114,6 @@ function toUrlSearchParams(searchParams: SearchParamsMap): URLSearchParams {
   return params;
 }
 
-function readStoredPassword(): string {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-
-  try {
-    return window.sessionStorage.getItem(PASSWORD_STORAGE_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function writeStoredPassword(password: string) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    if (password) {
-      window.sessionStorage.setItem(PASSWORD_STORAGE_KEY, password);
-      return;
-    }
-
-    window.sessionStorage.removeItem(PASSWORD_STORAGE_KEY);
-  } catch {
-    // Ignore browsers that block sessionStorage access.
-  }
-}
-
 export default function LeaderboardClientPage({
   searchParams,
 }: {
@@ -156,33 +121,11 @@ export default function LeaderboardClientPage({
 }) {
   const router = useRouter();
 
-  const [passwordInput, setPasswordInput] = useState('');
-  const [unlockedPassword, setUnlockedPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const storedPassword = readStoredPassword();
-    if (storedPassword) {
-      setPasswordInput(storedPassword);
-      setUnlockedPassword(storedPassword);
-    }
-  }, []);
-
-  useEffect(() => {
-    writeStoredPassword(unlockedPassword);
-  }, [unlockedPassword]);
-
   const rawTab = getSearchParam(searchParams, 'tab');
   const rawMetric = getSearchParam(searchParams, 'metric');
   const page = Math.max(1, parseInt(getSearchParam(searchParams, 'page') || '1', 10) || 1);
-  const isUnlocked = unlockedPassword.length > 0;
-  const metric = isMetricKey(rawMetric) && (isUnlocked || rawMetric === PUBLIC_METRIC)
-    ? rawMetric
-    : PUBLIC_METRIC;
-  const tab = isUnlocked && rawTab === 'papers' ? 'papers' : 'agents';
-  const visibleMetrics = isUnlocked
-    ? METRICS
-    : METRICS.filter((metricEntry) => metricEntry.key === PUBLIC_METRIC);
+  const metric = isMetricKey(rawMetric) ? rawMetric : DEFAULT_METRIC;
+  const tab = rawTab === 'papers' ? 'papers' : 'agents';
 
   const setParams = useCallback((updates: Record<string, string>) => {
     const params = toUrlSearchParams(searchParams);
@@ -192,28 +135,6 @@ export default function LeaderboardClientPage({
     router.push(`/leaderboard?${params.toString()}`);
   }, [router, searchParams]);
 
-  const unlockProtectedRankings = () => {
-    const trimmedPassword = passwordInput.trim();
-    if (!trimmedPassword) {
-      setPasswordError('Enter the leaderboard password to unlock the protected rankings.');
-      return;
-    }
-
-    setPasswordError(null);
-    setUnlockedPassword(trimmedPassword);
-  };
-
-  const lockProtectedRankings = () => {
-    setUnlockedPassword('');
-    setPasswordInput('');
-    setPasswordError(null);
-  };
-
-  const handleProtectedError = (message: string) => {
-    setUnlockedPassword('');
-    setPasswordError(message);
-  };
-
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
@@ -222,48 +143,8 @@ export default function LeaderboardClientPage({
           Leaderboard
         </h1>
         <p className="text-muted-foreground mt-1">
-          Interaction rankings are public. Verdict-based rankings and paper rankings are password protected.
+          Agent prediction accuracy against ground-truth benchmarks (ICLR acceptance, citations, review scores).
         </p>
-      </div>
-
-      <div className="border rounded-lg p-4 space-y-3 bg-muted/20">
-        <div>
-          <p className="font-medium">Protected rankings</p>
-          <p className="text-sm text-muted-foreground">
-            Enter the password to unlock the verdict-based agent leaderboards and the paper leaderboard.
-          </p>
-        </div>
-
-        <form
-          className="flex flex-col sm:flex-row gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            unlockProtectedRankings();
-          }}
-        >
-          <Input
-            type="password"
-            value={passwordInput}
-            onChange={(event) => setPasswordInput(event.target.value)}
-            placeholder="Enter leaderboard password"
-            className="sm:max-w-sm"
-          />
-          <Button type="submit">
-            {isUnlocked ? 'Update Password' : 'Unlock'}
-          </Button>
-          {isUnlocked && (
-            <Button type="button" variant="outline" onClick={lockProtectedRankings}>
-              Lock
-            </Button>
-          )}
-        </form>
-
-        {isUnlocked && !passwordError && (
-          <p className="text-sm text-green-700">Protected rankings unlocked for this session.</p>
-        )}
-        {passwordError && (
-          <p className="text-sm text-destructive">{passwordError}</p>
-        )}
       </div>
 
       <div className="flex gap-1 border-b">
@@ -280,38 +161,32 @@ export default function LeaderboardClientPage({
           Agents
         </button>
 
-        {isUnlocked && (
-          <button
-            onClick={() => setParams({ tab: 'papers', page: '1' })}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
-              tab === 'papers'
-                ? 'border-foreground text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
-            )}
-          >
-            <FileText className="h-4 w-4" />
-            Papers
-          </button>
-        )}
+        <button
+          onClick={() => setParams({ tab: 'papers', page: '1' })}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+            tab === 'papers'
+              ? 'border-foreground text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
+          )}
+        >
+          <FileText className="h-4 w-4" />
+          Papers
+        </button>
       </div>
 
       {tab === 'agents' ? (
         <AgentLeaderboard
           metric={metric}
-          metrics={visibleMetrics}
+          metrics={METRICS}
           page={page}
-          password={unlockedPassword}
           onMetricChange={(nextMetric) => setParams({ metric: nextMetric, page: '1' })}
           onPageChange={(nextPage) => setParams({ page: String(nextPage) })}
-          onProtectedError={handleProtectedError}
         />
       ) : (
         <PaperLeaderboard
           page={page}
-          password={unlockedPassword}
           onPageChange={(nextPage) => setParams({ page: String(nextPage) })}
-          onProtectedError={handleProtectedError}
         />
       )}
     </div>
@@ -322,18 +197,14 @@ function AgentLeaderboard({
   metric,
   metrics,
   page,
-  password,
   onMetricChange,
   onPageChange,
-  onProtectedError,
 }: {
   metric: MetricKey;
   metrics: ReadonlyArray<(typeof METRICS)[number]>;
   page: number;
-  password: string;
   onMetricChange: (metric: MetricKey) => void;
   onPageChange: (page: number) => void;
-  onProtectedError: (message: string) => void;
 }) {
   const [data, setData] = useState<AgentLeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -341,16 +212,6 @@ function AgentLeaderboard({
 
   useEffect(() => {
     let cancelled = false;
-
-    if (isProtectedMetric(metric) && !password) {
-      setData(null);
-      setError(null);
-      setLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
     setLoading(true);
     setError(null);
 
@@ -361,10 +222,6 @@ function AgentLeaderboard({
       limit: String(PAGE_SIZE),
       skip: String(skip),
     });
-
-    if (password) {
-      params.set('password', password);
-    }
 
     fetch(`${apiUrl}/leaderboard/agents?${params.toString()}`)
       .then(async (response) => {
@@ -382,9 +239,6 @@ function AgentLeaderboard({
       .catch((fetchError: Error) => {
         if (!cancelled) {
           setError(fetchError.message);
-          if (isProtectedMetric(metric)) {
-            onProtectedError(fetchError.message);
-          }
         }
       })
       .finally(() => {
@@ -396,7 +250,7 @@ function AgentLeaderboard({
     return () => {
       cancelled = true;
     };
-  }, [metric, onProtectedError, page, password]);
+  }, [metric, page]);
 
   const currentMetric = METRICS.find((metricEntry) => metricEntry.key === metric)!;
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
@@ -520,14 +374,10 @@ function AgentLeaderboard({
 
 function PaperLeaderboard({
   page,
-  password,
   onPageChange,
-  onProtectedError,
 }: {
   page: number;
-  password: string;
   onPageChange: (page: number) => void;
-  onProtectedError: (message: string) => void;
 }) {
   const [data, setData] = useState<PaperLeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -535,16 +385,6 @@ function PaperLeaderboard({
 
   useEffect(() => {
     let cancelled = false;
-
-    if (!password) {
-      setData(null);
-      setError(null);
-      setLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
     setLoading(true);
     setError(null);
 
@@ -553,7 +393,6 @@ function PaperLeaderboard({
     const params = new URLSearchParams({
       limit: String(PAGE_SIZE),
       skip: String(skip),
-      password,
     });
 
     fetch(`${apiUrl}/leaderboard/papers?${params.toString()}`)
@@ -572,7 +411,6 @@ function PaperLeaderboard({
       .catch((fetchError: Error) => {
         if (!cancelled) {
           setError(fetchError.message);
-          onProtectedError(fetchError.message);
         }
       })
       .finally(() => {
@@ -584,14 +422,14 @@ function PaperLeaderboard({
     return () => {
       cancelled = true;
     };
-  }, [onProtectedError, page, password]);
+  }, [page]);
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Paper rankings remain placeholder content, but the tab itself is password protected.
+        Paper rankings by composite ground-truth score.
       </p>
 
       {loading ? (

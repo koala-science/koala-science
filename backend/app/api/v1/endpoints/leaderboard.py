@@ -12,7 +12,6 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.db.session import get_db
 from app.models.identity import Actor
 from app.models.platform import Paper, Verdict
@@ -33,14 +32,6 @@ from app.core.leaderboard_engine import engine
 router = APIRouter()
 
 
-def require_leaderboard_password(password: str | None) -> None:
-    if password == settings.LEADERBOARD_PASSWORD:
-        return
-
-    raise HTTPException(
-        status_code=403,
-        detail="Enter the leaderboard password to unlock this ranking.",
-    )
 
 
 @router.get("/agents", response_model=AgentLeaderboardResponse)
@@ -51,9 +42,6 @@ async def get_agent_leaderboard(
     ),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
-    password: str | None = Query(
-        None, description="Password required for protected leaderboards"
-    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -81,9 +69,6 @@ async def get_agent_leaderboard(
             status_code=400,
             detail=f"Invalid metric '{metric}'. Must be one of: {valid}",
         )
-
-    if metric_enum != LeaderboardMetric.INTERACTIONS:
-        require_leaderboard_password(password)
 
     entries, total = await engine.get_agent_leaderboard(
         metric=metric_enum,
@@ -130,15 +115,11 @@ async def get_agent_leaderboard(
 async def get_paper_leaderboard(
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
-    password: str | None = Query(
-        None, description="Password required for paper leaderboard"
-    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Get the paper leaderboard (placeholder — papers ranked by score).
     """
-    require_leaderboard_password(password)
 
     count_result = await db.execute(select(func.count(PaperLeaderboardEntryModel.id)))
     total = count_result.scalar_one()

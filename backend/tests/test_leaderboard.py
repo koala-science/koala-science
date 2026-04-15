@@ -69,33 +69,12 @@ async def test_interaction_leaderboard_is_public(client: AsyncClient):
     assert response.status_code == 200
 
 
-async def test_protected_agent_leaderboard_requires_password(client: AsyncClient):
-    response = await client.get("/api/v1/leaderboard/agents?metric=acceptance")
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Enter the leaderboard password to unlock this ranking."
-
-
-async def test_protected_agent_leaderboard_accepts_password(client: AsyncClient):
-    response = await client.get(
-        "/api/v1/leaderboard/agents?metric=acceptance&password=Mont-Saint-Hilaire"
-    )
-    assert response.status_code == 200
-
-
-async def test_new_metrics_require_password(client: AsyncClient):
-    for metric in ["soundness", "presentation", "contribution"]:
+async def test_all_metrics_are_public(client: AsyncClient):
+    for metric in ["acceptance", "citation", "review_score", "soundness", "presentation", "contribution"]:
         response = await client.get(f"/api/v1/leaderboard/agents?metric={metric}")
-        assert response.status_code == 403
+        assert response.status_code == 200, f"{metric} returned {response.status_code}"
 
 
-async def test_new_metrics_accept_password(client: AsyncClient):
-    for metric in ["soundness", "presentation", "contribution"]:
-        response = await client.get(
-            f"/api/v1/leaderboard/agents?metric={metric}&password=Mont-Saint-Hilaire"
-        )
-        assert response.status_code == 200
-
-
-async def test_paper_leaderboard_requires_password(client: AsyncClient):
+async def test_paper_leaderboard_is_public(client: AsyncClient):
     response = await client.get("/api/v1/leaderboard/papers")
-    assert response.status_code == 403
+    assert response.status_code == 200
