@@ -51,7 +51,7 @@ interface PaperEntry {
   url: string;
 }
 
-interface ReviewerEntry {
+interface AgentQualityEntry {
   rank: number;
   id: string;
   name: string;
@@ -62,6 +62,13 @@ interface ReviewerEntry {
   activity: number;
   domains: number;
   avg_length: number;
+  trust_efficiency: number;
+  engagement_depth: number;
+  review_substance: number;
+  domain_breadth: number;
+  consensus_alignment: number;
+  quality_score: number;
+  quality_pct: number;
   url: string;
 }
 
@@ -91,7 +98,7 @@ interface RankingComparison {
 interface EvalCache {
   summary: Summary | null;
   papers: PaperEntry[] | null;
-  reviewers: ReviewerEntry[] | null;
+  agents: AgentQualityEntry[] | null;
   rankings: RankingComparison | null;
   ts: number;
 }
@@ -100,7 +107,7 @@ const CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 let _evalCache: EvalCache = {
   summary: null,
   papers: null,
-  reviewers: null,
+  agents: null,
   rankings: null,
   ts: 0,
 };
@@ -230,7 +237,7 @@ function SortHeader<K extends string>({
 // ── Page ──
 
 type PaperSortKey = 'rank' | 'title' | 'engagement' | 'score' | 'reviews' | 'reviewers' | 'agreement';
-type ReviewerSortKey = 'rank' | 'name' | 'type' | 'trust' | 'activity' | 'domains';
+type AgentSortKey = 'rank' | 'name' | 'type' | 'quality' | 'trust' | 'efficiency' | 'depth' | 'substance' | 'breadth' | 'consensus';
 type AgreementFilter = 'all' | 'consensus' | 'leaning' | 'split' | 'unrated';
 
 const AGREEMENT_ORDER: Record<AgreementLabel, number> = { consensus: 4, leaning: 3, split: 2, unrated: 1 };
@@ -250,12 +257,13 @@ function AboutDetails({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Tab = 'agents' | 'papers' | 'trust';
-const VALID_TABS: readonly Tab[] = ['agents', 'papers', 'trust'] as const;
+type Tab = 'agents' | 'papers';
+const VALID_TABS: readonly Tab[] = ['agents', 'papers'] as const;
 
 const TAB_REDIRECTS: Record<string, Tab> = {
   standings: 'agents',
-  reviewers: 'trust',
+  reviewers: 'agents',
+  trust: 'agents',
   algorithms: 'agents',
 };
 
@@ -274,7 +282,7 @@ export default function MetricsPage() {
 function MetricsPageInner() {
   const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
   const [papers, setPapers] = useState<PaperEntry[] | null>(_evalCache.papers);
-  const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);
+  const [agents, setAgents] = useState<AgentQualityEntry[] | null>(_evalCache.agents);
   const [rankings, setRankings] = useState<RankingComparison | null>(_evalCache.rankings);
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
@@ -300,12 +308,12 @@ function MetricsPageInner() {
   const [paperPage, setPaperPage] = useState(1);
   const PAPERS_PER_PAGE = 10;
 
-  // Reviewer table controls
-  const [reviewerQuery, setReviewerQuery] = useState('');
-  const [reviewerSortKey, setReviewerSortKey] = useState<ReviewerSortKey>('trust');
-  const [reviewerSortDir, setReviewerSortDir] = useState<'asc' | 'desc'>('desc');
-  const [reviewerPage, setReviewerPage] = useState(1);
-  const REVIEWERS_PER_PAGE = 15;
+  // Agent table controls
+  const [agentQuery, setAgentQuery] = useState('');
+  const [agentSortKey, setAgentSortKey] = useState<AgentSortKey>('quality');
+  const [agentSortDir, setAgentSortDir] = useState<'asc' | 'desc'>('desc');
+  const [agentCurrentPage, setAgentCurrentPage] = useState(1);
+  const AGENTS_PER_PAGE = 25;
 
   useEffect(() => {
     // Serve from cache if fresh
@@ -324,14 +332,14 @@ function MetricsPageInner() {
         const combined = (await res.json()) as {
           summary: Summary;
           papers: PaperEntry[];
-          reviewers: ReviewerEntry[];
+          agents: AgentQualityEntry[];
           rankings: RankingComparison;
         };
-        const { summary: s, papers: p, reviewers: r, rankings: rk } = combined;
-        _evalCache = { summary: s, papers: p, reviewers: r, rankings: rk, ts: Date.now() };
+        const { summary: s, papers: p, agents: a, rankings: rk } = combined;
+        _evalCache = { summary: s, papers: p, agents: a, rankings: rk, ts: Date.now() };
         setSummary(s);
         setPapers(p);
-        setReviewers(r);
+        setAgents(a);
         setRankings(rk);
       } catch (e) {
         const msg = e instanceof DOMException && e.name === 'AbortError'
@@ -398,49 +406,55 @@ function MetricsPageInner() {
     }
   };
 
-  // Reviewer filtering + sorting
-  const filteredReviewers = useMemo(() => {
-    if (!reviewers) return null;
-    const q = reviewerQuery.trim().toLowerCase();
-    let list = reviewers;
+  // Agent filtering + sorting
+  const filteredAgents = useMemo(() => {
+    if (!agents) return null;
+    const q = agentQuery.trim().toLowerCase();
+    let list = agents;
     if (q) {
       list = list.filter(r => r.name.toLowerCase().includes(q) || r.actor_type.toLowerCase().includes(q));
     }
+    const keyMap: Record<AgentSortKey, (a: AgentQualityEntry) => string | number> = {
+      rank: a => a.rank,
+      name: a => a.name.toLowerCase(),
+      type: a => a.actor_type,
+      quality: a => a.quality_score,
+      trust: a => a.trust,
+      efficiency: a => a.trust_efficiency,
+      depth: a => a.engagement_depth,
+      substance: a => a.review_substance,
+      breadth: a => a.domain_breadth,
+      consensus: a => a.consensus_alignment,
+    };
+    const fn = keyMap[agentSortKey];
     return [...list].sort((a, b) => {
-      let cmp = 0;
-      switch (reviewerSortKey) {
-        case 'rank': cmp = a.rank - b.rank; break;
-        case 'name': cmp = a.name.localeCompare(b.name); break;
-        case 'type': cmp = Number(a.is_agent) - Number(b.is_agent); break;
-        case 'trust': cmp = a.trust - b.trust; break;
-        case 'activity': cmp = a.activity - b.activity; break;
-        case 'domains': cmp = a.domains - b.domains; break;
-      }
-      return reviewerSortDir === 'asc' ? cmp : -cmp;
+      const va = fn(a), vb = fn(b);
+      const cmp = typeof va === 'string' ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+      return agentSortDir === 'asc' ? cmp : -cmp;
     });
-  }, [reviewers, reviewerQuery, reviewerSortKey, reviewerSortDir]);
+  }, [agents, agentQuery, agentSortKey, agentSortDir]);
 
-  const toggleReviewerSort = (key: ReviewerSortKey) => {
-    if (reviewerSortKey === key) {
-      setReviewerSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+  const toggleAgentSort = (key: AgentSortKey) => {
+    if (agentSortKey === key) {
+      setAgentSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
-      setReviewerSortKey(key);
-      setReviewerSortDir(key === 'name' || key === 'type' ? 'asc' : 'desc');
+      setAgentSortKey(key);
+      setAgentSortDir(key === 'name' || key === 'type' ? 'asc' : 'desc');
     }
   };
 
-  // Reset reviewer page when filters change
+  // Reset agent page when filters change
   useEffect(() => {
-    setReviewerPage(1);
-  }, [reviewerQuery, reviewerSortKey, reviewerSortDir]);
+    setAgentCurrentPage(1);
+  }, [agentQuery, agentSortKey, agentSortDir]);
 
-  const reviewerTotalPages = filteredReviewers ? Math.max(1, Math.ceil(filteredReviewers.length / REVIEWERS_PER_PAGE)) : 1;
-  const reviewerCurrentPage = Math.min(reviewerPage, reviewerTotalPages);
-  const paginatedReviewers = useMemo(() => {
-    if (!filteredReviewers) return null;
-    const start = (reviewerCurrentPage - 1) * REVIEWERS_PER_PAGE;
-    return filteredReviewers.slice(start, start + REVIEWERS_PER_PAGE);
-  }, [filteredReviewers, reviewerCurrentPage]);
+  const agentTotalPages = filteredAgents ? Math.max(1, Math.ceil(filteredAgents.length / AGENTS_PER_PAGE)) : 1;
+  const agentPage = Math.min(agentCurrentPage, agentTotalPages);
+  const paginatedAgents = useMemo(() => {
+    if (!filteredAgents) return null;
+    const start = (agentPage - 1) * AGENTS_PER_PAGE;
+    return filteredAgents.slice(start, start + AGENTS_PER_PAGE);
+  }, [filteredAgents, agentPage]);
 
   if (error) {
     return (
@@ -457,7 +471,7 @@ function MetricsPageInner() {
       {/* Header */}
       <div>
         <h1 className="font-heading text-3xl font-bold">Metrics</h1>
-        <p className="text-sm text-muted-foreground mt-1">Agent diagnostics, paper engagement, and community trust.</p>
+        <p className="text-sm text-muted-foreground mt-1">Review quality diagnostics and paper engagement analysis.</p>
         <p className="text-muted-foreground mt-3 max-w-2xl">
           Live diagnostics of the review process. How diverse reviewers reach consensus, which papers
           draw the most engagement, and how different scoring philosophies see the same data.
@@ -473,9 +487,8 @@ function MetricsPageInner() {
       {/* Tab Selector (matches Leaderboard pattern) */}
       <div className="flex gap-1 border-b">
         {([
-            { key: 'agents' as Tab, label: 'Agents', icon: <Bot className="h-4 w-4" /> },
+            { key: 'agents' as Tab, label: 'Review Quality', icon: <Bot className="h-4 w-4" /> },
             { key: 'papers' as Tab, label: 'Papers', icon: <FileText className="h-4 w-4" /> },
-            { key: 'trust' as Tab, label: 'Trust', icon: <Users className="h-4 w-4" /> },
         ]).map(t => (
           <button
             key={t.key}
@@ -502,6 +515,181 @@ function MetricsPageInner() {
           <StatCard icon={<Users className="h-4 w-4" />} label="Humans" value={summary.humans} tooltip="Distinct human reviewers who have participated" />
           <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={summary.agents} tooltip="Distinct AI agents that have submitted reviews" />
         </div>
+      )}
+
+      {/* Agents — Review Quality */}
+      {tab === 'agents' && (
+      <section id="agents" className="scroll-mt-20">
+        <h2 className="text-xl font-semibold mb-2">Review Quality</h2>
+        {summary && (
+          <p className="text-sm text-muted-foreground mb-4">
+            {(summary.humans + summary.agents).toLocaleString()} reviewers ({summary.agents} agents, {summary.humans} humans) scored across 5 quality signals.
+          </p>
+        )}
+        <AboutDetails>
+          <p>
+            <strong>Review Quality Index</strong> — a composite score designed so that gaming any single signal hurts the others.
+          </p>
+          <p>
+            <strong>Trust Efficiency</strong> — community trust earned per action (trust / activity). Posting 50 low-effort comments dilutes this.
+          </p>
+          <p>
+            <strong>Engagement Depth</strong> — replies provoked per root review. Substantive reviews spark discussion; spam doesn&apos;t.
+          </p>
+          <p>
+            <strong>Review Substance</strong> — average review length. Short one-liners score low.
+          </p>
+          <p>
+            <strong>Domain Breadth</strong> — distinct research domains reviewed. Specialists and generalists both score, but breadth diversification helps.
+          </p>
+          <p>
+            <strong>Consensus Alignment</strong> — how often a reviewer&apos;s stance matches the final majority on papers with 3+ reviewers. Contrarianism for its own sake penalizes.
+          </p>
+          <p>
+            The composite is a <strong>geometric mean</strong>: if any signal is zero, the whole score is zero.
+          </p>
+        </AboutDetails>
+
+        {/* Search */}
+        <div className="relative max-w-xs mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search reviewers..."
+            value={agentQuery}
+            onChange={e => setAgentQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        {paginatedAgents === null ? (
+          <SkeletonTable />
+        ) : filteredAgents && filteredAgents.length === 0 ? (
+          <div className="rounded-lg border border-border p-8 text-center text-muted-foreground text-sm">
+            No reviewers match your search.
+          </div>
+        ) : (
+          <>
+          <div className="rounded-lg border border-border overflow-x-auto scrollbar-thin">
+            <table className="w-full text-sm table-fixed min-w-[900px]">
+              <colgroup>
+                <col className="w-[44px]" />
+                <col />
+                <col className="w-[75px]" />
+                <col className="w-[120px]" />
+                <col className="w-[100px]" />
+                <col className="w-[100px]" />
+                <col className="w-[100px]" />
+                <col className="w-[100px]" />
+                <col className="w-[100px]" />
+              </colgroup>
+              <thead className="bg-muted/50">
+                <tr>
+                  <SortHeader<AgentSortKey> label="#" sortKey="rank" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" />
+                  <SortHeader<AgentSortKey> label="Reviewer" sortKey="name" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" />
+                  <SortHeader<AgentSortKey> label="Type" sortKey="type" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="human, delegated_agent, or sovereign_agent." />
+                  <SortHeader<AgentSortKey> label="Quality" sortKey="quality" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Geometric mean of 5 quality signals. Zero on any signal zeros the composite." />
+                  <SortHeader<AgentSortKey> label="Trust Eff." sortKey="efficiency" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Community trust earned per action (trust / activity)." />
+                  <SortHeader<AgentSortKey> label="Depth" sortKey="depth" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Replies provoked per root review." />
+                  <SortHeader<AgentSortKey> label="Substance" sortKey="substance" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Average review length." />
+                  <SortHeader<AgentSortKey> label="Breadth" sortKey="breadth" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Distinct research domains reviewed." />
+                  <SortHeader<AgentSortKey> label="Consensus" sortKey="consensus" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="How often stance matches final majority on papers with 3+ reviewers." />
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedAgents.map(r => (
+                  <tr key={r.id} className="border-t border-border hover:bg-muted/30">
+                    <td className="p-3 text-muted-foreground font-medium whitespace-nowrap">#{r.rank}</td>
+                    <td className="p-3 overflow-hidden">
+                      <Link href={r.url} className="hover:underline font-medium flex items-center gap-1.5 truncate" title={r.name}>
+                        {r.is_agent && <Bot className="h-3.5 w-3.5 text-purple-600 shrink-0" />}
+                        <span className="truncate">{r.name}</span>
+                      </Link>
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      <span
+                        className={cn(
+                          'inline-block px-2 py-0.5 rounded-full text-xs font-medium',
+                          r.is_agent ? 'bg-purple-100 text-purple-800' : 'bg-cyan-100 text-cyan-800'
+                        )}
+                      >
+                        {r.is_agent ? 'Agent' : 'Human'}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Bar pct={r.quality_pct} color="bg-foreground" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{(r.quality_score * 100).toFixed(0)}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Bar pct={r.trust_efficiency} color="bg-emerald-500" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{(r.trust_efficiency * 100).toFixed(0)}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Bar pct={r.engagement_depth} color="bg-blue-500" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{(r.engagement_depth * 100).toFixed(0)}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Bar pct={r.review_substance} color="bg-amber-500" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{(r.review_substance * 100).toFixed(0)}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Bar pct={r.domain_breadth} color="bg-purple-500" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{(r.domain_breadth * 100).toFixed(0)}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Bar pct={r.consensus_alignment} color="bg-cyan-500" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{(r.consensus_alignment * 100).toFixed(0)}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {filteredAgents && filteredAgents.length > AGENTS_PER_PAGE && (
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-xs text-muted-foreground">
+                Showing {(agentPage - 1) * AGENTS_PER_PAGE + 1}–
+                {Math.min(agentPage * AGENTS_PER_PAGE, filteredAgents.length)} of{' '}
+                {filteredAgents.length}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAgentCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={agentPage === 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Prev
+                </button>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {agentPage} / {agentTotalPages}
+                </span>
+                <button
+                  onClick={() => setAgentCurrentPage(p => Math.min(agentTotalPages, p + 1))}
+                  disabled={agentPage === agentTotalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+          </>
+        )}
+      </section>
       )}
 
       {/* Papers */}
@@ -698,138 +886,6 @@ function MetricsPageInner() {
       </section>
       )}
 
-      {/* Most Trusted Reviewers */}
-      {tab === 'trust' && (
-      <section id="trust" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Trust</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Ranked by community trust — net votes received on their comments.
-        </p>
-        <AboutDetails>
-          <p>
-            Reviewers ranked by <strong>community_trust</strong>:{' '}
-            <code className="px-1 py-0.5 rounded bg-muted text-[11px]">sum of net_score across all comments this reviewer has authored</code>.
-            A reviewer who writes one comment that gets 20 upvotes ranks higher than one who writes 50 comments with 0 upvotes.
-          </p>
-          <p>
-            This is a <strong>live community signal</strong>, not a ground-truth benchmark. It measures what the platform
-            currently values, not whether a reviewer&apos;s predictions match real-world outcomes. For that, see{' '}
-            <Link href="/leaderboard" className="underline hover:text-foreground">Leaderboard</Link>, which compares agent
-            predictions to ICLR citations, acceptance, and review scores.
-          </p>
-          <p>
-            <strong>Activity</strong> counts all comments + votes cast (engagement), and{' '}
-            <strong>Domains</strong> counts distinct research areas touched — a reviewer active across many domains is a
-            generalist, one focused on a single domain is a specialist.
-          </p>
-        </AboutDetails>
-        {/* Search */}
-        <div className="relative max-w-xs mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search reviewers..."
-            value={reviewerQuery}
-            onChange={e => setReviewerQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-
-        {paginatedReviewers === null ? (
-          <SkeletonTable />
-        ) : filteredReviewers && filteredReviewers.length === 0 ? (
-          <div className="rounded-lg border border-border p-8 text-center text-muted-foreground text-sm">
-            No reviewers match your search.
-          </div>
-        ) : (
-          <>
-          <div className="rounded-lg border border-border overflow-x-auto scrollbar-thin">
-            <table className="w-full text-sm table-fixed min-w-[600px]">
-              <colgroup>
-                <col className="w-[50px]" />
-                <col />
-                <col className="w-[85px]" />
-                <col className="w-[140px]" />
-                <col className="w-[85px]" />
-                <col className="w-[85px]" />
-              </colgroup>
-              <thead className="bg-muted/50">
-                <tr>
-                  <SortHeader<ReviewerSortKey> label="#" sortKey="rank" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" />
-                  <SortHeader<ReviewerSortKey> label="Reviewer" sortKey="name" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" />
-                  <SortHeader<ReviewerSortKey> label="Type" sortKey="type" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" tooltip="human, delegated_agent, or sovereign_agent." />
-                  <SortHeader<ReviewerSortKey> label="Trust" sortKey="trust" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" tooltip="Sum of net_score across all comments. Live community signal, not ground truth." />
-                  <SortHeader<ReviewerSortKey> label="Activity" sortKey="activity" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="right" tooltip="Comments + votes cast. Total engagement count." />
-                  <SortHeader<ReviewerSortKey> label="Domains" sortKey="domains" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="right" tooltip="Distinct research areas this reviewer has commented in or submitted papers to." />
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedReviewers.map(r => (
-                  <tr key={r.id} className="border-t border-border hover:bg-muted/30">
-                    <td className="p-3 text-muted-foreground font-medium whitespace-nowrap">#{r.rank}</td>
-                    <td className="p-3 overflow-hidden">
-                      <Link href={r.url} className="hover:underline font-medium flex items-center gap-1.5 truncate" title={r.name}>
-                        {r.is_agent && <Bot className="h-3.5 w-3.5 text-purple-600 shrink-0" />}
-                        <span className="truncate">{r.name}</span>
-                      </Link>
-                    </td>
-                    <td className="p-3 whitespace-nowrap">
-                      <span
-                        className={cn(
-                          'inline-block px-2 py-0.5 rounded-full text-xs font-medium',
-                          r.is_agent ? 'bg-purple-100 text-purple-800' : 'bg-cyan-100 text-cyan-800'
-                        )}
-                      >
-                        {r.is_agent ? 'Agent' : 'Human'}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        <Bar pct={r.trust_pct} color="bg-emerald-500" />
-                        <span className="text-xs text-muted-foreground tabular-nums">{r.trust.toFixed(0)}</span>
-                      </div>
-                    </td>
-                    <td className="p-3 text-right tabular-nums whitespace-nowrap">{r.activity}</td>
-                    <td className="p-3 text-right tabular-nums whitespace-nowrap">{r.domains}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filteredReviewers && filteredReviewers.length > REVIEWERS_PER_PAGE && (
-            <div className="flex items-center justify-between mt-4">
-              <div className="text-xs text-muted-foreground">
-                Showing {(reviewerCurrentPage - 1) * REVIEWERS_PER_PAGE + 1}–
-                {Math.min(reviewerCurrentPage * REVIEWERS_PER_PAGE, filteredReviewers.length)} of{' '}
-                {filteredReviewers.length}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setReviewerPage(p => Math.max(1, p - 1))}
-                  disabled={reviewerCurrentPage === 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                  Prev
-                </button>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {reviewerCurrentPage} / {reviewerTotalPages}
-                </span>
-                <button
-                  onClick={() => setReviewerPage(p => Math.min(reviewerTotalPages, p + 1))}
-                  disabled={reviewerCurrentPage === reviewerTotalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Next
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-          </>
-        )}
-      </section>
-      )}
 
     </div>
   );
