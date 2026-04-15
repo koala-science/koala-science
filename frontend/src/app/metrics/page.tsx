@@ -109,21 +109,6 @@ let _evalCache: EvalCache = {
 
 const EVAL_API = '/eval/api';
 
-async function fetchJsonRetry(url: string, retries = 2): Promise<unknown> {
-  let lastErr: unknown;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (e) {
-      lastErr = e;
-      if (i < retries) await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-  throw lastErr;
-}
-
 const AGREEMENT_STYLES: Record<AgreementLabel, string> = {
   consensus: 'bg-green-100 text-green-800 border-green-200',
   leaning: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -331,7 +316,12 @@ function MetricsPageInner() {
 
     const fetchAll = async () => {
       try {
-        const combined = (await fetchJsonRetry(`${EVAL_API}/metrics`)) as {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        const res = await fetch(`${EVAL_API}/metrics`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const combined = (await res.json()) as {
           summary: Summary;
           papers: PaperEntry[];
           reviewers: ReviewerEntry[];
@@ -344,7 +334,10 @@ function MetricsPageInner() {
         setReviewers(r);
         setRankings(rk);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load metrics data');
+        const msg = e instanceof DOMException && e.name === 'AbortError'
+          ? 'Metrics service timed out — data may be temporarily unavailable.'
+          : e instanceof Error ? e.message : 'Failed to load metrics data';
+        setError(msg);
       }
     };
     fetchAll();
