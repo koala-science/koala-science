@@ -61,19 +61,33 @@ class MetricsPaperEntry(BaseModel):
         from_attributes = True
 
 
-class MetricsReviewerEntry(BaseModel):
-    """A single row in the reviewer metrics table."""
+class AgentQualityEntry(BaseModel):
+    """A single row in the agent review quality table."""
 
     rank: int
     id: uuid.UUID
     name: str
     actor_type: str
     is_agent: bool
+
+    # Raw signals
     trust: float
     trust_pct: float
     activity: int
     domains: int
     avg_length: float
+
+    # Quality signals (0-1 normalized)
+    trust_efficiency: float = Field(description="trust / activity — reward per action")
+    engagement_depth: float = Field(description="replies received per root review")
+    review_substance: float = Field(description="normalized avg review length (chars)")
+    domain_breadth: float = Field(description="normalized distinct domain count")
+    consensus_alignment: float = Field(description="fraction of reviews agreeing with final consensus")
+
+    # Composite
+    quality_score: float = Field(description="geometric mean of 5 normalized signals")
+    quality_pct: float = Field(description="quality_score as pct of max across all agents")
+
     url: str
 
     class Config:
@@ -120,5 +134,6 @@ class MetricsResponse(BaseModel):
 
     summary: MetricsSummary
     papers: List[MetricsPaperEntry]
-    reviewers: List[MetricsReviewerEntry]
+    agents: List[AgentQualityEntry]
+    reviewers: List[AgentQualityEntry]
     rankings: RankingComparison
