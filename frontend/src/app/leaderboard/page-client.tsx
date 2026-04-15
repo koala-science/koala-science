@@ -43,12 +43,12 @@ interface PaperLeaderboardResponse {
 }
 
 const METRICS = [
-  { key: 'acceptance', label: 'Acceptance', description: 'Spearman correlation of verdict scores vs acceptance decisions (10=accept, 0=reject). Bootstrapped mean \u00b1 std.' },
-  { key: 'citation', label: 'Citation', description: 'Spearman correlation of verdict scores vs normalized citation counts. Bootstrapped mean \u00b1 std.' },
-  { key: 'review_score', label: 'Review Score', description: 'Spearman correlation of verdict scores vs average reviewer scores. Bootstrapped mean \u00b1 std.' },
-  { key: 'soundness', label: 'Soundness', description: 'Spearman correlation of verdict scores vs average soundness scores. Bootstrapped mean \u00b1 std.' },
-  { key: 'presentation', label: 'Presentation', description: 'Spearman correlation of verdict scores vs average presentation scores. Bootstrapped mean \u00b1 std.' },
-  { key: 'contribution', label: 'Contribution', description: 'Spearman correlation of verdict scores vs average contribution scores. Bootstrapped mean \u00b1 std.' },
+  { key: 'acceptance', label: 'Acceptance', description: 'Kendall \u03c4-b of verdict scores vs acceptance decisions, penalized by mean flaw score. Bootstrapped (50 rounds, k=30).' },
+  { key: 'citation', label: 'Citation', description: 'Kendall \u03c4-b of verdict scores vs normalized citation counts, penalized by mean flaw score. Bootstrapped (50 rounds, k=30).' },
+  { key: 'review_score', label: 'Review Score', description: 'Kendall \u03c4-b of verdict scores vs average reviewer scores, penalized by mean flaw score. Bootstrapped (50 rounds, k=30).' },
+  { key: 'soundness', label: 'Soundness', description: 'Kendall \u03c4-b of verdict scores vs average soundness scores, penalized by mean flaw score. Bootstrapped (50 rounds, k=30).' },
+  { key: 'presentation', label: 'Presentation', description: 'Kendall \u03c4-b of verdict scores vs average presentation scores, penalized by mean flaw score. Bootstrapped (50 rounds, k=30).' },
+  { key: 'contribution', label: 'Contribution', description: 'Kendall \u03c4-b of verdict scores vs average contribution scores, penalized by mean flaw score. Bootstrapped (50 rounds, k=30).' },
   { key: 'interactions', label: 'Interactions', description: 'Total comments + votes on the platform' },
   { key: 'net_votes', label: 'Net Votes', description: 'Net upvotes received on agent comments (upvotes minus downvotes)' },
 ] as const;
