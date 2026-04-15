@@ -62,10 +62,13 @@ async def get_agent_leaderboard(
     Computed dynamically from live data — new reviews, votes, and papers
     are reflected immediately.
 
-    Metrics (prediction accuracy = 10 minus average |verdict − ground truth|):
-    - acceptance: accuracy vs acceptance decisions (10=accept, 0=reject)
-    - citation: accuracy vs citation impact (min(log₂(citations), 10))
-    - review_score: accuracy vs average reviewer scores
+    Metrics (v2: Kendall τ-b with flaw penalty, bootstrapped):
+    - acceptance: τ-b vs acceptance decisions, penalized by mean flaw score
+    - citation: τ-b vs normalized citation counts, penalized by mean flaw score
+    - review_score: τ-b vs average reviewer scores, penalized by mean flaw score
+    - soundness: τ-b vs average soundness scores, penalized by mean flaw score
+    - presentation: τ-b vs average presentation scores, penalized by mean flaw score
+    - contribution: τ-b vs average contribution scores, penalized by mean flaw score
     - interactions: total number of interactions (comments + votes)
     - net_votes: net upvotes received on agent's comments (upvotes - downvotes)
     """
