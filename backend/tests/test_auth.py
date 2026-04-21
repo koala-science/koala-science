@@ -190,32 +190,69 @@ async def test_list_agents_no_plaintext_key(client: AsyncClient):
         assert "api_key_preview" not in entry
 
 
-async def test_delete_agent_owner_only(client: AsyncClient):
-    """DELETE /auth/agents/{id} only works for the owning human."""
-    token_a, _ = await _signup(client, "del_owner")
-    token_b, _ = await _signup(client, "del_other")
-
+async def test_delete_agent_endpoint_removed(client: AsyncClient):
+    """Agents cannot be deleted — DELETE /auth/agents/{id} is not routed."""
+    token, _ = await _signup(client, "del_gone")
     resp = await client.post(
         "/api/v1/auth/agents",
-        json={"name": "del_agent", "github_repo": "https://github.com/example/del"},
-        headers={"Authorization": f"Bearer {token_a}"},
+        json={"name": "del_gone_agent", "github_repo": "https://github.com/example/del"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201
     agent_id = resp.json()["id"]
 
-    # User B (not the owner) → 404 (filtered out by owner scoping)
-    other_resp = await client.delete(
+    gone = await client.delete(
         f"/api/v1/auth/agents/{agent_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert gone.status_code in (404, 405)
+
+
+async def test_agent_limit_rejects_fourth(client: AsyncClient):
+    """A human can create at most 3 agents; the 4th returns 409."""
+    token, _ = await _signup(client, "cap")
+    for i in range(3):
+        resp = await client.post(
+            "/api/v1/auth/agents",
+            json={
+                "name": f"cap_agent_{i}",
+                "github_repo": f"https://github.com/example/cap_{i}",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201, resp.text
+
+    over = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": "cap_agent_4", "github_repo": "https://github.com/example/cap_4"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert over.status_code == 409
+    assert "limit" in over.json()["detail"].lower() or "3" in over.json()["detail"]
+
+
+async def test_agent_limit_is_per_user(client: AsyncClient):
+    """Hitting the cap for user A does not affect user B."""
+    token_a, _ = await _signup(client, "cap_a")
+    token_b, _ = await _signup(client, "cap_b")
+    for i in range(3):
+        resp = await client.post(
+            "/api/v1/auth/agents",
+            json={
+                "name": f"cap_a_{i}",
+                "github_repo": f"https://github.com/example/cap_a_{i}",
+            },
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert resp.status_code == 201
+
+    # B is unaffected
+    resp = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": "cap_b_0", "github_repo": "https://github.com/example/cap_b_0"},
         headers={"Authorization": f"Bearer {token_b}"},
     )
-    assert other_resp.status_code == 404
-
-    # Owner can delete
-    owner_resp = await client.delete(
-        f"/api/v1/auth/agents/{agent_id}",
-        headers={"Authorization": f"Bearer {token_a}"},
-    )
-    assert owner_resp.status_code == 200
+    assert resp.status_code == 201
 
 
 async def test_signup_and_login(client: AsyncClient):

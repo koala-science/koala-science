@@ -8,7 +8,7 @@ Authentication endpoints:
 from jose import jwt
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
@@ -36,7 +36,7 @@ from app.schemas.auth import (
     AgentListResponse,
     TokenResponse,
 )
-from app.schemas.platform import MessageResponse, OrcidConnectResponse, OrcidCallbackResponse, ScholarLinkResponse
+from app.schemas.platform import OrcidConnectResponse, OrcidCallbackResponse, ScholarLinkResponse
 
 router = APIRouter()
 
@@ -237,6 +237,8 @@ async def _sync_actor_to_qdrant(actor):
 
 # --- Agent Management (authenticated — humans only) ---
 
+MAX_AGENTS_PER_USER = 3
+
 
 @router.post(
     "/agents",
@@ -252,10 +254,20 @@ async def create_agent(
     Create a new agent owned by the authenticated human.
     Returns the API key — shown only once, never persisted in plaintext.
     Agents cannot create other agents (only humans can).
+    A human may own at most 3 agents.
     """
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(
             status_code=403, detail="Only human accounts can create agents"
+        )
+
+    owned = await db.scalar(
+        select(func.count()).select_from(Agent).where(Agent.owner_id == actor.id)
+    )
+    if owned >= MAX_AGENTS_PER_USER:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent limit reached ({MAX_AGENTS_PER_USER} per user)",
         )
 
     api_key = generate_api_key()
@@ -307,32 +319,6 @@ async def list_agents(
         )
         for a in agents
     ]
-
-
-@router.delete("/agents/{agent_id}", response_model=MessageResponse)
-async def revoke_agent(
-    agent_id: str,
-    actor: Actor = Depends(get_current_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """Kill switch: deactivate an agent."""
-    if actor.actor_type != ActorType.HUMAN:
-        raise HTTPException(status_code=403, detail="Only human accounts can manage agents")
-
-    result = await db.execute(
-        select(Agent).where(
-            Agent.id == agent_id,
-            Agent.owner_id == actor.id,
-        )
-    )
-    agent = result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    agent.is_active = False
-    await db.commit()
-
-    return {"success": True, "message": f"Agent '{agent.name}' has been deactivated"}
 
 
 # --- ORCID Verification ---

@@ -1,7 +1,6 @@
 'use client';
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
 import { useAuthStore, useProfileStore } from '@/lib/store';
 import { RegisterAgentModal } from '@/components/agent/register-agent-modal';
 import { NotificationPanel } from '@/components/notifications/notification-panel';
@@ -10,7 +9,7 @@ export default function Dashboard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrated = useAuthStore((s) => s.hydrated);
   const router = useRouter();
-  const { profile, reputation, loading, fetchProfile, removeAgent } = useProfileStore();
+  const { profile, reputation, loading, fetchProfile } = useProfileStore();
 
   useEffect(() => {
     if (!hydrated) return;
@@ -20,17 +19,6 @@ export default function Dashboard() {
     }
     fetchProfile();
   }, [hydrated, isAuthenticated, router, fetchProfile]);
-
-  const handleKillSwitch = async (agentId: string) => {
-    if (!confirm('Are you sure you want to deactivate this agent? This cannot be undone.')) return;
-
-    try {
-      await apiFetch(`/auth/agents/${agentId}`, { method: 'DELETE' });
-      removeAgent(agentId);
-    } catch (err) {
-      console.error('Failed to deactivate agent:', err);
-    }
-  };
 
   if (loading || !profile) {
     return <div className="p-4 text-muted-foreground">Loading dashboard...</div>;
@@ -123,18 +111,9 @@ export default function Dashboard() {
                     )}
                     <div className="flex justify-between items-center text-sm">
                       <span>Reputation: <strong className={agent.reputation >= 0 ? "text-green-600" : "text-red-600"}>{agent.reputation}</strong></span>
-                      {agent.status === 'Active' ? (
-                        <button
-                          className="text-red-600 hover:underline font-semibold"
-                          onClick={() => handleKillSwitch(agent.id)}
-                          data-agent-action="kill-switch"
-                          data-agent-id={agent.id}
-                        >
-                          Kill Switch (Revoke)
-                        </button>
-                      ) : (
-                        <span className="text-gray-400 font-semibold">Deactivated</span>
-                      )}
+                      <span className={agent.status === 'Active' ? 'text-green-600 font-semibold' : 'text-gray-400 font-semibold'}>
+                        {agent.status === 'Active' ? 'Active' : 'Deactivated'}
+                      </span>
                     </div>
                   </div>
                 ))}

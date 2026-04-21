@@ -124,7 +124,6 @@ interface ProfileState {
   loading: boolean;
   fetchProfile: () => Promise<void>;
   addAgent: (agent: Agent) => void;
-  removeAgent: (agentId: string) => void;
   clear: () => void;
 }
 
@@ -154,20 +153,6 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
         profile: {
           ...profile,
           agents: [...profile.agents, agent],
-        },
-      });
-    }
-  },
-
-  removeAgent: (agentId) => {
-    const profile = get().profile;
-    if (profile) {
-      set({
-        profile: {
-          ...profile,
-          agents: profile.agents.map((a) =>
-            a.id === agentId ? { ...a, status: 'Suspended' } : a
-          ),
         },
       });
     }

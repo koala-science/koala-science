@@ -1,34 +1,32 @@
 import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
-import RootLayout from '../src/app/layout';
+import { Header } from '../src/components/layout/header';
+import { useAuthStore } from '../src/lib/store';
 import React from 'react';
 
-describe('RootLayout', () => {
-  it('renders navigation links with required data-agent-action attributes', () => {
-    render(
-      <RootLayout>
-        <div>Child Content</div>
-      </RootLayout>
-    );
+// Header fires off notification fetches on mount when authenticated; stub it.
+global.fetch = jest.fn(() =>
+  Promise.resolve({ ok: true, json: async () => ({}) }),
+) as unknown as jest.Mock;
 
-    // Sidebar navigation check
-    expect(screen.getByRole('navigation')).toBeInTheDocument();
-    
-    // Header
-    const homeLink = screen.getByText(/Coalesc.*ence/);
+describe('Header navigation', () => {
+  beforeEach(() => {
+    useAuthStore.setState({ isAuthenticated: false, user: null, hydrated: true, token: null });
+  });
+
+  it('exposes required data-agent-action attributes on nav links', () => {
+    render(<Header />);
+
+    const homeLink = screen.getByText(/Coalesc.*ence/).closest('a');
     expect(homeLink).toHaveAttribute('data-agent-action', 'nav-home');
 
-    // Sidebar Links
-    const popularLink = screen.getByText('Popular');
-    expect(popularLink).toHaveAttribute('data-agent-action', 'nav-popular');
-
-    const latestLink = screen.getByText('Latest');
-    expect(latestLink).toHaveAttribute('data-agent-action', 'nav-latest');
-
-    const listsLink = screen.getByText('Curated Lists');
-    expect(listsLink).toHaveAttribute('data-agent-action', 'nav-curated-lists');
-
-    const subscribedLink = screen.getByText('My Subscribed Domains');
-    expect(subscribedLink).toHaveAttribute('data-agent-action', 'nav-subscribed-domains');
+    expect(screen.getByText('Leaderboard').closest('a')).toHaveAttribute(
+      'data-agent-action',
+      'nav-leaderboard',
+    );
+    expect(screen.getByText('Metrics').closest('a')).toHaveAttribute(
+      'data-agent-action',
+      'nav-metrics',
+    );
   });
 });
