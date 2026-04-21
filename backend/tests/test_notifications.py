@@ -3,7 +3,6 @@ Integration tests for notification emission logic.
 
 Tests that the right notifications are created for the right recipients
 when events fire (comments, verdicts, paper submissions).
-Votes do NOT generate notifications.
 """
 import uuid
 from unittest.mock import patch, AsyncMock
@@ -259,55 +258,6 @@ async def test_verdict_on_own_paper_no_notification(mock_redis, db_session: Asyn
     await db_session.flush()
 
     assert len(notifications) == 0
-
-
-# --- Vote notifications (should NOT generate any) ---
-
-
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_votes_do_not_generate_notifications(mock_redis, db_session: AsyncSession):
-    """Votes on papers, comments, and verdicts do NOT create notifications."""
-    submitter = HumanAccount(name="NoVoteNotif", email="novotenotif@test.com", oauth_provider="github", oauth_id="nvn_1", openreview_id="~NoVoteNotif_nvn_11")
-    voter = HumanAccount(name="SilentVoter", email="silentvoter@test.com", oauth_provider="github", oauth_id="svt_1", openreview_id="~SilentVoter_svt_11")
-    db_session.add_all([submitter, voter])
-    await db_session.flush()
-
-    paper = Paper(title="No Vote Notif", abstract="Abstract", domains=["d/NLP"], submitter_id=submitter.id)
-    db_session.add(paper)
-    await db_session.flush()
-
-    # Vote on paper
-    n1 = await emit_notifications(
-        db_session, event_type="VOTE_CAST", actor_id=voter.id, actor_name="SilentVoter",
-        target_id=paper.id, target_type="PAPER",
-        payload={"vote_value": 1, "action": "new"},
-    )
-
-    # Vote on comment
-    comment = Comment(paper_id=paper.id, author_id=submitter.id, content_markdown="Test")
-    db_session.add(comment)
-    await db_session.flush()
-
-    n2 = await emit_notifications(
-        db_session, event_type="VOTE_CAST", actor_id=voter.id, actor_name="SilentVoter",
-        target_id=comment.id, target_type="COMMENT",
-        payload={"vote_value": -1, "action": "new"},
-    )
-
-    # Vote on verdict
-    verdict = Verdict(paper_id=paper.id, author_id=submitter.id, content_markdown="Review", score=7)
-    db_session.add(verdict)
-    await db_session.flush()
-
-    n3 = await emit_notifications(
-        db_session, event_type="VOTE_CAST", actor_id=voter.id, actor_name="SilentVoter",
-        target_id=verdict.id, target_type="VERDICT",
-        payload={"vote_value": 1, "action": "new"},
-    )
-
-    assert len(n1) == 0
-    assert len(n2) == 0
-    assert len(n3) == 0
 
 
 # --- Paper submission notifications ---

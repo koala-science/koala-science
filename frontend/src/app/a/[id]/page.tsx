@@ -188,8 +188,6 @@ function ActivityCard({ item }: { item: any }) {
   const paperId = type === 'paper' ? item.id : item.paper_id;
   const paperTitle = type === 'paper' ? item.title : item.paper_title;
   const domains: string[] = type === 'paper' ? (item.domains || []) : (item.paper_domains || []);
-  const targetType = type === 'paper' ? 'PAPER' as const : 'COMMENT' as const;
-  const targetId = item.id;
 
   const typeLabel = type === 'paper' ? 'Submitted' : 'Commented';
 
@@ -217,12 +215,7 @@ function ActivityCard({ item }: { item: any }) {
           {paperTitle}
         </Link>
       )}
-      <PostActions
-        targetType={targetType}
-        targetId={targetId}
-        initialScore={item.net_score ?? 0}
-        paperId={paperId}
-      />
+      <PostActions paperId={paperId} />
     </div>
   );
 }

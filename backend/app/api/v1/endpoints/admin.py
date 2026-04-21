@@ -14,11 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.identity import Actor, Agent
 from app.models.platform import (
-    Paper, Comment, Verdict, Vote,
-    Domain, Subscription, DomainAuthority, InteractionEvent,
+    Paper, Comment, Verdict,
+    Domain, Subscription, InteractionEvent,
 )
 from app.models.notification import Notification
-from app.models.leaderboard import AgentLeaderboardScore, PaperLeaderboardEntry, GroundTruthPaper
 
 router = APIRouter()
 security = HTTPBasic()
@@ -51,15 +50,10 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "papers": Paper,
         "comments": Comment,
         "verdicts": Verdict,
-        "votes": Vote,
         "domains": Domain,
         "subscriptions": Subscription,
-        "domain_authorities": DomainAuthority,
         "interaction_events": InteractionEvent,
         "notifications": Notification,
-        "agent_leaderboard_scores": AgentLeaderboardScore,
-        "paper_leaderboard_entries": PaperLeaderboardEntry,
-        "ground_truth_papers": GroundTruthPaper,
     }
     counts = {}
     for name, model in tables.items():
@@ -156,15 +150,11 @@ RESET_ACTIONS = {
     # Agent Activity
     "comments": {
         "label": "Comments",
-        "description": "All comments and replies, including thread embeddings. Does NOT delete votes targeting these comments.",
+        "description": "All comments and replies, including thread embeddings.",
     },
     "verdicts": {
         "label": "Verdicts",
-        "description": "All scored evaluations (one-per-paper verdicts). Does NOT delete votes targeting these verdicts.",
-    },
-    "votes": {
-        "label": "Votes",
-        "description": "All upvotes/downvotes on papers, comments, and verdicts.",
+        "description": "All scored evaluations (one-per-paper verdicts).",
     },
     "notifications": {
         "label": "Notifications",
@@ -173,7 +163,7 @@ RESET_ACTIONS = {
     # Papers
     "papers": {
         "label": "Papers",
-        "description": "All papers. Also deletes their comments, verdicts, votes, and all derived data (embeddings, previews, full text).",
+        "description": "All papers. Also deletes their comments, verdicts, and all derived data (embeddings, previews, full text).",
     },
     # Paper Data
     "paper_embeddings": {
@@ -188,31 +178,15 @@ RESET_ACTIONS = {
         "label": "Paper Full Text",
         "description": "Extracted PDF text stored on papers. Sets full_text to NULL.",
     },
-    "paper_scores": {
-        "label": "Paper Scores",
-        "description": "Reset upvotes/downvotes/net_score to 0 on all papers. Does NOT delete the votes themselves.",
-    },
     # Domain Data
     "subscriptions": {
         "label": "Domain Subscriptions",
         "description": "All actor-to-domain subscriptions. Actors will need to re-subscribe.",
     },
-    "domain_authorities": {
-        "label": "Domain Authorities",
-        "description": "Per-actor per-domain reputation scores. Will be recomputed by the reputation workflow.",
-    },
     # Platform Data
     "interaction_events": {
         "label": "Interaction Events",
-        "description": "Append-only event log (COMMENT_POSTED, VOTE_CAST, etc.). Powers data export and ranking replay.",
-    },
-    "leaderboard_scores": {
-        "label": "Leaderboard Scores",
-        "description": "Agent and paper leaderboard cache entries. Will be recomputed dynamically on next request.",
-    },
-    "ground_truth": {
-        "label": "Ground Truth Papers",
-        "description": "ICLR ground truth data from HuggingFace (acceptance decisions, scores). Re-import with the import script.",
+        "description": "Append-only event log (COMMENT_POSTED, VERDICT_POSTED, etc.). Powers data export.",
     },
     # Agent Identity
     "agent_reputation": {
@@ -230,22 +204,22 @@ async def get_reset_options():
             "papers": {
                 "label": "Papers",
                 "description": "Paper entities and all derived data.",
-                "items": ["papers", "paper_embeddings", "paper_previews", "paper_full_text", "paper_scores"],
+                "items": ["papers", "paper_embeddings", "paper_previews", "paper_full_text"],
             },
             "agent_activity": {
                 "label": "Agent Activity",
                 "description": "Content created by agents and humans during platform use.",
-                "items": ["comments", "verdicts", "votes", "notifications"],
+                "items": ["comments", "verdicts", "notifications"],
             },
             "domain_data": {
                 "label": "Domain Data",
-                "description": "Subscriptions and reputation. Domains themselves are preserved.",
-                "items": ["subscriptions", "domain_authorities"],
+                "description": "Subscriptions. Domains themselves are preserved.",
+                "items": ["subscriptions"],
             },
             "platform_data": {
                 "label": "Platform Data",
-                "description": "Analytics, leaderboards, and reference data.",
-                "items": ["interaction_events", "leaderboard_scores", "ground_truth"],
+                "description": "Analytics and reference data.",
+                "items": ["interaction_events"],
             },
             "agent_identity": {
                 "label": "Agent Identity",
@@ -262,17 +236,12 @@ async def reset_data(
     actions: List[str],
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete selected data. Pass a list of action keys (e.g. ["comments", "votes", "notifications"])."""
+    """Delete selected data. Pass a list of action keys (e.g. ["comments", "notifications"])."""
     invalid = [a for a in actions if a not in RESET_ACTIONS]
     if invalid:
         raise HTTPException(status_code=422, detail=f"Unknown reset actions: {invalid}")
 
     results = {}
-
-    # Order matters for FK constraints — delete children first
-    if "votes" in actions:
-        r = await db.execute(delete(Vote))
-        results["votes"] = r.rowcount
 
     if "notifications" in actions:
         r = await db.execute(delete(Notification))
@@ -283,8 +252,6 @@ async def reset_data(
         results["verdicts"] = r.rowcount
 
     if "comments" in actions:
-        # Delete replies first (children), then root comments
-        # Simplest: delete all in one go since parent_id is self-referential with CASCADE
         r = await db.execute(delete(Comment))
         results["comments"] = r.rowcount
 
@@ -300,18 +267,10 @@ async def reset_data(
         r = await db.execute(update(Paper).values(full_text=None))
         results["paper_full_text"] = r.rowcount
 
-    if "paper_scores" in actions and "papers" not in actions:
-        r = await db.execute(update(Paper).values(upvotes=0, downvotes=0, net_score=0))
-        results["paper_scores"] = r.rowcount
-
     if "papers" in actions:
-        # Delete all children that reference papers, regardless of whether they were selected individually
-        from app.models.platform import TargetType
-        await db.execute(delete(Vote).where(Vote.target_type.in_([TargetType.PAPER, TargetType.COMMENT, TargetType.VERDICT])))
         await db.execute(delete(Notification))
         await db.execute(delete(Verdict))
         await db.execute(delete(Comment))
-        await db.execute(delete(PaperLeaderboardEntry))
         r = await db.execute(delete(Paper))
         results["papers"] = r.rowcount
 
@@ -319,22 +278,9 @@ async def reset_data(
         r = await db.execute(delete(Subscription))
         results["subscriptions"] = r.rowcount
 
-    if "domain_authorities" in actions:
-        r = await db.execute(delete(DomainAuthority))
-        results["domain_authorities"] = r.rowcount
-
     if "interaction_events" in actions:
         r = await db.execute(delete(InteractionEvent))
         results["interaction_events"] = r.rowcount
-
-    if "leaderboard_scores" in actions:
-        r1 = await db.execute(delete(AgentLeaderboardScore))
-        r2 = await db.execute(delete(PaperLeaderboardEntry))
-        results["leaderboard_scores"] = r1.rowcount + r2.rowcount
-
-    if "ground_truth" in actions:
-        r = await db.execute(delete(GroundTruthPaper))
-        results["ground_truth"] = r.rowcount
 
     if "agent_reputation" in actions:
         r = await db.execute(update(Agent).values(karma=100.0))
@@ -351,17 +297,12 @@ async def reset_data(
 TRIGGER_ACTIONS = {
     "seed": {
         "label": "Re-seed Database",
-        "description": "Populate platform with demo data: 5 researchers, 6 agents, ~20 papers, comments, votes, and domain authorities. Safe to run on existing data — creates new records.",
+        "description": "Populate platform with demo data: 5 researchers, 6 agents, ~20 papers, and comments. Safe to run on existing data — creates new records.",
         "type": "script",
     },
     "seed_benchmarks": {
         "label": "Seed Benchmarks",
         "description": "Create benchmark papers from ground truth data for agent evaluation.",
-        "type": "script",
-    },
-    "import_ground_truth": {
-        "label": "Import Ground Truth",
-        "description": "Download ICLR acceptance decisions and scores from HuggingFace (McGill-NLP/AI-For-Science-Retreat-Data) into the ground_truth_paper table.",
         "type": "script",
     },
     "backfill_qdrant": {
@@ -374,19 +315,9 @@ TRIGGER_ACTIONS = {
         "description": "Extract preview thumbnail images from PDFs for all papers missing a preview_image_url.",
         "type": "script",
     },
-    "reputation_recompute": {
-        "label": "Recompute Reputation",
-        "description": "Trigger the ReputationComputeWorkflow via Temporal. Recalculates all domain authority scores with decay. Normally runs every 15 minutes.",
-        "type": "workflow",
-    },
     "full_data_dump": {
         "label": "Full Data Dump",
-        "description": "Trigger FullDataDumpWorkflow via Temporal. Exports all papers, comments, votes, actors, events, and domains as JSONL files.",
-        "type": "workflow",
-    },
-    "ranking_cache_refresh": {
-        "label": "Refresh Ranking Cache",
-        "description": "Trigger RankingCacheRefreshWorkflow via Temporal. Pre-computes hot/top/controversial scores for the paper feed.",
+        "description": "Trigger FullDataDumpWorkflow via Temporal. Exports all papers, comments, actors, events, and domains as JSONL files.",
         "type": "workflow",
     },
 }
@@ -421,7 +352,6 @@ async def _run_script(action: str) -> dict:
     script_map = {
         "seed": "scripts.seed",
         "seed_benchmarks": "scripts.seed_benchmarks",
-        "import_ground_truth": "scripts.import_ground_truth",
         "backfill_qdrant": "scripts.backfill_qdrant",
         "backfill_previews": "scripts.backfill_previews",
     }
@@ -453,18 +383,8 @@ async def _trigger_workflow(action: str) -> dict:
     from app.core.config import settings
 
     workflow_map = {
-        "reputation_recompute": {
-            "name": "ReputationComputeWorkflow",
-            "args": [],
-            "task_queue": "coalescence-workflows",
-        },
         "full_data_dump": {
             "name": "FullDataDumpWorkflow",
-            "args": [],
-            "task_queue": "coalescence-workflows",
-        },
-        "ranking_cache_refresh": {
-            "name": "RankingCacheRefreshWorkflow",
             "args": [],
             "task_queue": "coalescence-workflows",
         },

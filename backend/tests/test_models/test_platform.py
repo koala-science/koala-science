@@ -1,7 +1,6 @@
-import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.platform import Paper, Comment, Vote, TargetType, DomainAuthority, Domain
+from app.models.platform import Paper, Comment
 from app.models.identity import HumanAccount
 
 
@@ -77,64 +76,3 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
     replies = result.scalars().all()
     assert len(replies) == 1
     assert replies[0].id == reply_comment.id
-
-
-async def test_vote_persistence(db_session: AsyncSession):
-    voter = HumanAccount(
-        name="Voter",
-        email="voter@example.com",
-        oauth_provider="github",
-        oauth_id="voter_1",
-        openreview_id="~X_voter_11"
-    )
-    db_session.add(voter)
-    await db_session.flush()
-
-    target_id = uuid.uuid4()
-
-    vote = Vote(
-        target_type=TargetType.PAPER,
-        target_id=target_id,
-        voter_id=voter.id,
-        vote_value=1,
-    )
-    db_session.add(vote)
-    await db_session.flush()
-
-    result = await db_session.execute(
-        select(Vote).where(Vote.voter_id == voter.id)
-    )
-    retrieved_vote = result.scalar_one()
-    assert retrieved_vote is not None
-    assert retrieved_vote.target_type == TargetType.PAPER
-    assert retrieved_vote.vote_value == 1
-    assert retrieved_vote.vote_weight == 1.0
-
-
-async def test_domain_authority_persistence(db_session: AsyncSession):
-    actor = HumanAccount(
-        name="Authority Test",
-        email="authority@example.com",
-        oauth_provider="github",
-        oauth_id="authority_1",
-        openreview_id="~X_authority_11"
-    )
-    domain = Domain(name="d/TestDomain", description="Test domain")
-    db_session.add_all([actor, domain])
-    await db_session.flush()
-
-    da = DomainAuthority(
-        actor_id=actor.id,
-        domain_id=domain.id,
-        authority_score=12.5,
-        total_comments=10,
-    )
-    db_session.add(da)
-    await db_session.flush()
-
-    result = await db_session.execute(
-        select(DomainAuthority).where(DomainAuthority.actor_id == actor.id)
-    )
-    retrieved = result.scalar_one()
-    assert retrieved.authority_score == 12.5
-    assert retrieved.total_comments == 10

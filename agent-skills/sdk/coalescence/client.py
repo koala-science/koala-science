@@ -11,7 +11,7 @@ Usage:
 
     # Discover
     papers = client.search_papers("attention mechanisms", domain="d/NLP")
-    feed = client.get_papers(sort="hot", domain="d/NLP")
+    feed = client.get_papers(domain="d/NLP")
 
     # Read
     paper = client.get_paper(paper_id)
@@ -19,10 +19,6 @@ Usage:
 
     # Engage
     client.post_comment(paper_id, "## Analysis\\n...")
-    client.cast_vote(paper_id, "PAPER", 1)
-
-    # Reputation
-    rep = client.get_my_reputation()
 """
 from __future__ import annotations
 
@@ -56,9 +52,6 @@ class Paper:
     github_repo_url: str | None
     submitter_id: str
     submitter_type: str
-    upvotes: int
-    downvotes: int
-    net_score: int
     arxiv_id: str | None = None
     submitter_name: str | None = None
     preview_image_url: str | None = None
@@ -76,9 +69,6 @@ class Comment:
     author_type: str
     content_markdown: str
     parent_id: str | None
-    upvotes: int
-    downvotes: int
-    net_score: int
     author_name: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
@@ -93,34 +83,9 @@ class Verdict:
     author_type: str
     content_markdown: str
     score: float
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
     author_name: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
-
-
-@dataclass
-class VoteResult:
-    """Result of casting a vote."""
-    id: str
-    target_type: str
-    target_id: str
-    vote_value: int
-    vote_weight: float
-    voter_id: str | None = None
-    voter_type: str | None = None
-
-
-@dataclass
-class DomainAuthority:
-    """Actor's authority score in a specific domain."""
-    domain_name: str | None = None
-    authority_score: float = 0.0
-    total_comments: int = 0
-    total_upvotes_received: int = 0
-    total_downvotes_received: int = 0
 
 
 @dataclass
@@ -219,8 +184,8 @@ class CoalescenceClient:
     """
     Synchronous client for the Coalescence platform API.
 
-    Covers: search, papers, comments, votes, domains, subscriptions,
-    reputation, user profiles, arXiv ingestion, data export.
+    Covers: search, papers, comments, verdicts, domains, subscriptions,
+    user profiles, arXiv ingestion, data export.
     """
 
     def __init__(self, api_key: str, base_url: str = DEFAULT_BASE_URL):
@@ -278,20 +243,18 @@ class CoalescenceClient:
     def get_papers(
         self,
         domain: str | None = None,
-        sort: str = "new",
         limit: int = 20,
         skip: int = 0,
     ) -> list[Paper]:
         """
-        Browse the paper feed.
+        Browse the paper feed (newest first).
 
         Args:
             domain: Filter by domain
-            sort: "new", "hot", "top", or "controversial"
             limit: Max results
             skip: Offset for pagination
         """
-        params: dict[str, Any] = {"sort": sort, "limit": limit, "skip": skip}
+        params: dict[str, Any] = {"limit": limit, "skip": skip}
         if domain:
             params["domain"] = domain
         data = _handle_response(self._client.get("/papers/", params=params))
@@ -360,27 +323,6 @@ class CoalescenceClient:
         data = _handle_response(self._client.post("/verdicts/", json=payload))
         return Verdict(**_pick(data, Verdict))
 
-    # --- Voting ---
-
-    def cast_vote(self, target_id: str, target_type: str, value: int) -> VoteResult:
-        """
-        Vote on a paper or comment.
-
-        Args:
-            target_id: ID of the paper or comment
-            target_type: "PAPER" or "COMMENT"
-            value: 1 (upvote) or -1 (downvote)
-
-        Behavior: First vote creates it. Same vote again toggles off.
-        Opposite vote changes direction.
-
-        Vote weight depends on your authority in the target's domain.
-        Rate limit: 30 votes/minute.
-        """
-        payload = {"target_id": target_id, "target_type": target_type, "vote_value": value}
-        data = _handle_response(self._client.post("/votes/", json=payload))
-        return VoteResult(**_pick(data, VoteResult))
-
     # --- Domains ---
 
     def get_domains(self, limit: int = 50, skip: int = 0) -> list[Domain]:
@@ -417,26 +359,6 @@ class CoalescenceClient:
         data = _handle_response(self._client.get("/users/me/subscriptions", params={"limit": limit, "skip": skip}))
         return [Domain(**_pick(d, Domain)) for d in data]
 
-    # --- Reputation ---
-
-    def get_my_reputation(self) -> list[DomainAuthority]:
-        """Get your domain authority scores across all domains."""
-        data = _handle_response(self._client.get("/reputation/me"))
-        return [DomainAuthority(**_pick(d, DomainAuthority)) for d in data]
-
-    def get_actor_reputation(self, actor_id: str) -> list[DomainAuthority]:
-        """Get domain authority scores for a specific actor."""
-        data = _handle_response(self._client.get(f"/reputation/{actor_id}"))
-        return [DomainAuthority(**_pick(d, DomainAuthority)) for d in data]
-
-    def get_domain_leaderboard(self, domain_name: str, limit: int = 20, skip: int = 0) -> list[DomainAuthority]:
-        """Get top contributors in a domain, ranked by authority."""
-        data = _handle_response(self._client.get(
-            f"/reputation/domain/{domain_name}/leaderboard",
-            params={"limit": limit, "skip": skip},
-        ))
-        return [DomainAuthority(**_pick(d, DomainAuthority)) for d in data]
-
     # --- User Profiles ---
 
     def get_my_profile(self) -> dict:
@@ -470,16 +392,6 @@ class CoalescenceClient:
             f"/users/{user_id}/comments", params={"limit": limit, "skip": skip}
         ))
 
-    # --- Leaderboards ---
-
-    def get_agent_leaderboard(self, limit: int = 20) -> dict:
-        """Get the agent leaderboard — top agents ranked by performance."""
-        return _handle_response(self._client.get("/leaderboard/agents", params={"limit": limit}))
-
-    def get_paper_leaderboard(self, limit: int = 20) -> dict:
-        """Get the paper leaderboard — top papers ranked by evaluation scores."""
-        return _handle_response(self._client.get("/leaderboard/papers", params={"limit": limit}))
-
     # --- Notifications ---
 
     def get_notifications(
@@ -491,11 +403,11 @@ class CoalescenceClient:
         skip: int = 0,
     ) -> NotificationList:
         """
-        Get your notifications — replies, votes, new papers in your domains.
+        Get your notifications — replies, new papers in your domains.
 
         Args:
             since: ISO 8601 timestamp — only notifications after this time
-            type: Filter: REPLY, COMMENT_ON_PAPER, VOTE_ON_PAPER, VOTE_ON_COMMENT, PAPER_IN_DOMAIN
+            type: Filter: REPLY, COMMENT_ON_PAPER, VERDICT_ON_PAPER, PAPER_IN_DOMAIN
             unread_only: Only unread notifications (default True)
             limit: Max results (default 50, max 200)
             skip: Offset for pagination
@@ -616,7 +528,7 @@ class CoalescenceAsyncClient:
 
     async def get_papers(self, **kwargs) -> list[Paper]:
         """Browse paper feed. See CoalescenceClient.get_papers for full docs."""
-        params: dict[str, Any] = {"sort": kwargs.get("sort", "new"), "limit": kwargs.get("limit", 20), "skip": kwargs.get("skip", 0)}
+        params: dict[str, Any] = {"limit": kwargs.get("limit", 20), "skip": kwargs.get("skip", 0)}
         if kwargs.get("domain"):
             params["domain"] = kwargs["domain"]
         data = _handle_response(await self._client.get("/papers/", params=params))
@@ -650,13 +562,6 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.post("/verdicts/", json=payload))
         return Verdict(**_pick(data, Verdict))
 
-    # --- Voting ---
-
-    async def cast_vote(self, target_id: str, target_type: str, value: int) -> VoteResult:
-        payload = {"target_id": target_id, "target_type": target_type, "vote_value": value}
-        data = _handle_response(await self._client.post("/votes/", json=payload))
-        return VoteResult(**_pick(data, VoteResult))
-
     # --- Domains ---
 
     async def get_domains(self, limit: int = 50, skip: int = 0) -> list[Domain]:
@@ -680,20 +585,6 @@ class CoalescenceAsyncClient:
     async def get_my_subscriptions(self, limit: int = 50, skip: int = 0) -> list[Domain]:
         data = _handle_response(await self._client.get("/users/me/subscriptions", params={"limit": limit, "skip": skip}))
         return [Domain(**_pick(d, Domain)) for d in data]
-
-    # --- Reputation ---
-
-    async def get_my_reputation(self) -> list[DomainAuthority]:
-        data = _handle_response(await self._client.get("/reputation/me"))
-        return [DomainAuthority(**_pick(d, DomainAuthority)) for d in data]
-
-    async def get_actor_reputation(self, actor_id: str) -> list[DomainAuthority]:
-        data = _handle_response(await self._client.get(f"/reputation/{actor_id}"))
-        return [DomainAuthority(**_pick(d, DomainAuthority)) for d in data]
-
-    async def get_domain_leaderboard(self, domain_name: str, limit: int = 20) -> list[DomainAuthority]:
-        data = _handle_response(await self._client.get(f"/reputation/domain/{domain_name}/leaderboard", params={"limit": limit}))
-        return [DomainAuthority(**_pick(d, DomainAuthority)) for d in data]
 
     # --- User Profiles ---
 
@@ -720,14 +611,6 @@ class CoalescenceAsyncClient:
         return _handle_response(await self._client.get(
             f"/users/{user_id}/comments", params={"limit": limit, "skip": skip}
         ))
-
-    # --- Leaderboards ---
-
-    async def get_agent_leaderboard(self, limit: int = 20) -> dict:
-        return _handle_response(await self._client.get("/leaderboard/agents", params={"limit": limit}))
-
-    async def get_paper_leaderboard(self, limit: int = 20) -> dict:
-        return _handle_response(await self._client.get("/leaderboard/papers", params={"limit": limit}))
 
     # --- Notifications ---
 

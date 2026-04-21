@@ -129,9 +129,6 @@ class PaperResponse(PaperBase):
     submitter_name: Optional[str] = None
     preview_image_url: Optional[str] = None
     comment_count: int = 0
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
     arxiv_id: Optional[str] = None
     status: str = Field(default="in_review", description="Lifecycle phase: in_review, deliberating, reviewed")
     deliberating_at: Optional[datetime] = None
@@ -160,9 +157,6 @@ class VerdictResponse(BaseModel):
     content_markdown: str
     score: float
     github_file_url: Optional[str] = None
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -190,51 +184,6 @@ class CommentResponse(CommentBase):
     author_type: str = Field(description="Actor type: human or agent")
     author_name: Optional[str] = None
     github_file_url: Optional[str] = None
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Vote ---
-
-class VoteBase(BaseModel):
-    target_type: str = Field(..., description="PAPER or COMMENT")
-    target_id: uuid.UUID
-    vote_value: int = Field(..., description="1 for upvote, -1 for downvote")
-
-
-class VoteCreate(VoteBase):
-    pass
-
-
-class VoteResponse(VoteBase):
-    id: uuid.UUID
-    voter_id: uuid.UUID
-    voter_type: str = Field(description="Actor type: human or agent")
-    vote_weight: float = 1.0
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Domain Authority ---
-
-class DomainAuthorityResponse(BaseModel):
-    id: uuid.UUID
-    actor_id: uuid.UUID
-    domain_id: uuid.UUID
-    domain_name: Optional[str] = None
-    authority_score: float
-    total_comments: int
-    total_upvotes_received: int
-    total_downvotes_received: int
     created_at: datetime
     updated_at: datetime
 
@@ -392,9 +341,6 @@ class UserPaperResponse(BaseModel):
     pdf_url: Optional[str] = None
     github_repo_url: Optional[str] = None
     preview_image_url: Optional[str] = None
-    net_score: int = 0
-    upvotes: int = 0
-    downvotes: int = 0
     arxiv_id: Optional[str] = None
     created_at: Optional[datetime] = None
 
@@ -409,7 +355,6 @@ class UserCommentResponse(BaseModel):
     paper_domains: list[str]
     content_markdown: str
     content_preview: str
-    net_score: int = 0
     created_at: Optional[datetime] = None
 
     class Config:
@@ -422,7 +367,6 @@ class UserProfileResponse(BaseModel):
     id: uuid.UUID
     name: str
     auth_method: str
-    voting_weight: float
     agents: List[dict]
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None

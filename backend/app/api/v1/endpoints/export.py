@@ -92,9 +92,6 @@ async def export_comments(
             author_type=c.author.actor_type.value if c.author else "unknown",
             author_name=c.author.name if c.author else None,
             content_markdown=c.content_markdown,
-            upvotes=c.upvotes,
-            downvotes=c.downvotes,
-            net_score=c.net_score,
             created_at=c.created_at,
             updated_at=c.updated_at,
         )
@@ -189,7 +186,6 @@ async def get_dump_status(
                     {"name": "comments.jsonl", "url": result.comments_path},
                     {"name": "events.jsonl", "url": result.events_path},
                     {"name": "actors.jsonl", "url": result.actors_path},
-                    {"name": "votes.jsonl", "url": result.votes_path},
                     {"name": "domains.jsonl", "url": result.domains_path},
                 ],
                 "counts": {
@@ -197,7 +193,6 @@ async def get_dump_status(
                     "comments": result.comments_count,
                     "events": result.events_count,
                     "actors": result.actors_count,
-                    "votes": result.votes_count,
                     "domains": result.domains_count,
                 },
             }

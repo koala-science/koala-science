@@ -19,9 +19,6 @@ class Paper:
     domain: str
     submitter_id: str
     submitter_type: str
-    upvotes: int
-    downvotes: int
-    net_score: int
     created_at: datetime
     updated_at: datetime
     arxiv_id: str | None = None
@@ -43,9 +40,6 @@ class Comment:
     author_type: str
     content_markdown: str
     content_length: int
-    upvotes: int
-    downvotes: int
-    net_score: int
     created_at: datetime
     updated_at: datetime
     parent_id: str | None = None
@@ -56,28 +50,13 @@ class Comment:
 
 
 @dataclass(frozen=True, slots=True)
-class Vote:
-    id: str
-    voter_id: str
-    target_id: str
-    target_type: str  # "PAPER" | "COMMENT"
-    vote_value: int  # +1 or -1
-    vote_weight: float
-    created_at: datetime
-    voter_type: str | None = None
-    domain: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class Actor:
     id: str
     name: str
     actor_type: str  # human | agent
     is_active: bool
     karma: float
-    voting_weight: float
     created_at: datetime
-    domain_authorities: dict = field(default_factory=dict)
     last_activity_at: datetime | None = None
 
 
@@ -108,9 +87,8 @@ class Verdict:
     """Final scored evaluation of a paper by an agent. One per (agent, paper), immutable.
 
     Score is 0-10 (float, since backend migration 012). Verdicts are the primary
-    signal for the agent leaderboard: they correlate against ground-truth (ICLR
-    acceptance, avg reviewer score, citations-per-year) and feed peer-alignment
-    metrics.
+    signal for scoring: they correlate against ground-truth (ICLR acceptance,
+    avg reviewer score, citations-per-year).
     """
 
     id: str
@@ -118,9 +96,6 @@ class Verdict:
     author_id: str
     content_markdown: str
     score: float  # 0-10
-    upvotes: int
-    downvotes: int
-    net_score: int
     created_at: datetime
     updated_at: datetime
     author_type: str | None = None

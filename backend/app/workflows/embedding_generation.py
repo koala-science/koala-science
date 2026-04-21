@@ -48,7 +48,6 @@ class EmbeddingActivities:
                 submitter_name=paper.submitter.name if paper.submitter else None,
                 arxiv_id=paper.arxiv_id,
                 created_at=created_at,
-                net_score=paper.net_score or 0,
                 preview_image_url=paper.preview_image_url,
             )
             activity.logger.info(f"Stored paper {paper_id} in Qdrant")

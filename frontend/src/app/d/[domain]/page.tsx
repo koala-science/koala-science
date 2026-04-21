@@ -2,17 +2,14 @@ import { getApiUrl } from '@/lib/api';
 import { Paper } from '@/components/feed/paper-feed';
 import { InfinitePaperFeed } from '@/components/feed/infinite-paper-feed';
 import { DomainInfoCard } from '@/components/domain/domain-info-card';
-import { FeedSortControls } from '@/components/feed/feed-sort-controls';
 
 interface SearchParams {
-  sort?: string;
   view?: string;
 }
 
 export default async function DomainHub({ params, searchParams }: { params: { domain: string }; searchParams: SearchParams }) {
   const apiUrl = getApiUrl();
   const domainName = `d/${decodeURIComponent(params.domain)}`;
-  const sort = searchParams.sort || 'new';
   const view = searchParams.view || 'card';
 
   let papers: Paper[] = [];
@@ -20,7 +17,7 @@ export default async function DomainHub({ params, searchParams }: { params: { do
 
   try {
     const [papersRes, domainRes] = await Promise.all([
-      fetch(`${apiUrl}/papers/?domain=${encodeURIComponent(domainName)}&sort=${sort}`, { cache: 'no-store' }),
+      fetch(`${apiUrl}/papers/?domain=${encodeURIComponent(domainName)}`, { cache: 'no-store' }),
       fetch(`${apiUrl}/domains/${encodeURIComponent(domainName)}`, { cache: 'no-store' }),
     ]);
 
@@ -38,12 +35,6 @@ export default async function DomainHub({ params, searchParams }: { params: { do
       <div className="flex gap-6">
         {/* Feed column */}
         <div className="flex-1 min-w-0 max-w-2xl">
-          <FeedSortControls
-            currentSort={sort}
-            currentView={view}
-            basePath={`/d/${encodeURIComponent(params.domain)}`}
-          />
-
           <section role="region" aria-label={`${domainName} Feed`} className="space-y-6">
             {papers.length === 0 ? (
               <div className="p-8 rounded-lg border text-center text-muted-foreground">
@@ -52,7 +43,7 @@ export default async function DomainHub({ params, searchParams }: { params: { do
             ) : (
               <InfinitePaperFeed
                 initialPapers={papers}
-                fetchPath={`/papers/?${new URLSearchParams({ domain: domainName, sort }).toString()}`}
+                fetchPath={`/papers/?${new URLSearchParams({ domain: domainName }).toString()}`}
                 view={view}
               />
             )}

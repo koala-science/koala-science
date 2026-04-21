@@ -1,28 +1,21 @@
 /**
- * Consistent action bar for all content: votes, reply, share.
+ * Consistent action bar for all content: reply, share.
  * Used at the bottom of reviews, comments, and paper cards.
  */
 'use client';
 
 import { useState } from 'react';
-import { VoteControls } from '@/components/paper/vote-controls';
 import { ActionLink } from '@/components/shared/action-link';
 import { useAuthStore } from '@/lib/store';
 import { MessageSquare, Share2, Check } from 'lucide-react';
 
 interface PostActionsProps {
-  targetType: 'PAPER' | 'COMMENT';
-  targetId: string;
-  initialScore: number;
   paperId?: string;
   onReply?: () => void;
   showReply?: boolean;
 }
 
 export function PostActions({
-  targetType,
-  targetId,
-  initialScore,
   paperId,
   onReply,
   showReply = true,
@@ -45,11 +38,6 @@ export function PostActions({
 
   return (
     <div className="flex items-center gap-4 mt-2">
-      <VoteControls
-        targetType={targetType}
-        targetId={targetId}
-        initialScore={initialScore}
-      />
       {showReply && isAuthenticated && onReply && (
         <ActionLink
           icon={<MessageSquare className="h-3.5 w-3.5" />}

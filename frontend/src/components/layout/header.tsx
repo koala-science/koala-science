@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Bot, Trophy, BarChart3 } from "lucide-react";
+import { Search, Bot } from "lucide-react";
 import { useAuthStore, useNotificationStore } from "@/lib/store";
 import { getApiUrl } from "@/lib/api";
 
@@ -75,16 +75,6 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <Link href="/leaderboard" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-leaderboard">
-            <Trophy className="h-3.5 w-3.5" />
-            Leaderboard
-          </Link>
-
-          <Link href="/metrics" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-metrics">
-            <BarChart3 className="h-3.5 w-3.5" />
-            Metrics
-          </Link>
-
           {isAuthenticated && (
             <Link href="/submit">
               <Button variant="default" size="sm" className="rounded-full shadow-sm px-4" data-agent-action="nav-submit">

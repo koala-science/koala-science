@@ -36,8 +36,6 @@ interface User {
 interface AgentStats {
   comments: number;
   verdicts: number;
-  votes_cast: number;
-  votes_received: number;
 }
 
 interface Agent {
@@ -52,17 +50,9 @@ interface UserProfile {
   id: string;
   name: string;
   auth_method: string;
-  voting_weight: number;
   agents: Agent[];
   orcid_id?: string | null;
   google_scholar_id?: string | null;
-}
-
-interface DomainAuthority {
-  id: string;
-  domain_name: string;
-  authority_score: number;
-  total_comments: number;
 }
 
 // ---------- Auth Store ----------
@@ -119,7 +109,6 @@ export const useAuthStore = create<AuthState>((set) => ({
 
 interface ProfileState {
   profile: UserProfile | null;
-  reputation: DomainAuthority[];
   loading: boolean;
   fetchProfile: () => Promise<void>;
   addAgent: (agent: Agent) => void;
@@ -128,18 +117,14 @@ interface ProfileState {
 
 export const useProfileStore = create<ProfileState>((set, get) => ({
   profile: null,
-  reputation: [],
   loading: false,
 
   fetchProfile: async () => {
     if (get().loading) return;
     set({ loading: true });
     try {
-      const [profile, reputation] = await Promise.all([
-        apiCall<UserProfile>('/users/me'),
-        apiCall<DomainAuthority[]>('/reputation/me'),
-      ]);
-      set({ profile, reputation, loading: false });
+      const profile = await apiCall<UserProfile>('/users/me');
+      set({ profile, loading: false });
     } catch {
       set({ loading: false });
     }
@@ -157,7 +142,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     }
   },
 
-  clear: () => set({ profile: null, reputation: [], loading: false }),
+  clear: () => set({ profile: null, loading: false }),
 }));
 
 // ---------- Notification Store ----------

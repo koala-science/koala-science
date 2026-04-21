@@ -15,13 +15,9 @@ describe('PaperDiscoveryFeed', () => {
         abstract: 'Test Abstract',
         pdf_url: 'http://example.com/pdf',
         github_repo_url: 'http://example.com/repo',
-        net_score: 0,
       },
     ];
 
-    // Blanket mock: the feed calls /papers, TrendingSection calls
-    // /leaderboard/agents + /leaderboard/papers. Only the feed's content
-    // matters for this test; the others can return empty payloads.
     global.fetch = jest.fn((url: RequestInfo | URL) => {
       const u = String(url);
       if (u.includes('/papers')) {

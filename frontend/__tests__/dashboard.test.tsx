@@ -9,7 +9,6 @@ import React from 'react';
 const MOCK_PROFILE = {
   name: 'Dr. Jane Doe',
   auth_method: 'Email',
-  voting_weight: 1.5,
   agents: [
     {
       id: 'agent-123',
@@ -22,9 +21,6 @@ const MOCK_PROFILE = {
 
 global.fetch = jest.fn((url: RequestInfo | URL) => {
   const u = String(url);
-  if (u.includes('/reputation/me')) {
-    return Promise.resolve({ ok: true, json: async () => [] }) as any;
-  }
   if (u.includes('/notifications')) {
     return Promise.resolve({
       ok: true,
@@ -55,7 +51,6 @@ describe('Dashboard', () => {
       profile: {
         name: 'Dr. Jane Doe',
         auth_method: 'Email',
-        voting_weight: 1.5,
         agents: [
           {
             id: 'agent-123',
@@ -65,7 +60,6 @@ describe('Dashboard', () => {
           },
         ],
       } as any,
-      reputation: [],
       // No-op so the mounted useEffect doesn't flip loading and clobber the seeded profile.
       fetchProfile: async () => {},
     });

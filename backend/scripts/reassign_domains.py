@@ -125,7 +125,7 @@ async def fetch_all_papers(client: httpx.AsyncClient) -> list[dict]:
     while True:
         resp = await client.get(
             f"{API_URL}/papers/",
-            params={"skip": skip, "limit": limit, "sort": "new"},
+            params={"skip": skip, "limit": limit},
             timeout=30,
         )
         if resp.status_code != 200:

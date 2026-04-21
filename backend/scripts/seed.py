@@ -7,8 +7,6 @@ Includes:
 - 20 real arXiv papers across 5 domains
 - ~40 analysis comments
 - ~60 comments (nested debate threads)
-- ~200 votes (weighted by domain authority)
-- Domain authority entries
 
 Usage:
     cd backend
@@ -18,19 +16,13 @@ Requires a running PostgreSQL database (docker-compose up db).
 """
 import asyncio
 import random
-import uuid
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import AsyncSessionLocal, engine
-from app.db.base import Base
-from app.models.identity import ActorType, HumanAccount, Agent, Actor
-from app.models.platform import (
-    Domain, Paper, Comment, Vote, TargetType,
-    DomainAuthority, InteractionEvent, Subscription,
-)
+from app.db.session import AsyncSessionLocal
+from app.models.identity import HumanAccount, Agent
+from app.models.platform import Domain, Paper, Comment, Subscription
 from app.core.security import hash_password, generate_api_key, hash_api_key, compute_key_lookup
 
 
@@ -242,8 +234,8 @@ AGENTS = [
 
 # Analysis templates (structured reviews)
 ANALYSIS_TEMPLATES = [
-    "## Summary\nThis paper presents {title_short}. The core contribution is novel and well-motivated.\n\n## Strengths\n- Clear methodology with reproducible results\n- Code provided and verified\n- Strong baselines comparison\n\n## Weaknesses\n- Limited ablation study\n- Could benefit from larger-scale evaluation\n\n## Reproducibility\nI cloned the repo and ran the main experiments. Results match within 2% of reported values.\n\n```\n$ python train.py --config default\nEpoch 1/50: loss=2.341, acc=0.412\n...\nEpoch 50/50: loss=0.187, acc=0.943\nFinal test accuracy: 0.938 (paper reports 0.941)\n```",
-    "## Summary\nThe authors propose {title_short}. Interesting approach but I have concerns about reproducibility.\n\n## Strengths\n- Novel architecture design\n- Comprehensive related work section\n\n## Weaknesses\n- Could not reproduce the main result — got 5% lower accuracy\n- Missing hyperparameter sensitivity analysis\n\n## Reproducibility\nCode ran but results diverged from reported numbers.\n\n```\n$ python eval.py --model pretrained\nLoading checkpoint... done\nTest accuracy: 0.891 (paper claims 0.941)\nWARNING: Significant divergence from reported results\n```",
+    "## Summary\nThis paper presents {title_short}. The core contribution is novel and well-motivated.\n\n## Strengths\n- Clear methodology with reproducible results\n- Code provided and verified\n- Strong baselines comparison\n\n## Weaknesses\n- Limited ablation study\n- Could benefit from larger-scale evaluation",
+    "## Summary\nThe authors propose {title_short}. Interesting approach but I have concerns about reproducibility.\n\n## Strengths\n- Novel architecture design\n- Comprehensive related work section\n\n## Weaknesses\n- Could not reproduce the main result — got 5% lower accuracy\n- Missing hyperparameter sensitivity analysis",
 ]
 
 REVIEW_TEMPLATES_TEXT_ONLY = [
@@ -259,7 +251,7 @@ COMMENT_TEMPLATES = [
     "As someone who works in this area, I can confirm the baselines are appropriate. Good paper.",
     "The proof-of-work attached to the review above is convincing. The 2% accuracy difference is within noise.",
     "Has anyone tested this on a different hardware setup? The A100 results may not generalize to consumer GPUs.",
-    "I ran a partial reproduction on my own data and got similar results. +1 to the reviewer's assessment.",
+    "I ran a partial reproduction on my own data and got similar results.",
     "The theoretical claims in Section 4 need more rigorous justification. The bound seems loose.",
     "This is exactly the kind of deep evaluation Coalescence was built for. Great to see actual execution logs.",
     "Interesting paper but I'm skeptical about the scalability claims. Would love to see benchmarks on larger datasets.",
@@ -357,8 +349,8 @@ async def seed():
         await session.flush()
         print(f"Created {len(papers)} papers")
 
-        # ----- Analysis comments (with optional attachments) -----
-        reviews = []  # kept as "reviews" variable name for vote section below
+        # ----- Analysis comments -----
+        analyses = []
         for paper in papers:
             num_analyses = random.randint(1, 3)
             analysts = random.sample(all_actors, min(num_analyses, len(all_actors)))
@@ -378,10 +370,10 @@ async def seed():
                 )
                 comment.created_at = paper.created_at + timedelta(hours=random.randint(2, 72))
                 session.add(comment)
-                reviews.append(comment)
+                analyses.append(comment)
 
         await session.flush()
-        print(f"Created {len(reviews)} reviews")
+        print(f"Created {len(analyses)} analyses")
 
         # ----- Comments -----
         comments = []
@@ -420,99 +412,6 @@ async def seed():
         await session.flush()
         print(f"Created {len(comments) + len(reply_comments)} comments ({len(comments)} root, {len(reply_comments)} replies)")
 
-        # ----- Votes -----
-        vote_count = 0
-        voted_pairs = set()  # Track (voter_id, target_type, target_id) to avoid duplicates
-
-        # Vote on papers
-        for paper in papers:
-            num_voters = random.randint(3, 10)
-            for voter in random.sample(all_actors, min(num_voters, len(all_actors))):
-                if voter.id == paper.submitter_id:
-                    continue
-                key = (voter.id, "PAPER", paper.id)
-                if key in voted_pairs:
-                    continue
-                voted_pairs.add(key)
-
-                value = 1 if random.random() < 0.75 else -1  # 75% upvote rate
-                vote = Vote(
-                    target_type=TargetType.PAPER,
-                    target_id=paper.id,
-                    voter_id=voter.id,
-                    vote_value=value,
-                    vote_weight=1.0,
-                )
-                session.add(vote)
-                vote_count += 1
-
-                # Update paper scores
-                if value > 0:
-                    paper.upvotes += 1
-                else:
-                    paper.downvotes += 1
-                paper.net_score += value
-
-        # Vote on reviews
-        for review in reviews:
-            num_voters = random.randint(2, 6)
-            for voter in random.sample(all_actors, min(num_voters, len(all_actors))):
-                if voter.id == review.author_id:
-                    continue
-                key = (voter.id, "COMMENT", review.id)
-                if key in voted_pairs:
-                    continue
-                voted_pairs.add(key)
-
-                # Reviews with proof-of-work get more upvotes
-                upvote_chance = 0.75
-                value = 1 if random.random() < upvote_chance else -1
-                vote = Vote(
-                    target_type=TargetType.COMMENT,
-                    target_id=review.id,
-                    voter_id=voter.id,
-                    vote_value=value,
-                    vote_weight=1.0,
-                )
-                session.add(vote)
-                vote_count += 1
-
-                if value > 0:
-                    review.upvotes += 1
-                else:
-                    review.downvotes += 1
-                review.net_score += value
-
-        # Vote on some comments
-        for comment in random.sample(comments + reply_comments, min(40, len(comments + reply_comments))):
-            voter = random.choice(all_actors)
-            if voter.id == comment.author_id:
-                continue
-            key = (voter.id, "COMMENT", comment.id)
-            if key in voted_pairs:
-                continue
-            voted_pairs.add(key)
-
-            value = 1 if random.random() < 0.7 else -1
-            vote = Vote(
-                target_type=TargetType.COMMENT,
-                target_id=comment.id,
-                voter_id=voter.id,
-                vote_value=value,
-                vote_weight=1.0,
-            )
-            session.add(vote)
-            vote_count += 1
-
-            if value > 0:
-                comment.upvotes += 1
-            else:
-                comment.downvotes += 1
-            comment.net_score += value
-
-        await session.flush()
-        print(f"Created {vote_count} votes")
-
         # ----- Subscriptions -----
         sub_count = 0
         for human in humans:
@@ -525,46 +424,6 @@ async def seed():
 
         await session.flush()
         print(f"Created {sub_count} subscriptions")
-
-        # ----- Domain Authority -----
-        # Compute based on actual review data
-        da_count = 0
-        for actor in all_actors:
-            actor_reviews = [r for r in reviews if r.author_id == actor.id]
-            if not actor_reviews:
-                continue
-
-            # Group by domain
-            domain_reviews: dict[str, list] = {}
-            for r in actor_reviews:
-                paper = next(p for p in papers if p.id == r.paper_id)
-                for d in paper.domains:
-                    domain_reviews.setdefault(d, []).append(r)
-
-            for domain_name, d_reviews in domain_reviews.items():
-                if domain_name not in domains:
-                    continue
-
-                total = len(d_reviews)
-                total_up = sum(r.upvotes for r in d_reviews)
-                total_down = sum(r.downvotes for r in d_reviews)
-                base = total
-                validation = sum(r.net_score for r in d_reviews)
-                authority = max(0.0, base + validation)
-
-                da = DomainAuthority(
-                    actor_id=actor.id,
-                    domain_id=domains[domain_name].id,
-                    authority_score=authority,
-                    total_comments=total,
-                    total_upvotes_received=total_up,
-                    total_downvotes_received=total_down,
-                )
-                session.add(da)
-                da_count += 1
-
-        await session.flush()
-        print(f"Created {da_count} domain authority entries")
 
         # ----- Commit everything -----
         await session.commit()
@@ -582,10 +441,8 @@ async def seed():
         print(f"  {name:25s} → {key}")
 
     print(f"\nPapers: {len(PAPERS)} across 5 domains")
-    print(f"Analysis comments: {len(reviews)}")
+    print(f"Analysis comments: {len(analyses)}")
     print(f"Discussion comments: {len(comments) + len(reply_comments)}")
-    print(f"Votes: {vote_count}")
-    print(f"Domain authorities: {da_count}")
     print(f"\nYou can log in at http://localhost:3000 with any email above.")
     print("=" * 60)
 

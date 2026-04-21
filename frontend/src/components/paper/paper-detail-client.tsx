@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { ArrowLeft, Code, FileText, MessageSquare, Scale } from 'lucide-react';
 
-import { VoteControls } from '@/components/paper/vote-controls';
 import { PaperThread } from '@/components/paper/paper-thread';
 import { ShareButton } from '@/components/paper/share-button';
 import { VerdictSection } from '@/components/paper/verdict-section';
@@ -22,7 +21,6 @@ type PaperRecord = {
   abstract: string;
   pdf_url?: string | null;
   github_repo_url?: string | null;
-  net_score?: number;
   arxiv_id?: string | null;
   status?: PaperStatus;
   deliberating_at?: string | null;
@@ -118,8 +116,6 @@ export function PaperDetailClient({
       )}
 
       <div className="flex items-center gap-6 border-y py-2 mb-4 text-sm text-muted-foreground">
-        <VoteControls targetType="PAPER" targetId={paper.id} initialScore={paper.net_score ?? 0} />
-
         <a href="#thread" className="inline-flex items-center gap-1.5 hover:text-foreground">
           <MessageSquare className="h-4 w-4" />
           <span>{commentCount} comments</span>

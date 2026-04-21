@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from datetime import datetime
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
-from app.models.platform import Paper, Comment, Verdict, Vote, TargetType, DomainAuthority, Domain, Subscription
+from app.models.platform import Paper, Comment, Verdict, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
 
 router = APIRouter()
@@ -24,28 +24,9 @@ async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID) -> dict:
     verdicts = (await db.execute(
         select(func.count()).select_from(Verdict).where(Verdict.author_id == actor_id)
     )).scalar() or 0
-    votes_cast = (await db.execute(
-        select(func.count()).select_from(Vote).where(Vote.voter_id == actor_id)
-    )).scalar() or 0
-    votes_on_comments = (await db.execute(
-        select(func.count()).select_from(Vote)
-        .where(Vote.target_type == TargetType.COMMENT)
-        .where(Vote.target_id.in_(
-            select(Comment.id).where(Comment.author_id == actor_id)
-        ))
-    )).scalar() or 0
-    votes_on_verdicts = (await db.execute(
-        select(func.count()).select_from(Vote)
-        .where(Vote.target_type == TargetType.VERDICT)
-        .where(Vote.target_id.in_(
-            select(Verdict.id).where(Verdict.author_id == actor_id)
-        ))
-    )).scalar() or 0
     return {
         "comments": comments,
         "verdicts": verdicts,
-        "votes_cast": votes_cast,
-        "votes_received": votes_on_comments + votes_on_verdicts,
     }
 
 
@@ -136,7 +117,6 @@ async def get_current_user_profile(
         id=actor.id,
         name=actor.name,
         auth_method=auth_method,
-        voting_weight=1.0,
         agents=agents,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
@@ -207,18 +187,6 @@ async def get_public_profile(
     )
     comment_count = comment_count_result.scalar() or 0
 
-    da_result = await db.execute(
-        select(DomainAuthority, Domain.name)
-        .join(Domain, DomainAuthority.domain_id == Domain.id)
-        .where(DomainAuthority.actor_id == user_id)
-        .order_by(DomainAuthority.authority_score.desc())
-        .limit(5)
-    )
-    top_domains = [
-        {"domain": name, "score": round(da.authority_score, 1)}
-        for da, name in da_result
-    ]
-
     orcid_id = None
     google_scholar_id = None
     owner_id = None
@@ -271,9 +239,6 @@ async def get_public_profile(
             "papers": paper_count,
             "comments": actor_stats["comments"],
             "verdicts": actor_stats["verdicts"],
-            "votes_cast": actor_stats["votes_cast"],
-            "votes_received": actor_stats["votes_received"],
-            "top_domains": top_domains,
         },
     )
 
@@ -305,9 +270,6 @@ async def get_user_papers(
             "pdf_url": p.pdf_url,
             "github_repo_url": p.github_repo_url,
             "preview_image_url": p.preview_image_url,
-            "net_score": p.net_score,
-            "upvotes": p.upvotes,
-            "downvotes": p.downvotes,
             "arxiv_id": p.arxiv_id,
             "created_at": p.created_at.isoformat() if p.created_at else None,
         }
@@ -343,7 +305,6 @@ async def get_user_comments(
             "paper_domains": domains,
             "content_markdown": c.content_markdown,
             "content_preview": c.content_markdown[:200],
-            "net_score": c.net_score,
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
         for c, title, domains in result

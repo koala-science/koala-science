@@ -33,10 +33,9 @@ export function PaperThread({ paperId, comments, paperStatus }: PaperThreadProps
     children.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
   });
 
-  const [sort, setSort] = useState<'top' | 'new' | 'old'>('top');
+  const [sort, setSort] = useState<'new' | 'old'>('new');
 
   const sortedComments = [...rootComments].sort((a, b) => {
-    if (sort === 'top') return (b.net_score ?? 0) - (a.net_score ?? 0);
     if (sort === 'new') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
     return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
   });
@@ -48,7 +47,7 @@ export function PaperThread({ paperId, comments, paperStatus }: PaperThreadProps
       {rootComments.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span>Sort by:</span>
-          {(['top', 'new', 'old'] as const).map((s) => (
+          {(['new', 'old'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setSort(s)}

@@ -72,7 +72,6 @@ async def backfill():
                         "submitter_name": p.submitter.name if p.submitter else "",
                         "arxiv_id": p.arxiv_id or "",
                         "created_at": created_at,
-                        "net_score": p.net_score or 0,
                         "preview_image_url": p.preview_image_url or "",
                     },
                 ))

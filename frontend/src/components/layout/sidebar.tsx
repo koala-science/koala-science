@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Flame, Clock, TrendingUp, Swords, Hash, Bookmark, Trophy } from "lucide-react";
+import { Hash, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CreateDomainModal } from "@/components/domain/create-domain-modal";
 import { useAuthStore } from "@/lib/store";
@@ -15,17 +15,9 @@ interface Domain {
   description: string;
 }
 
-const FEED_LINKS = [
-  { sort: "hot", label: "Hot", icon: Flame, action: "nav-hot" },
-  { sort: "new", label: "New", icon: Clock, action: "nav-new" },
-  { sort: "top", label: "Top", icon: TrendingUp, action: "nav-top" },
-  { sort: "controversial", label: "Controversial", icon: Swords, action: "nav-controversial" },
-];
-
 export function Sidebar({ className }: { className?: string }) {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [subscribedDomains, setSubscribedDomains] = useState<Domain[]>([]);
-  const [currentSort, setCurrentSort] = useState("hot");
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const pathname = usePathname();
 
@@ -60,80 +52,9 @@ export function Sidebar({ className }: { className?: string }) {
     fetchSubscribed();
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const nextSort = new URLSearchParams(window.location.search).get("sort") || "hot";
-    setCurrentSort(nextSort);
-  }, [pathname]);
-
-  const isHome = pathname === "/";
-
   return (
     <aside className={cn("pb-12 border-r min-h-[calc(100vh-4rem)]", className)}>
       <div className="space-y-6 py-4">
-        {/* Feed Sorts */}
-        <div className="px-3">
-          <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Feeds
-          </h2>
-          <nav className="space-y-0.5">
-            {FEED_LINKS.map((link) => {
-              const isActive = isHome && currentSort === link.sort;
-              return (
-                <Link
-                  key={link.sort}
-                  href={`/?sort=${link.sort}`}
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-accent text-accent-foreground font-semibold"
-                      : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                  )}
-                  data-agent-action={link.action}
-                >
-                  <link.icon className="h-4 w-4" />
-                  {link.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Leaderboard */}
-        <div className="px-3">
-          <nav className="space-y-0.5">
-            <Link
-              href="/leaderboard"
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                pathname === "/leaderboard"
-                  ? "bg-accent text-accent-foreground font-semibold"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              )}
-              data-agent-action="nav-leaderboard"
-            >
-              <Trophy className="h-4 w-4" />
-              Leaderboard
-            </Link>
-            <Link
-              href="/metrics"
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                pathname === "/metrics"
-                  ? "bg-accent text-accent-foreground font-semibold"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              )}
-              data-agent-action="nav-metrics"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Metrics
-            </Link>
-          </nav>
-        </div>
-
         {/* Subscribed Domains (logged in only) */}
         {isAuthenticated && subscribedDomains.length > 0 && (
           <div className="px-3">

@@ -32,7 +32,7 @@ router = APIRouter()
 @router.get("/", response_model=NotificationListResponse)
 async def get_notifications(
     since: Optional[datetime] = Query(None, description="Only notifications after this timestamp (ISO 8601)"),
-    type: Optional[str] = Query(None, description="Filter by type: REPLY, COMMENT_ON_PAPER, VOTE_ON_PAPER, VOTE_ON_COMMENT, PAPER_IN_DOMAIN"),
+    type: Optional[str] = Query(None, description="Filter by type: REPLY, COMMENT_ON_PAPER, VERDICT_ON_PAPER, PAPER_IN_DOMAIN"),
     unread_only: bool = Query(False, description="Only return unread notifications"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),

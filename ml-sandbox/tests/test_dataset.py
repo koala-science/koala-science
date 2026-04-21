@@ -7,9 +7,8 @@ class TestDatasetLoad:
     def test_load_counts(self, ds):
         assert len(ds.papers) == 3
         assert len(ds.comments) == 4
-        assert len(ds.votes) == 4
         assert len(ds.actors) == 3
-        assert len(ds.events) == 7
+        assert len(ds.events) == 5
         assert len(ds.domains) == 2
 
     def test_repr(self, ds):
@@ -120,22 +119,6 @@ class TestCommentCollection:
         assert c.author_name == "Bot1"
 
 
-class TestVoteCollection:
-
-    def test_for_target(self, ds):
-        p1_votes = ds.votes.for_target("p1")
-        assert len(p1_votes) == 3  # v1, v2, v4
-
-    def test_by_voter(self, ds):
-        alice_votes = ds.votes.by_voter("a1")
-        assert len(alice_votes) == 2  # v3, v4
-
-    def test_upvotes_downvotes(self, ds):
-        p1_votes = ds.votes.for_target("p1")
-        assert len(p1_votes.upvotes) == 2
-        assert len(p1_votes.downvotes) == 1
-
-
 class TestActorCollection:
 
     def test_humans(self, ds):
@@ -148,21 +131,17 @@ class TestActorCollection:
         a = ds.actors.get("a1")
         assert a is not None
         assert a.name == "Alice"
-        assert a.domain_authorities["d/NLP"]["score"] == 5.0
 
 
 class TestEventCollection:
 
     def test_of_type(self, ds):
-        votes = ds.events.of_type("VOTE_CAST")
-        assert len(votes) == 2
-
         comments = ds.events.of_type("COMMENT_POSTED")
         assert len(comments) == 3
 
     def test_by_actor(self, ds):
         alice_events = ds.events.by_actor("a1")
-        assert len(alice_events) == 4  # e1, e4, e5, e6
+        assert len(alice_events) == 3  # e1, e4, e6
 
 
 class TestDomainCollection:
@@ -207,16 +186,16 @@ class TestTimelineFilters:
         assert any(p.id == "p1" for p in active)
 
     def test_last_activity_on_comments(self, ds):
-        """Comments with votes/replies after a date."""
+        """Comments with replies after a date."""
         march_3 = datetime(2026, 3, 3)
         active = ds.comments.last_activity_after(march_3)
-        # c1 has replies on Mar 3 and Mar 4, and a vote on Mar 3
+        # c1 has replies on Mar 3 and Mar 4
         assert any(c.id == "c1" for c in active)
 
     def test_actor_last_activity(self, ds):
         march_3 = datetime(2026, 3, 3)
         active = ds.actors.last_activity_after(march_3)
-        # a1 has events on Mar 3 (e4, e5)
+        # a1 has events on Mar 3 (e4)
         assert any(a.id == "a1" for a in active)
 
     def test_chained_with_domain(self, ds):
@@ -227,8 +206,7 @@ class TestTimelineFilters:
     def test_comments_timeline_chain(self, ds):
         march_3 = datetime(2026, 3, 3)
         result = ds.comments.by_author("a1").created_after(march_3)
-        # a1's comment c2 is on Mar 3 — should not be included (created_after is >=)
-        # Wait, c2 is Mar 3 exactly, and created_after uses >=
+        # a1's comment c2 is on Mar 3 — should be included (created_after is >=)
         assert len(result) == 1  # c2
 
 
@@ -252,21 +230,5 @@ class TestInteractionGraph:
         relations = set()
         for u, v, data in G.edges(data=True):
             relations.add(data.get("relation"))
-        # Should have at least commented_on and voted_on
-        assert "commented_on" in relations or "voted_on" in relations
-
-
-class TestBackwardCompat:
-
-    def test_to_ranking_inputs(self, ds):
-        papers, actors, events = ds.to_ranking_inputs()
-        assert len(papers) == 3
-        assert len(actors) == 3
-        assert len(events) == 7
-
-    def test_ranking_input_types(self, ds):
-        from coalescence.ranking.base import PaperSnapshot, ActorSnapshot, InteractionEvent
-        papers, actors, events = ds.to_ranking_inputs()
-        assert isinstance(papers[0], PaperSnapshot)
-        assert isinstance(actors[0], ActorSnapshot)
-        assert isinstance(events[0], InteractionEvent)
+        # Should have at least commented_on or replied_to
+        assert "commented_on" in relations or "replied_to" in relations

@@ -31,7 +31,6 @@ describe('PaperDetailView', () => {
       abstract: 'Detailed abstract',
       pdf_url: 'http://example.com/pdf',
       github_repo_url: 'http://example.com/repo',
-      net_score: 0,
       status: 'in_review',
     };
 
@@ -59,7 +58,6 @@ describe('PaperDetailView', () => {
       abstract: 'Phase transition test',
       pdf_url: null,
       github_repo_url: null,
-      net_score: 0,
       status: 'deliberating',
     };
 

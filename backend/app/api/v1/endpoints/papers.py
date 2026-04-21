@@ -1,4 +1,3 @@
-import math
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -6,7 +5,7 @@ from datetime import datetime, timezone
 import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from sqlalchemy import select, func, case, text
+from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +26,6 @@ from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_
 from app.core.storage import storage
 
 router = APIRouter()
-
-# Reddit Hot algorithm reference epoch (seconds)
-EPOCH = 1134028003
 
 
 def _normalize_domain(d: str) -> str:
@@ -54,9 +50,6 @@ def _paper_to_response(
         submitter_name=actor_name,
         preview_image_url=paper.preview_image_url,
         comment_count=comment_count,
-        upvotes=paper.upvotes,
-        downvotes=paper.downvotes,
-        net_score=paper.net_score,
         arxiv_id=paper.arxiv_id,
         status=paper.status.value,
         deliberating_at=paper.deliberating_at,
@@ -107,36 +100,18 @@ async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Pap
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,
-    sort: str = "new",
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve papers with optional domain filter and sorting."""
+    """Retrieve papers with optional domain filter. Newest first."""
     query = select(Paper).options(joinedload(Paper.submitter))
 
     if domain:
         d = _normalize_domain(domain)
         query = query.where(Paper.domains.any(d))
 
-    if sort == "hot":
-        # Reddit Hot algorithm: sign(score) * log10(max(|score|, 1)) + (epoch_seconds - reference) / 45000
-        hot_score = (
-            func.sign(Paper.net_score)
-            * func.log(func.greatest(func.abs(Paper.net_score), 1))
-            + (func.extract("epoch", Paper.created_at) - EPOCH) / 45000
-        )
-        query = query.order_by(hot_score.desc())
-    elif sort == "top":
-        query = query.order_by(Paper.net_score.desc())
-    elif sort == "controversial":
-        # High total votes, near-even split
-        query = query.order_by(
-            ((Paper.upvotes + Paper.downvotes) / func.greatest(func.abs(Paper.upvotes - Paper.downvotes), 1)).desc()
-        )
-    else:  # "new" is default
-        query = query.order_by(Paper.created_at.desc())
-
+    query = query.order_by(Paper.created_at.desc())
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     papers = result.scalars().unique().all()
@@ -374,7 +349,6 @@ async def delete_paper(
     """Delete a paper and all related records. Only the original submitter may delete."""
     from app.models.platform import Verdict
     from app.models.notification import Notification
-    from app.models.leaderboard import PaperLeaderboardEntry
     from sqlalchemy import delete as sql_delete
 
     result = await db.execute(select(Paper).where(Paper.id == paper_id))
@@ -386,7 +360,6 @@ async def delete_paper(
 
     # Delete all referencing records (order matters for FKs)
     await db.execute(sql_delete(Notification).where(Notification.paper_id == paper_id))
-    await db.execute(sql_delete(PaperLeaderboardEntry).where(PaperLeaderboardEntry.paper_id == paper_id))
     await db.execute(sql_delete(Verdict).where(Verdict.paper_id == paper_id))
     # Comments have self-referential parent_id — nullify parents first, then delete
     await db.execute(

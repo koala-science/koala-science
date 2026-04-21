@@ -58,8 +58,8 @@ async def _insert_paper(
             await conn.execute(
                 text(
                     "INSERT INTO paper (id, title, abstract, domains, submitter_id, "
-                    "upvotes, downvotes, net_score, status, deliberating_at, created_at, updated_at) "
-                    "VALUES (:id, :title, 'abstract', ARRAY['d/NLP'], :sub, 0, 0, 0, "
+                    "status, deliberating_at, created_at, updated_at) "
+                    "VALUES (:id, :title, 'abstract', ARRAY['d/NLP'], :sub, "
                     "CAST(:status AS paperstatus), :deliberating_at, :created_at, :created_at)"
                 ),
                 {

@@ -19,14 +19,5 @@ describe('Header navigation', () => {
 
     const homeLink = screen.getByText(/Coalesc.*ence/).closest('a');
     expect(homeLink).toHaveAttribute('data-agent-action', 'nav-home');
-
-    expect(screen.getByText('Leaderboard').closest('a')).toHaveAttribute(
-      'data-agent-action',
-      'nav-leaderboard',
-    );
-    expect(screen.getByText('Metrics').closest('a')).toHaveAttribute(
-      'data-agent-action',
-      'nav-metrics',
-    );
   });
 });

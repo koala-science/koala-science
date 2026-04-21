@@ -24,13 +24,11 @@ class FullDumpResult:
     comments_path: str
     events_path: str
     actors_path: str
-    votes_path: str
     domains_path: str
     papers_count: int
     comments_count: int
     events_count: int
     actors_count: int
-    votes_count: int
     domains_count: int
 
 
@@ -136,9 +134,6 @@ class DataExportActivities:
                 "submitter_id": str(p.submitter_id),
                 "submitter_type": p.submitter.actor_type.value if p.submitter else None,
                 "submitter_name": p.submitter.name if p.submitter else None,
-                "upvotes": p.upvotes,
-                "downvotes": p.downvotes,
-                "net_score": p.net_score,
                 "embedding": list(p.embedding) if p.embedding else None,
                 "created_at": p.created_at,
                 "updated_at": p.updated_at,
@@ -176,9 +171,6 @@ class DataExportActivities:
                 "author_name": c.author.name if c.author else None,
                 "content_markdown": c.content_markdown,
                 "content_length": len(c.content_markdown),
-                "upvotes": c.upvotes,
-                "downvotes": c.downvotes,
-                "net_score": c.net_score,
                 "created_at": c.created_at,
                 "updated_at": c.updated_at,
             } for c in comments]
@@ -225,13 +217,12 @@ class DataExportActivities:
 
     @activity.defn
     async def export_full_actors(self, dump_id: str) -> dict:
-        """Export all actors with domain authorities."""
+        """Export all actors."""
         activity.logger.info(f"Exporting actors for dump {dump_id}")
 
         from sqlalchemy import select
         from app.db.session import AsyncSessionLocal
         from app.models.identity import Actor
-        from app.models.platform import DomainAuthority, Domain
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Actor))
@@ -239,21 +230,6 @@ class DataExportActivities:
 
             records = []
             for actor in actors:
-                da_result = await session.execute(
-                    select(DomainAuthority, Domain.name)
-                    .join(Domain, DomainAuthority.domain_id == Domain.id)
-                    .where(DomainAuthority.actor_id == actor.id)
-                )
-                authorities = {
-                    name: {
-                        "score": da.authority_score,
-                        "total_comments": da.total_comments,
-                        "upvotes": da.total_upvotes_received,
-                        "downvotes": da.total_downvotes_received,
-                    }
-                    for da, name in da_result
-                }
-
                 karma = getattr(actor, "karma", None)
                 records.append({
                     "id": str(actor.id),
@@ -261,64 +237,11 @@ class DataExportActivities:
                     "actor_type": actor.actor_type.value,
                     "is_active": actor.is_active,
                     "karma": karma,
-                    "domain_authorities": authorities,
                     "created_at": actor.created_at,
                 })
 
         url, count = await _write_and_upload(f"exports/{dump_id}/actors.jsonl", records)
         activity.logger.info(f"Actors dump: {count}")
-        return {"file_path": url, "count": count}
-
-    @activity.defn
-    async def export_full_votes(self, dump_id: str) -> dict:
-        """Export all votes with weights."""
-        activity.logger.info(f"Exporting votes for dump {dump_id}")
-
-        from sqlalchemy import select
-        from sqlalchemy.orm import joinedload
-        from app.db.session import AsyncSessionLocal
-        from app.models.platform import Vote, Paper, Comment
-
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Vote).options(joinedload(Vote.voter))
-            )
-            votes = result.scalars().unique().all()
-
-            # Resolve domain for each vote target
-            paper_domains = {}
-            p_result = await session.execute(select(Paper.id, Paper.domains))
-            for pid, domains in p_result:
-                paper_domains[str(pid)] = domains
-
-            comment_papers = {}
-            c_result = await session.execute(select(Comment.id, Comment.paper_id))
-            for cid, pid in c_result:
-                comment_papers[str(cid)] = str(pid)
-
-            records = []
-            for v in votes:
-                target_id_str = str(v.target_id)
-                if v.target_type.value == "PAPER":
-                    domain = paper_domains.get(target_id_str)
-                else:
-                    paper_id = comment_papers.get(target_id_str)
-                    domain = paper_domains.get(paper_id) if paper_id else None
-
-                records.append({
-                    "id": str(v.id),
-                    "voter_id": str(v.voter_id),
-                    "voter_type": v.voter.actor_type.value if v.voter else None,
-                    "target_id": target_id_str,
-                    "target_type": v.target_type.value,
-                    "vote_value": v.vote_value,
-                    "vote_weight": v.vote_weight,
-                    "domains": domain,
-                    "created_at": v.created_at,
-                })
-
-        url, count = await _write_and_upload(f"exports/{dump_id}/votes.jsonl", records)
-        activity.logger.info(f"Votes dump: {count}")
         return {"file_path": url, "count": count}
 
     @activity.defn
@@ -421,11 +344,6 @@ class FullDataDumpWorkflow:
             dump_id,
             start_to_close_timeout=timedelta(minutes=10),
         )
-        votes = await workflow.execute_activity_method(
-            DataExportActivities.export_full_votes,
-            dump_id,
-            start_to_close_timeout=timedelta(minutes=10),
-        )
         domains = await workflow.execute_activity_method(
             DataExportActivities.export_full_domains,
             dump_id,
@@ -437,12 +355,10 @@ class FullDataDumpWorkflow:
             comments_path=comments["file_path"],
             events_path=events["file_path"],
             actors_path=actors["file_path"],
-            votes_path=votes["file_path"],
             domains_path=domains["file_path"],
             papers_count=papers["count"],
             comments_count=comments["count"],
             events_count=events["count"],
             actors_count=actors["count"],
-            votes_count=votes["count"],
             domains_count=domains["count"],
         )

@@ -27,9 +27,6 @@ def _verdict_to_response(
         content_markdown=v.content_markdown,
         score=v.score,
         github_file_url=v.github_file_url,
-        upvotes=v.upvotes,
-        downvotes=v.downvotes,
-        net_score=v.net_score,
         created_at=v.created_at,
         updated_at=v.updated_at,
     )
@@ -71,10 +68,10 @@ async def list_verdicts(
 ):
     """Bulk list of verdicts across all papers, ordered oldest first.
 
-    Used by offline analysis tooling (ml-sandbox Dataset loader, merged
-    leaderboard computation) that needs every verdict in one call rather
-    than paging through per-paper endpoints. The ordering is stable so
-    pagination with ``skip``/``limit`` is deterministic.
+    Used by offline analysis tooling (ml-sandbox Dataset loader) that
+    needs every verdict in one call rather than paging through per-paper
+    endpoints. The ordering is stable so pagination with ``skip``/``limit``
+    is deterministic.
     """
     if limit < 1 or limit > 10000:
         raise HTTPException(

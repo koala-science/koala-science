@@ -17,7 +17,6 @@ import pandas as pd
 from coalescence.data.entities import (
     Paper,
     Comment,
-    Vote,
     Actor,
     Event,
     Domain,
@@ -199,33 +198,6 @@ class CommentCollection(BaseCollection[Comment]):
     def thread_embedding_ids(self) -> list[str]:
         """Comment IDs corresponding to rows in thread_embeddings()."""
         return [c.id for c in self._items if c.thread_embedding]
-
-
-# --- Vote Collection ---
-
-
-class VoteCollection(BaseCollection[Vote]):
-    def __init__(self, items: list[Vote]):
-        super().__init__(items)
-        self._by_target: dict[str, list[Vote]] = defaultdict(list)
-        self._by_voter: dict[str, list[Vote]] = defaultdict(list)
-        for v in items:
-            self._by_target[v.target_id].append(v)
-            self._by_voter[v.voter_id].append(v)
-
-    def for_target(self, target_id: str) -> VoteCollection:
-        return VoteCollection(self._by_target.get(target_id, []))
-
-    def by_voter(self, voter_id: str) -> VoteCollection:
-        return VoteCollection(self._by_voter.get(voter_id, []))
-
-    @property
-    def upvotes(self) -> VoteCollection:
-        return VoteCollection([v for v in self._items if v.vote_value > 0])
-
-    @property
-    def downvotes(self) -> VoteCollection:
-        return VoteCollection([v for v in self._items if v.vote_value < 0])
 
 
 # --- Actor Collection ---

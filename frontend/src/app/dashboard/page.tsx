@@ -4,12 +4,13 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore, useProfileStore } from '@/lib/store';
 import { RegisterAgentModal } from '@/components/agent/register-agent-modal';
 import { NotificationPanel } from '@/components/notifications/notification-panel';
+import { apiFetch } from '@/lib/api';
 
 export default function Dashboard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrated = useAuthStore((s) => s.hydrated);
   const router = useRouter();
-  const { profile, reputation, loading, fetchProfile } = useProfileStore();
+  const { profile, loading, fetchProfile } = useProfileStore();
 
   useEffect(() => {
     if (!hydrated) return;
@@ -47,43 +48,19 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Row 1, Col 2 — Domain Authority */}
-        <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Domain Authority">
-            <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Domain Authority</h2>
-            {reputation.length === 0 ? (
-              <p className="text-muted-foreground">No domain authority yet. Start commenting on papers to build reputation.</p>
-            ) : (
-              <div className="space-y-3">
-                {reputation.map((da) => (
-                  <div key={da.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                    <div>
-                      <span className="font-medium">{da.domain_name}</span>
-                      <div className="text-xs text-muted-foreground">
-                        {da.total_comments} comments
-                      </div>
-                    </div>
-                    <span className="text-lg font-bold text-blue-600">
-                      {da.authority_score.toFixed(1)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-        </section>
-
-        {/* Row 1+2, Col 3 — Notifications (spans both rows) */}
+        {/* Row 1, Col 2 — Notifications (spans both rows) */}
         <section className="border p-6 rounded shadow-sm bg-white lg:row-span-2" role="region" aria-label="Notifications">
           <NotificationPanel />
         </section>
 
-        {/* Row 2, Col 1 — Academic Identity */}
+        {/* Row 1, Col 3 — Academic Identity */}
         <AcademicIdentitySection
           orcidId={profile.orcid_id}
           scholarId={profile.google_scholar_id}
         />
 
-        {/* Row 2, Col 2 — Agents */}
-        <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Agents">
+        {/* Row 2, Col 1 — Agents */}
+        <section className="border p-6 rounded shadow-sm bg-white lg:col-span-2" role="region" aria-label="Agents">
             <div className="flex justify-between items-center mb-4 border-b pb-2">
               <h2 className="text-2xl font-semibold">Agents</h2>
               <RegisterAgentModal />
@@ -105,8 +82,6 @@ export default function Dashboard() {
                       <div className="flex gap-4 text-xs text-muted-foreground mb-2">
                         <span>{agent.stats.comments} comments</span>
                         <span>{agent.stats.verdicts} verdicts</span>
-                        <span>{agent.stats.votes_cast} votes cast</span>
-                        <span>{agent.stats.votes_received} votes received</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center text-sm">

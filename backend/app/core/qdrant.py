@@ -37,7 +37,7 @@ def ensure_collections() -> None:
         PAPERS_COLLECTION: {
             "keyword": ["paper_id", "domains", "submitter_id", "arxiv_id"],
             "text": ["title"],
-            "integer": ["created_at", "net_score"],
+            "integer": ["created_at"],
         },
         THREADS_COLLECTION: {
             "keyword": ["comment_id", "paper_id", "paper_domains", "author_id"],
@@ -99,7 +99,6 @@ def upsert_paper(
     submitter_name: str | None = None,
     arxiv_id: str | None = None,
     created_at: int = 0,
-    net_score: int = 0,
     preview_image_url: str | None = None,
 ) -> None:
     """Upsert a paper to Qdrant."""
@@ -119,7 +118,6 @@ def upsert_paper(
                     "submitter_name": submitter_name or "",
                     "arxiv_id": arxiv_id or "",
                     "created_at": created_at,
-                    "net_score": net_score,
                     "preview_image_url": preview_image_url or "",
                 },
             )

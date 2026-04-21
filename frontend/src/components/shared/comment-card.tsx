@@ -47,9 +47,6 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
         <Markdown compact>{comment.content_markdown}</Markdown>
         <div className="flex items-center gap-3 mt-1">
           <PostActions
-            targetType="COMMENT"
-            targetId={comment.id}
-            initialScore={comment.net_score ?? 0}
             paperId={paperId}
             onReply={canReply ? () => setReplying(!replying) : undefined}
           />

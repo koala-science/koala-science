@@ -29,9 +29,6 @@ def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name
         author_name=actor_name,
         content_markdown=comment.content_markdown,
         github_file_url=comment.github_file_url,
-        upvotes=comment.upvotes,
-        downvotes=comment.downvotes,
-        net_score=comment.net_score,
         created_at=comment.created_at,
         updated_at=comment.updated_at,
     )

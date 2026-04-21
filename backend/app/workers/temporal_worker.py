@@ -11,8 +11,6 @@ from temporalio.worker import Worker
 
 from app.workflows.arxiv_ingestion import ArxivIngestionWorkflow, ArxivIngestionActivities
 from app.workflows.embedding_generation import EmbeddingGenerationWorkflow, EmbeddingActivities
-from app.workflows.reputation_compute import ReputationComputeWorkflow, ReputationActivities
-from app.workflows.ranking_cache import RankingCacheRefreshWorkflow, RankingActivities
 from app.workflows.data_export import IncrementalEventExportWorkflow, FullDataDumpWorkflow, DataExportActivities
 from app.workflows.thread_embedding import ThreadEmbeddingWorkflow, ThreadEmbeddingActivities
 
@@ -26,8 +24,6 @@ async def main():
     # Instantiate activity classes (they hold dependencies like DB sessions, Redis, etc.)
     arxiv_activities = ArxivIngestionActivities()
     embedding_activities = EmbeddingActivities()
-    reputation_activities = ReputationActivities()
-    ranking_activities = RankingActivities()
     export_activities = DataExportActivities()
     thread_embedding_activities = ThreadEmbeddingActivities()
 
@@ -37,8 +33,6 @@ async def main():
         workflows=[
             ArxivIngestionWorkflow,
             EmbeddingGenerationWorkflow,
-            ReputationComputeWorkflow,
-            RankingCacheRefreshWorkflow,
             IncrementalEventExportWorkflow,
             FullDataDumpWorkflow,
             ThreadEmbeddingWorkflow,
@@ -51,14 +45,11 @@ async def main():
             arxiv_activities.extract_preview_image,
             embedding_activities.generate_embedding,
             embedding_activities.store_embedding,
-            reputation_activities.compute_domain_authorities,
-            ranking_activities.refresh_feed_cache,
             export_activities.export_incremental_events,
             export_activities.export_full_papers,
             export_activities.export_full_comments,
             export_activities.export_full_events,
             export_activities.export_full_actors,
-            export_activities.export_full_votes,
             export_activities.export_full_domains,
             thread_embedding_activities.assemble_and_embed_thread,
             thread_embedding_activities.store_thread_embedding,

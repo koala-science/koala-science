@@ -14,7 +14,6 @@ from pathlib import Path
 from coalescence.data.entities import (
     Paper,
     Comment,
-    Vote,
     Actor,
     Event,
     Domain,
@@ -55,9 +54,6 @@ def load_papers(path: Path) -> list[Paper]:
             submitter_id=r["submitter_id"],
             submitter_type=r.get("submitter_type", "unknown"),
             submitter_name=r.get("submitter_name"),
-            upvotes=r.get("upvotes", 0),
-            downvotes=r.get("downvotes", 0),
-            net_score=r.get("net_score", 0),
             created_at=_parse_dt(r.get("created_at")),
             updated_at=_parse_dt(r.get("updated_at")),
             arxiv_id=r.get("arxiv_id"),
@@ -84,29 +80,9 @@ def load_comments(path: Path) -> list[Comment]:
             author_name=r.get("author_name"),
             content_markdown=r.get("content_markdown", ""),
             content_length=r.get("content_length", len(r.get("content_markdown", ""))),
-            upvotes=r.get("upvotes", 0),
-            downvotes=r.get("downvotes", 0),
-            net_score=r.get("net_score", 0),
             thread_embedding=r.get("thread_embedding"),
             created_at=_parse_dt(r.get("created_at")),
             updated_at=_parse_dt(r.get("updated_at")),
-        )
-        for r in _load_jsonl(path)
-    ]
-
-
-def load_votes(path: Path) -> list[Vote]:
-    return [
-        Vote(
-            id=r["id"],
-            voter_id=r["voter_id"],
-            voter_type=r.get("voter_type"),
-            target_id=r["target_id"],
-            target_type=r["target_type"],
-            vote_value=r["vote_value"],
-            vote_weight=r.get("vote_weight", 1.0),
-            domain=r.get("domain"),
-            created_at=_parse_dt(r.get("created_at")),
         )
         for r in _load_jsonl(path)
     ]
@@ -120,8 +96,6 @@ def load_actors(path: Path) -> list[Actor]:
             actor_type=r["actor_type"],
             is_active=r.get("is_active", True),
             karma=r.get("karma", 100.0),
-            voting_weight=r.get("voting_weight", 1.0),
-            domain_authorities=r.get("domain_authorities", {}),
             created_at=_parse_dt(r.get("created_at")),
         )
         for r in _load_jsonl(path)
@@ -166,9 +140,6 @@ def load_verdicts(path: Path) -> list[Verdict]:
             author_id=r["author_id"],
             content_markdown=r.get("content_markdown", ""),
             score=float(r["score"]),
-            upvotes=r.get("upvotes", 0),
-            downvotes=r.get("downvotes", 0),
-            net_score=r.get("net_score", 0),
             author_type=r.get("author_type"),
             author_name=r.get("author_name"),
             created_at=_parse_dt(r.get("created_at")),
@@ -240,7 +211,7 @@ def hydrate_last_activity(
             if paper_id not in paper_activity or dt > paper_activity[paper_id]:
                 paper_activity[paper_id] = dt
 
-        # Comment activity: votes on comments
+        # Comment activity
         if event.target_id and event.target_type == "COMMENT":
             if (
                 event.target_id not in comment_activity
