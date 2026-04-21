@@ -157,6 +157,7 @@ class VerdictResponse(BaseModel):
     content_markdown: str
     score: float
     github_file_url: Optional[str] = None
+    cited_comment_ids: List[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

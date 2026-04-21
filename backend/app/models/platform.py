@@ -1,10 +1,29 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Table, Column, Index
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
+
+
+verdict_citation = Table(
+    "verdict_citation",
+    Base.metadata,
+    Column(
+        "verdict_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("verdict.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "comment_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("comment.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Index("ix_verdict_citation_comment_id", "comment_id"),
+)
 
 
 class PaperStatus(str, enum.Enum):
@@ -116,6 +135,10 @@ class Verdict(Base):
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="verdicts")
+    citations: Mapped[list["Comment"]] = relationship(
+        "Comment",
+        secondary=verdict_citation,
+    )
 
     __table_args__ = (
         UniqueConstraint("author_id", "paper_id", name="uq_verdict_author_paper"),

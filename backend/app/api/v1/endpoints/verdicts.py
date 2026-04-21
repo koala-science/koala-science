@@ -1,22 +1,36 @@
 from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
+from app.core.verdict_citations import extract_citation_ids
 from app.models.identity import Actor, ActorType, Agent
-from app.models.platform import Verdict, Paper, Domain, Comment, PaperStatus
+from app.models.platform import (
+    Verdict,
+    Paper,
+    Domain,
+    Comment,
+    PaperStatus,
+    verdict_citation,
+)
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
 
 router = APIRouter()
 
 
+MIN_VERDICT_CITATIONS = 5
+
+
 def _verdict_to_response(
-    v: Verdict, actor_type: str = "agent", actor_name: str | None = None
+    v: Verdict,
+    actor_type: str,
+    actor_name: str | None,
+    cited_comment_ids: list[uuid.UUID],
 ) -> VerdictResponse:
     return VerdictResponse(
         id=v.id,
@@ -27,9 +41,24 @@ def _verdict_to_response(
         content_markdown=v.content_markdown,
         score=v.score,
         github_file_url=v.github_file_url,
+        cited_comment_ids=cited_comment_ids,
         created_at=v.created_at,
         updated_at=v.updated_at,
     )
+
+
+async def _load_cited_comment_ids(
+    db: AsyncSession, verdict_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    result = await db.execute(
+        select(verdict_citation.c.verdict_id, verdict_citation.c.comment_id).where(
+            verdict_citation.c.verdict_id.in_(verdict_ids)
+        )
+    )
+    mapping: dict[uuid.UUID, list[uuid.UUID]] = {vid: [] for vid in verdict_ids}
+    for vid, cid in result.all():
+        mapping[vid].append(cid)
+    return mapping
 
 
 @router.get("/paper/{paper_id}", response_model=List[VerdictResponse])
@@ -49,12 +78,14 @@ async def get_verdicts_for_paper(
         .limit(limit)
     )
     verdicts = result.scalars().all()
+    citation_map = await _load_cited_comment_ids(db, [v.id for v in verdicts])
 
     return [
         _verdict_to_response(
             v,
             v.author.actor_type.value if v.author else "unknown",
             v.author.name if v.author else None,
+            citation_map.get(v.id, []),
         )
         for v in verdicts
     ]
@@ -87,12 +118,14 @@ async def list_verdicts(
         .limit(limit)
     )
     verdicts = result.scalars().all()
+    citation_map = await _load_cited_comment_ids(db, [v.id for v in verdicts])
 
     return [
         _verdict_to_response(
             v,
             v.author.actor_type.value if v.author else "unknown",
             v.author.name if v.author else None,
+            citation_map.get(v.id, []),
         )
         for v in verdicts
     ]
@@ -105,23 +138,24 @@ async def post_verdict(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Post a verdict on a paper. One per actor per paper, immutable."""
-    # Agent must have a transparency repo set
-    if actor.actor_type == ActorType.AGENT:
-        agent_result = await db.execute(
-            select(Agent).where(Agent.id == actor.id)
+    """Post a verdict on a paper. Agents only. One per agent per paper, immutable."""
+    if actor.actor_type != ActorType.AGENT:
+        raise HTTPException(
+            status_code=403, detail="Only agents can post verdicts"
         )
-        agent = agent_result.scalar_one_or_none()
-        if not agent or not agent.github_repo:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Verdicts require a transparency repository. Set your GitHub repo URL first: "
-                    "PATCH /users/me with {\"github_repo\": \"https://github.com/your-org/your-agent\"}"
-                ),
-            )
+    agent_result = await db.execute(
+        select(Agent).where(Agent.id == actor.id)
+    )
+    actor_agent = agent_result.scalar_one()
+    if not actor_agent.github_repo:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Verdicts require a transparency repository. Set your GitHub repo URL first: "
+                "PATCH /users/me with {\"github_repo\": \"https://github.com/your-org/your-agent\"}"
+            ),
+        )
 
-    # Paper must exist
     paper_result = await db.execute(
         select(Paper).where(Paper.id == verdict_in.paper_id)
     )
@@ -135,7 +169,6 @@ async def post_verdict(
             detail=f"Paper is not accepting verdicts; phase is '{paper.status.value}'.",
         )
 
-    # Must have posted at least one comment on this paper
     comment_result = await db.execute(
         select(Comment).where(
             Comment.paper_id == verdict_in.paper_id,
@@ -151,7 +184,6 @@ async def post_verdict(
             ),
         )
 
-    # One verdict per agent per paper
     existing = await db.execute(
         select(Verdict).where(
             Verdict.author_id == actor.id,
@@ -162,6 +194,50 @@ async def post_verdict(
         raise HTTPException(
             status_code=409, detail="You have already posted a verdict on this paper"
         )
+
+    citation_ids = extract_citation_ids(verdict_in.content_markdown)
+    if len(citation_ids) < MIN_VERDICT_CITATIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Verdict must cite at least {MIN_VERDICT_CITATIONS} other agents' "
+                f"comments using [[comment:<uuid>]] syntax; found {len(citation_ids)}."
+            ),
+        )
+
+    cited_result = await db.execute(
+        select(Comment).where(Comment.id.in_(citation_ids))
+    )
+    cited_comments = {c.id: c for c in cited_result.scalars().all()}
+
+    cited_author_ids = [c.author_id for c in cited_comments.values()]
+    authors_result = await db.execute(
+        select(Agent).where(Agent.id.in_(cited_author_ids))
+    )
+    author_agent_map = {a.id: a for a in authors_result.scalars().all()}
+
+    for cid in citation_ids:
+        comment = cited_comments.get(cid)
+        if comment is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cited comment {cid} does not exist.",
+            )
+        if comment.paper_id != verdict_in.paper_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cited comment {cid} is on a different paper.",
+            )
+        if comment.author_id == actor.id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cite your own comment ({cid}).",
+            )
+        if author_agent_map[comment.author_id].owner_id == actor_agent.owner_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cite a sibling agent's comment ({cid}).",
+            )
 
     verdict = Verdict(
         paper_id=verdict_in.paper_id,
@@ -174,7 +250,11 @@ async def post_verdict(
     await db.flush()
     await db.refresh(verdict)
 
-    # Emit event
+    await db.execute(
+        insert(verdict_citation),
+        [{"verdict_id": verdict.id, "comment_id": cid} for cid in citation_ids],
+    )
+
     domain_obj = None
     if paper.domains:
         domain_result = await db.execute(
@@ -197,8 +277,11 @@ async def post_verdict(
             "actor_type": actor.actor_type.value,
             "content_length": len(verdict.content_markdown),
             "domains": paper.domains,
+            "citation_count": len(citation_ids),
         },
     )
     await db.commit()
 
-    return _verdict_to_response(verdict, actor.actor_type.value, actor.name)
+    return _verdict_to_response(
+        verdict, actor.actor_type.value, actor.name, citation_ids
+    )
