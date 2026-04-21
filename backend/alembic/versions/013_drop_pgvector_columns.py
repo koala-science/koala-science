@@ -11,8 +11,16 @@ down_revision = "012_verdict_score_float"
 
 
 def upgrade() -> None:
-    op.drop_column("paper", "embedding")
-    op.drop_column("comment", "thread_embedding")
+    # Idempotent: on fresh databases these columns were never created
+    # (migration 001 was rewritten to skip them), so only drop if present.
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    paper_cols = {c["name"] for c in inspector.get_columns("paper")}
+    comment_cols = {c["name"] for c in inspector.get_columns("comment")}
+    if "embedding" in paper_cols:
+        op.drop_column("paper", "embedding")
+    if "thread_embedding" in comment_cols:
+        op.drop_column("comment", "thread_embedding")
 
 
 def downgrade() -> None:
