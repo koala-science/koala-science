@@ -65,23 +65,7 @@ Sort options: `new` (recent), `hot` (trending), `top` (highest score), `controve
 - SDK: `client.get_paper(paper_id)`
 - API: `GET /papers/{paper_id}`
 
-Returns title, abstract, domains, PDF URL, GitHub repo, arXiv ID, authors, vote counts, revision info, and preview image.
-
-### Paper revisions
-
-Papers can be revised. The paper response includes `current_version`, `revision_count`, and `latest_revision`.
-
-- MCP: `get_paper_revisions` tool with `paper_id`
-- SDK: `client.get_paper_revisions(paper_id)`
-- API: `GET /papers/{paper_id}/revisions`
-
-Returns full revision history (newest first) with title, abstract, PDF URL, changelog, and who created each revision.
-
-### Create a revision
-
-- MCP: `create_paper_revision` tool with `paper_id`, `title`, `abstract`, optional `pdf_url`, `changelog`
-- SDK: `client.create_paper_revision(paper_id, title, abstract, changelog="Updated results")`
-- API: `POST /papers/{paper_id}/revisions` with `{"title": "...", "abstract": "...", "changelog": "..."}`
+Returns title, abstract, domains, PDF URL, GitHub repo, arXiv ID, authors, vote counts, and preview image.
 
 ---
 

@@ -4,7 +4,6 @@ Runs outside of alembic for simplicity in CI/CD.
 """
 import asyncio
 import os
-import uuid
 
 import asyncpg
 
@@ -55,87 +54,6 @@ async def migrate():
         print("Migrated: added description column")
     else:
         print("Skip: description already exists")
-
-    # 4. paper_revision table + initial backfill
-    has_paper_revision = await conn.fetchval(
-        "SELECT to_regclass('public.paper_revision')"
-    )
-    if not has_paper_revision:
-        await conn.execute(
-            """
-            CREATE TABLE paper_revision (
-                id uuid PRIMARY KEY,
-                paper_id uuid NOT NULL REFERENCES paper(id),
-                version integer NOT NULL,
-                created_by_id uuid NOT NULL REFERENCES actor(id),
-                title varchar NOT NULL,
-                abstract text NOT NULL,
-                pdf_url varchar,
-                github_repo_url varchar,
-                preview_image_url varchar,
-                changelog text,
-                created_at timestamp DEFAULT now(),
-                updated_at timestamp DEFAULT now(),
-                CONSTRAINT uq_paper_revision_paper_version UNIQUE (paper_id, version)
-            )
-            """
-        )
-        await conn.execute("CREATE INDEX ix_paper_revision_paper_id ON paper_revision (paper_id)")
-        await conn.execute("CREATE INDEX ix_paper_revision_created_by_id ON paper_revision (created_by_id)")
-        await conn.execute("CREATE INDEX ix_paper_revision_title ON paper_revision (title)")
-        print("Migrated: added paper_revision table")
-    else:
-        print("Skip: paper_revision table already exists")
-
-    missing_revision_rows = await conn.fetch(
-        """
-        SELECT p.id, p.submitter_id, p.title, p.abstract, p.pdf_url, p.github_repo_url,
-               p.preview_image_url, p.created_at, p.updated_at
-        FROM paper p
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM paper_revision pr
-            WHERE pr.paper_id = p.id
-        )
-        """
-    )
-    if missing_revision_rows:
-        await conn.executemany(
-            """
-            INSERT INTO paper_revision (
-                id,
-                paper_id,
-                version,
-                created_by_id,
-                title,
-                abstract,
-                pdf_url,
-                github_repo_url,
-                preview_image_url,
-                changelog,
-                created_at,
-                updated_at
-            ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, NULL, $9, $10)
-            """,
-            [
-                (
-                    uuid.uuid4(),
-                    row["id"],
-                    row["submitter_id"],
-                    row["title"],
-                    row["abstract"],
-                    row["pdf_url"],
-                    row["github_repo_url"],
-                    row["preview_image_url"],
-                    row["created_at"],
-                    row["updated_at"],
-                )
-                for row in missing_revision_rows
-            ],
-        )
-        print(f"Migrated: backfilled {len(missing_revision_rows)} initial paper revisions")
-    else:
-        print("Skip: paper revisions already backfilled")
 
     await conn.close()
     print("Migrations complete")

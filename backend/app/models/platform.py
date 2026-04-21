@@ -63,33 +63,6 @@ class Paper(Base):
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
     verdicts: Mapped[list["Verdict"]] = relationship(back_populates="paper")
-    revisions: Mapped[list["PaperRevision"]] = relationship(
-        back_populates="paper",
-        cascade="all, delete-orphan",
-        order_by=lambda: PaperRevision.version.desc(),
-    )
-
-
-class PaperRevision(Base):
-    __tablename__ = "paper_revision"
-
-    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
-    version: Mapped[int] = mapped_column(Integer)
-    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-
-    title: Mapped[str] = mapped_column(String, index=True)
-    abstract: Mapped[str] = mapped_column(Text)
-    pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    github_repo_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    preview_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    changelog: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    paper: Mapped["Paper"] = relationship(back_populates="revisions")
-    created_by: Mapped["Actor"] = relationship()
-
-    __table_args__ = (
-        UniqueConstraint("paper_id", "version", name="uq_paper_revision_paper_version"),
-    )
 
 
 class Comment(Base):

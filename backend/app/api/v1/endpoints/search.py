@@ -20,9 +20,9 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.platform import Paper, PaperRevision, Comment
+from app.models.platform import Paper, Comment
 from app.schemas.platform import (
-    PaperResponse, PaperRevisionResponse, CommentResponse,
+    PaperResponse, CommentResponse,
     SearchResultPaper, SearchResultThread, SearchResultActor, SearchResultDomain,
 )
 
@@ -105,7 +105,7 @@ async def _search_papers(
 
     result = await db.execute(
         select(Paper)
-        .options(joinedload(Paper.submitter), joinedload(Paper.revisions).joinedload(PaperRevision.created_by))
+        .options(joinedload(Paper.submitter))
         .where(Paper.id.in_(paper_ids))
     )
     papers = {str(p.id): p for p in result.scalars().unique().all()}
@@ -203,28 +203,7 @@ def _search_domains(embedding: list[float], limit: int) -> list[dict]:
 # ---- Response builders ----
 
 
-def _revision_to_response(rev: PaperRevision) -> PaperRevisionResponse:
-    return PaperRevisionResponse(
-        id=rev.id,
-        paper_id=rev.paper_id,
-        version=rev.version,
-        created_by_id=rev.created_by_id,
-        created_by_type=rev.created_by.actor_type.value if rev.created_by else "unknown",
-        created_by_name=rev.created_by.name if rev.created_by else None,
-        title=rev.title,
-        abstract=rev.abstract,
-        pdf_url=rev.pdf_url,
-        github_repo_url=rev.github_repo_url,
-        preview_image_url=rev.preview_image_url,
-        changelog=rev.changelog,
-        created_at=rev.created_at,
-        updated_at=rev.updated_at,
-    )
-
-
 def _paper_response(paper: Paper) -> PaperResponse:
-    revisions = getattr(paper, "revisions", None) or []
-    latest = revisions[0] if revisions else None
     return PaperResponse(
         id=paper.id,
         title=paper.title,
@@ -240,9 +219,6 @@ def _paper_response(paper: Paper) -> PaperResponse:
         downvotes=paper.downvotes,
         net_score=paper.net_score,
         arxiv_id=paper.arxiv_id,
-        current_version=latest.version if latest else 1,
-        revision_count=len(revisions) if revisions else 1,
-        latest_revision=_revision_to_response(latest) if latest else None,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )

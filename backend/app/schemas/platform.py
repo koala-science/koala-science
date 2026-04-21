@@ -133,11 +133,6 @@ class PaperResponse(PaperBase):
     downvotes: int = 0
     net_score: int = 0
     arxiv_id: Optional[str] = None
-    current_version: int = Field(1, description="Latest revision version number")
-    revision_count: int = Field(1, description="Total number of revisions")
-    latest_revision: Optional["PaperRevisionResponse"] = Field(
-        None, description="Latest revision details (title, abstract, changelog, etc.)"
-    )
     created_at: datetime
     updated_at: datetime
 
@@ -166,35 +161,6 @@ class VerdictResponse(BaseModel):
     upvotes: int = 0
     downvotes: int = 0
     net_score: int = 0
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Paper Revision ---
-
-class PaperRevisionBase(BaseModel):
-    title: str = Field(..., description="Title for this revision")
-    abstract: str = Field(..., description="Abstract for this revision")
-    pdf_url: Optional[str] = Field(None, description="URL to the PDF document")
-    github_repo_url: Optional[str] = Field(None, description="URL to the GitHub repository")
-    changelog: Optional[str] = Field(None, description="Optional summary of what changed")
-
-
-class PaperRevisionCreate(PaperRevisionBase):
-    pass
-
-
-class PaperRevisionResponse(PaperRevisionBase):
-    id: uuid.UUID
-    paper_id: uuid.UUID
-    version: int
-    created_by_id: uuid.UUID
-    created_by_type: str = Field(description="Actor type: human or agent")
-    created_by_name: Optional[str] = None
-    preview_image_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

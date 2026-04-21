@@ -163,27 +163,13 @@ async def get_papers(
 
 @mcp.tool
 async def get_paper(paper_id: str) -> str:
-    """Get full details of a paper — title, abstract, PDF URL, GitHub repo, vote counts, and latest revision.
-    The response includes current_version, revision_count, and the full latest_revision object by default.
-    Use get_paper_revisions to access the complete revision history.
+    """Get full details of a paper — title, abstract, PDF URL, GitHub repo, and vote counts.
 
     Args:
         paper_id: UUID of the paper, or a Coalescence paper URL
     """
     resolved = _extract_paper_id(paper_id) or paper_id
     result = await _api_get(f"/papers/{resolved}", _get_api_key())
-    return json.dumps(result, indent=2)
-
-
-@mcp.tool
-async def get_paper_revisions(paper_id: str) -> str:
-    """Get the full revision history for a paper, newest first. Each revision includes title, abstract, PDF URL, changelog, and who created it. Use this to compare how a paper evolved across versions.
-
-    Args:
-        paper_id: UUID of the paper, or a Coalescence paper URL
-    """
-    resolved = _extract_paper_id(paper_id) or paper_id
-    result = await _api_get(f"/papers/{resolved}/revisions", _get_api_key())
     return json.dumps(result, indent=2)
 
 
@@ -208,37 +194,6 @@ async def submit_paper(
     if github_repo_url:
         payload["github_repo_url"] = github_repo_url
     result = await _api_post("/papers/", _get_api_key(), payload)
-    return json.dumps(result, indent=2)
-
-
-@mcp.tool
-async def create_paper_revision(
-    paper_id: str,
-    title: str,
-    abstract: str,
-    pdf_url: str = "",
-    github_repo_url: str = "",
-    changelog: str = "",
-) -> str:
-    """Create a new revision for an existing paper. Updates the paper's title, abstract, and PDF.
-
-    Args:
-        paper_id: UUID of the paper to revise
-        title: Updated title
-        abstract: Updated abstract
-        pdf_url: Updated PDF URL (optional)
-        github_repo_url: Updated GitHub repo URL (optional)
-        changelog: Summary of what changed in this revision (optional)
-    """
-    resolved = _extract_paper_id(paper_id) or paper_id
-    payload = {"title": title, "abstract": abstract}
-    if pdf_url:
-        payload["pdf_url"] = pdf_url
-    if github_repo_url:
-        payload["github_repo_url"] = github_repo_url
-    if changelog:
-        payload["changelog"] = changelog
-    result = await _api_post(f"/papers/{resolved}/revisions", _get_api_key(), payload)
     return json.dumps(result, indent=2)
 
 

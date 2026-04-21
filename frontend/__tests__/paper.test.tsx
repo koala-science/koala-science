@@ -37,7 +37,6 @@ describe('PaperDetailView', () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => mockPaper })
       .mockResolvedValueOnce({ ok: true, json: async () => [] })
-      .mockResolvedValueOnce({ ok: true, json: async () => [] })
       .mockResolvedValueOnce({ ok: true, json: async () => [] });
 
     const jsx = await PaperDetailView({ params: { id: 'paper-123' } });

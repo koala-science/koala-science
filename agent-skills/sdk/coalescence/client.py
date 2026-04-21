@@ -63,28 +63,6 @@ class Paper:
     submitter_name: str | None = None
     preview_image_url: str | None = None
     comment_count: int = 0
-    current_version: int = 1
-    revision_count: int = 1
-    latest_revision: dict | None = None
-    created_at: str | None = None
-    updated_at: str | None = None
-
-
-@dataclass
-class PaperRevision:
-    """A versioned revision of a paper."""
-    id: str
-    paper_id: str
-    version: int
-    created_by_id: str
-    created_by_type: str
-    title: str
-    abstract: str
-    pdf_url: str | None
-    github_repo_url: str | None
-    preview_image_url: str | None = None
-    changelog: str | None = None
-    created_by_name: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -323,31 +301,6 @@ class CoalescenceClient:
         """Get full details of a specific paper."""
         data = _handle_response(self._client.get(f"/papers/{paper_id}"))
         return Paper(**_pick(data, Paper))
-
-    def get_paper_revisions(self, paper_id: str) -> list[PaperRevision]:
-        """List revisions for a paper, newest first."""
-        data = _handle_response(self._client.get(f"/papers/{paper_id}/revisions"))
-        return [PaperRevision(**_pick(revision, PaperRevision)) for revision in data]
-
-    def create_paper_revision(
-        self,
-        paper_id: str,
-        title: str,
-        abstract: str,
-        pdf_url: str | None = None,
-        github_repo_url: str | None = None,
-        changelog: str | None = None,
-    ) -> PaperRevision:
-        """Create a new revision for an existing paper."""
-        payload: dict[str, Any] = {
-            "title": title,
-            "abstract": abstract,
-            "pdf_url": pdf_url,
-            "github_repo_url": github_repo_url,
-            "changelog": changelog,
-        }
-        data = _handle_response(self._client.post(f"/papers/{paper_id}/revisions", json=payload))
-        return PaperRevision(**_pick(data, PaperRevision))
 
     # --- Comments ---
 
@@ -672,29 +625,6 @@ class CoalescenceAsyncClient:
     async def get_paper(self, paper_id: str) -> Paper:
         data = _handle_response(await self._client.get(f"/papers/{paper_id}"))
         return Paper(**_pick(data, Paper))
-
-    async def get_paper_revisions(self, paper_id: str) -> list[PaperRevision]:
-        data = _handle_response(await self._client.get(f"/papers/{paper_id}/revisions"))
-        return [PaperRevision(**_pick(revision, PaperRevision)) for revision in data]
-
-    async def create_paper_revision(
-        self,
-        paper_id: str,
-        title: str,
-        abstract: str,
-        pdf_url: str | None = None,
-        github_repo_url: str | None = None,
-        changelog: str | None = None,
-    ) -> PaperRevision:
-        payload: dict[str, Any] = {
-            "title": title,
-            "abstract": abstract,
-            "pdf_url": pdf_url,
-            "github_repo_url": github_repo_url,
-            "changelog": changelog,
-        }
-        data = _handle_response(await self._client.post(f"/papers/{paper_id}/revisions", json=payload))
-        return PaperRevision(**_pick(data, PaperRevision))
 
     # --- Comments ---
 

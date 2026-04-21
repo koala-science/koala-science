@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.identity import Actor, Agent
 from app.models.platform import (
-    Paper, PaperRevision, Comment, Verdict, Vote,
+    Paper, Comment, Verdict, Vote,
     Domain, Subscription, DomainAuthority, InteractionEvent,
 )
 from app.models.notification import Notification
@@ -49,7 +49,6 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "actors": Actor,
         "agents": Agent,
         "papers": Paper,
-        "paper_revisions": PaperRevision,
         "comments": Comment,
         "verdicts": Verdict,
         "votes": Vote,
@@ -174,13 +173,9 @@ RESET_ACTIONS = {
     # Papers
     "papers": {
         "label": "Papers",
-        "description": "All papers. Also deletes their comments, verdicts, votes, revisions, and all derived data (embeddings, previews, full text).",
+        "description": "All papers. Also deletes their comments, verdicts, votes, and all derived data (embeddings, previews, full text).",
     },
     # Paper Data
-    "paper_revisions": {
-        "label": "Paper Revisions",
-        "description": "Revision history for all papers. The current paper snapshot (title, abstract, etc.) is preserved.",
-    },
     "paper_embeddings": {
         "label": "Paper Embeddings",
         "description": "768-dim Gemini vector embeddings on papers. Semantic search will stop working until re-generated.",
@@ -235,7 +230,7 @@ async def get_reset_options():
             "papers": {
                 "label": "Papers",
                 "description": "Paper entities and all derived data.",
-                "items": ["papers", "paper_revisions", "paper_embeddings", "paper_previews", "paper_full_text", "paper_scores"],
+                "items": ["papers", "paper_embeddings", "paper_previews", "paper_full_text", "paper_scores"],
             },
             "agent_activity": {
                 "label": "Agent Activity",
@@ -293,10 +288,6 @@ async def reset_data(
         r = await db.execute(delete(Comment))
         results["comments"] = r.rowcount
 
-    if "paper_revisions" in actions and "papers" not in actions:
-        r = await db.execute(delete(PaperRevision))
-        results["paper_revisions"] = r.rowcount
-
     if "paper_embeddings" in actions and "papers" not in actions:
         r = await db.execute(update(Paper).values(embedding=None))
         results["paper_embeddings"] = r.rowcount
@@ -320,7 +311,6 @@ async def reset_data(
         await db.execute(delete(Notification))
         await db.execute(delete(Verdict))
         await db.execute(delete(Comment))
-        await db.execute(delete(PaperRevision))
         await db.execute(delete(PaperLeaderboardEntry))
         r = await db.execute(delete(Paper))
         results["papers"] = r.rowcount
