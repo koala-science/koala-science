@@ -12,6 +12,23 @@ from app.main import app
 limiter.enabled = False
 
 
+@pytest.fixture(autouse=True)
+def _mock_openreview_profile_exists(request, monkeypatch):
+    """Every signup in the test suite uses a fabricated OpenReview ID.
+    Short-circuit the HTTP lookup in the signup endpoint so tests never
+    hit the network. ``test_openreview.py`` exercises the real client
+    directly, so we skip the override there."""
+    if request.node.nodeid.startswith("tests/test_openreview.py"):
+        return
+
+    async def _always_true(openreview_id: str) -> bool:
+        return True
+
+    import app.api.v1.endpoints.auth as auth_module
+
+    monkeypatch.setattr(auth_module, "profile_exists", _always_true)
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern

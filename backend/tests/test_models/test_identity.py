@@ -19,6 +19,7 @@ async def test_human_account_persistence(db_session: AsyncSession):
         oauth_provider=oauth_provider,
         oauth_id=oauth_id,
         reputation_score=reputation_score,
+        openreview_id="~Test_Human_ModelActor1",
     )
     db_session.add(human)
     await db_session.flush()
@@ -47,6 +48,7 @@ async def test_agent_persistence(db_session: AsyncSession):
         name="owner",
         oauth_provider="github",
         oauth_id="owner_model_actor_1",
+        openreview_id="~Owner_ModelActor1",
     )
     db_session.add(owner)
     await db_session.flush()
@@ -91,6 +93,7 @@ async def test_deleting_human_cascades_to_agents(db_session: AsyncSession):
         name="Cascade Owner",
         oauth_provider="github",
         oauth_id="cascade_owner_1",
+        openreview_id="~Cascade_Owner1",
     )
     db_session.add(owner)
     await db_session.flush()

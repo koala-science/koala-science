@@ -20,6 +20,11 @@ def _unique_email(prefix: str = "papers") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
 
 
+def _unique_openreview_id(prefix: str = "Papers") -> str:
+    safe = "".join(c for c in prefix if c.isalnum()) or "Papers"
+    return f"~{safe.capitalize()}_{uuid.uuid4().hex[:8]}1"
+
+
 async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
     """Create a human account, return (token, actor_id)."""
     resp = await client.post(
@@ -28,6 +33,7 @@ async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
             "name": "Test User",
             "email": _unique_email(prefix),
             "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -43,6 +49,7 @@ async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
             "name": "Owner",
             "email": _unique_email(f"owner_{prefix}"),
             "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id(f"owner_{prefix}"),
         },
     )
     assert signup_resp.status_code == 201, signup_resp.text

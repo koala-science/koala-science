@@ -11,6 +11,7 @@ async def test_human_account_reputation(db_session: AsyncSession):
         reputation_score=100,
         oauth_provider="github",
         oauth_id="rep_test_async_1",
+        openreview_id="~Test_Rep1",
     )
     db_session.add(user)
     await db_session.flush()
@@ -27,6 +28,7 @@ async def test_agent_relationship(db_session: AsyncSession):
         hashed_password="hashed_password",
         oauth_provider="github",
         oauth_id="owner_rel_async_1",
+        openreview_id="~Owner_Rel1",
     )
     db_session.add(user)
     await db_session.flush()
@@ -51,6 +53,7 @@ async def test_actor_polymorphic_query(db_session: AsyncSession):
         email="poly_human@example.com",
         oauth_provider="github",
         oauth_id="poly_1",
+        openreview_id="~Poly_Human1",
     )
     db_session.add(human)
     await db_session.flush()

@@ -1,7 +1,11 @@
+import re
 import uuid
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+OPENREVIEW_ID_PATTERN = re.compile(r"^~[A-Za-z][A-Za-z0-9_\-]*\d+$")
 
 
 class Token(BaseModel):
@@ -24,6 +28,20 @@ class SignupRequest(BaseModel):
     email: str = Field(..., description="Email address")
     password: str = Field(..., min_length=8, description="Password (min 8 characters)")
     name: str = Field(..., description="Display name")
+    openreview_id: str = Field(
+        ...,
+        description="OpenReview profile ID (format: ~First_Last1)",
+    )
+
+    @field_validator("openreview_id")
+    @classmethod
+    def _validate_openreview_id(cls, v: str) -> str:
+        if not OPENREVIEW_ID_PATTERN.match(v):
+            raise ValueError(
+                "openreview_id must look like ~First_Last1 "
+                "(tilde + letter-started name + trailing digit)"
+            )
+        return v
 
 
 class LoginRequest(BaseModel):

@@ -7,6 +7,12 @@ def _unique_email(prefix: str = "test") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
 
 
+def _unique_openreview_id(prefix: str = "User") -> str:
+    """Generate a unique well-formed OpenReview ID for test signups."""
+    suffix = uuid.uuid4().hex[:8]
+    return f"~{prefix}_{suffix}1"
+
+
 async def _signup(client: AsyncClient, prefix: str = "user") -> tuple[str, str]:
     """Sign up a human account, return (access_token, actor_id)."""
     resp = await client.post(
@@ -15,6 +21,7 @@ async def _signup(client: AsyncClient, prefix: str = "user") -> tuple[str, str]:
             "name": "Test User",
             "email": _unique_email(prefix),
             "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id(prefix.capitalize() or "User"),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -221,6 +228,7 @@ async def test_signup_and_login(client: AsyncClient):
             "name": "Auth Test User",
             "email": email,
             "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id("Signup"),
         },
     )
     assert signup_resp.status_code == 201
@@ -249,6 +257,7 @@ async def test_login_wrong_password(client: AsyncClient):
             "name": "Wrong Pass User",
             "email": email,
             "password": "correct_password",
+            "openreview_id": _unique_openreview_id("WrongPass"),
         },
     )
 
@@ -260,3 +269,117 @@ async def test_login_wrong_password(client: AsyncClient):
         },
     )
     assert response.status_code == 401
+
+
+async def test_signup_requires_openreview_id(client: AsyncClient):
+    """Missing openreview_id → 422."""
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "No OR",
+            "email": _unique_email("no_or"),
+            "password": "secure_password_123",
+        },
+    )
+    assert resp.status_code == 422
+
+
+async def test_signup_rejects_malformed_openreview_id(client: AsyncClient):
+    """Malformed openreview_id values → 422."""
+    bad_ids = ["alice", "~alice", "~Alice_Chen", "~1Alice1", "", "Alice_Chen1"]
+    for bad_id in bad_ids:
+        resp = await client.post(
+            "/api/v1/auth/signup",
+            json={
+                "name": "Bad OR",
+                "email": _unique_email("bad_or"),
+                "password": "secure_password_123",
+                "openreview_id": bad_id,
+            },
+        )
+        assert resp.status_code == 422, f"expected 422 for {bad_id!r}, got {resp.status_code}"
+
+
+async def test_signup_accepts_hyphenated_surname(client: AsyncClient):
+    """Hyphenated surnames like ~Eugenio_Herrera-Berg1 are accepted."""
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Eugenio Herrera-Berg",
+            "email": _unique_email("hyphen"),
+            "password": "secure_password_123",
+            "openreview_id": f"~Eugenio_Herrera-Berg_{uuid.uuid4().hex[:6]}1",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_signup_rejects_nonexistent_openreview_id(client: AsyncClient, monkeypatch):
+    """A well-formed openreview_id that OpenReview doesn't know about → 422."""
+    import app.api.v1.endpoints.auth as auth_module
+
+    async def _returns_false(openreview_id: str) -> bool:
+        return False
+
+    monkeypatch.setattr(auth_module, "profile_exists", _returns_false)
+
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Ghost",
+            "email": _unique_email("ghost"),
+            "password": "secure_password_123",
+            "openreview_id": f"~Ghost_User_{uuid.uuid4().hex[:6]}1",
+        },
+    )
+    assert resp.status_code == 422
+    assert "OpenReview" in resp.json()["detail"]
+
+
+async def test_signup_rejects_duplicate_openreview_id(client: AsyncClient):
+    """Two signups with the same openreview_id → second returns 409."""
+    openreview_id = _unique_openreview_id("Dup")
+
+    first = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "First User",
+            "email": _unique_email("dup_first"),
+            "password": "secure_password_123",
+            "openreview_id": openreview_id,
+        },
+    )
+    assert first.status_code == 201, first.text
+
+    second = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Second User",
+            "email": _unique_email("dup_second"),
+            "password": "secure_password_123",
+            "openreview_id": openreview_id,
+        },
+    )
+    assert second.status_code == 409
+
+
+async def test_signup_returns_503_when_openreview_down(client: AsyncClient, monkeypatch):
+    """Network error talking to OpenReview → signup returns 503."""
+    import app.api.v1.endpoints.auth as auth_module
+    from app.core.openreview import OpenReviewUnavailableError
+
+    async def _boom(openreview_id: str) -> bool:
+        raise OpenReviewUnavailableError("boom")
+
+    monkeypatch.setattr(auth_module, "profile_exists", _boom)
+
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Unlucky",
+            "email": _unique_email("down"),
+            "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id("Down"),
+        },
+    )
+    assert resp.status_code == 503

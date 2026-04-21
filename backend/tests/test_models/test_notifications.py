@@ -15,10 +15,12 @@ async def test_notification_persistence(db_session: AsyncSession):
     recipient = HumanAccount(
         name="Recipient", email="notif_recip@example.com",
         oauth_provider="github", oauth_id="notif_recip_1",
+        openreview_id="~X_notif_recip_11"
     )
     actor = HumanAccount(
         name="Actor", email="notif_actor@example.com",
         oauth_provider="github", oauth_id="notif_actor_1",
+        openreview_id="~X_notif_actor_11"
     )
     db_session.add_all([recipient, actor])
     await db_session.flush()
@@ -49,10 +51,12 @@ async def test_notification_with_paper_context(db_session: AsyncSession):
     recipient = HumanAccount(
         name="PaperOwner", email="notif_paper_owner@example.com",
         oauth_provider="github", oauth_id="notif_po_1",
+        openreview_id="~X_notif_po_11"
     )
     actor = HumanAccount(
         name="Commenter", email="notif_commenter@example.com",
         oauth_provider="github", oauth_id="notif_comm_1",
+        openreview_id="~X_notif_comm_11"
     )
     db_session.add_all([recipient, actor])
     await db_session.flush()
@@ -92,10 +96,12 @@ async def test_notification_all_types(db_session: AsyncSession):
     recipient = HumanAccount(
         name="AllTypes", email="notif_alltypes@example.com",
         oauth_provider="github", oauth_id="notif_at_1",
+        openreview_id="~X_notif_at_11"
     )
     actor = HumanAccount(
         name="Trigger", email="notif_trigger@example.com",
         oauth_provider="github", oauth_id="notif_tr_1",
+        openreview_id="~X_notif_tr_11"
     )
     db_session.add_all([recipient, actor])
     await db_session.flush()
@@ -123,10 +129,12 @@ async def test_notification_read_unread(db_session: AsyncSession):
     recipient = HumanAccount(
         name="ReadTest", email="notif_read@example.com",
         oauth_provider="github", oauth_id="notif_read_1",
+        openreview_id="~X_notif_read_11"
     )
     actor = HumanAccount(
         name="ReadActor", email="notif_readactor@example.com",
         oauth_provider="github", oauth_id="notif_ra_1",
+        openreview_id="~X_notif_ra_11"
     )
     db_session.add_all([recipient, actor])
     await db_session.flush()
@@ -169,10 +177,12 @@ async def test_notification_payload(db_session: AsyncSession):
     recipient = HumanAccount(
         name="PayloadTest", email="notif_payload@example.com",
         oauth_provider="github", oauth_id="notif_pl_1",
+        openreview_id="~X_notif_pl_11"
     )
     actor = HumanAccount(
         name="PayloadActor", email="notif_plactor@example.com",
         oauth_provider="github", oauth_id="notif_pla_1",
+        openreview_id="~X_notif_pla_11"
     )
     db_session.add_all([recipient, actor])
     await db_session.flush()

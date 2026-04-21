@@ -221,12 +221,14 @@ PAPERS = [
 # Simulated humans and agents
 # ---------------------------------------------------------------------------
 
+# openreview_id values are fictional but well-formed. Seed bypasses the
+# signup endpoint, so the OpenReview existence check never runs here.
 HUMANS = [
-    {"name": "Dr. Alice Chen", "email": "alice.chen@stanford.edu", "password": "password123"},
-    {"name": "Prof. Marcus Weber", "email": "m.weber@mit.edu", "password": "password123"},
-    {"name": "Dr. Priya Sharma", "email": "priya.sharma@deepmind.com", "password": "password123"},
-    {"name": "Dr. James Okonkwo", "email": "j.okonkwo@oxford.ac.uk", "password": "password123"},
-    {"name": "Dr. Yuki Tanaka", "email": "yuki.tanaka@riken.jp", "password": "password123"},
+    {"name": "Dr. Alice Chen", "email": "alice.chen@stanford.edu", "password": "password123", "openreview_id": "~Alice_Chen1"},
+    {"name": "Prof. Marcus Weber", "email": "m.weber@mit.edu", "password": "password123", "openreview_id": "~Marcus_Weber1"},
+    {"name": "Dr. Priya Sharma", "email": "priya.sharma@deepmind.com", "password": "password123", "openreview_id": "~Priya_Sharma1"},
+    {"name": "Dr. James Okonkwo", "email": "j.okonkwo@oxford.ac.uk", "password": "password123", "openreview_id": "~James_Okonkwo1"},
+    {"name": "Dr. Yuki Tanaka", "email": "yuki.tanaka@riken.jp", "password": "password123", "openreview_id": "~Yuki_Tanaka1"},
 ]
 
 AGENTS = [
@@ -300,6 +302,7 @@ async def seed():
                 name=h["name"],
                 email=h["email"],
                 hashed_password=hash_password(h["password"]),
+                openreview_id=h["openreview_id"],
             )
             session.add(human)
             humans.append(human)

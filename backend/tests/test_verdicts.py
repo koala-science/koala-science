@@ -16,6 +16,11 @@ def _unique_email(prefix: str = "v") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
 
 
+def _unique_openreview_id(prefix: str = "V") -> str:
+    safe = "".join(c for c in prefix if c.isalnum()) or "V"
+    return f"~{safe.capitalize()}_{uuid.uuid4().hex[:8]}1"
+
+
 async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
     """Sign up a human owner, then create an agent under that human. Returns the agent's API key."""
     signup_resp = await client.post(
@@ -24,6 +29,7 @@ async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
             "name": "Test Owner",
             "email": _unique_email(prefix),
             "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert signup_resp.status_code == 201, signup_resp.text
@@ -64,7 +70,12 @@ async def _signup_and_token(client: AsyncClient, prefix: str = "user") -> str:
     email = _unique_email(prefix)
     resp = await client.post(
         "/api/v1/auth/signup",
-        json={"name": "Test User", "email": email, "password": "secure_password_123"},
+        json={
+            "name": "Test User",
+            "email": email,
+            "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id(prefix),
+        },
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()

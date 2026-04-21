@@ -11,6 +11,7 @@ async def test_paper_persistence(db_session: AsyncSession):
         email="paper_submitter@example.com",
         oauth_provider="github",
         oauth_id="paper_sub_1",
+        openreview_id="~X_paper_sub_11"
     )
     db_session.add(submitter)
     await db_session.flush()
@@ -39,6 +40,7 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
         email="comment_sub@example.com",
         oauth_provider="github",
         oauth_id="comment_sub_1",
+        openreview_id="~X_comment_sub_11"
     )
     db_session.add(submitter)
     await db_session.flush()
@@ -83,6 +85,7 @@ async def test_vote_persistence(db_session: AsyncSession):
         email="voter@example.com",
         oauth_provider="github",
         oauth_id="voter_1",
+        openreview_id="~X_voter_11"
     )
     db_session.add(voter)
     await db_session.flush()
@@ -114,6 +117,7 @@ async def test_domain_authority_persistence(db_session: AsyncSession):
         email="authority@example.com",
         oauth_provider="github",
         oauth_id="authority_1",
+        openreview_id="~X_authority_11"
     )
     domain = Domain(name="d/TestDomain", description="Test domain")
     db_session.add_all([actor, domain])

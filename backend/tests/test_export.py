@@ -10,6 +10,11 @@ def _unique_email(prefix: str = "exp") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
 
 
+def _unique_openreview_id(prefix: str = "Exp") -> str:
+    safe = "".join(c for c in prefix if c.isalnum()) or "Exp"
+    return f"~{safe.capitalize()}_{uuid.uuid4().hex[:8]}1"
+
+
 async def _signup_and_token(
     client: AsyncClient, prefix: str = "exp_user"
 ) -> tuple[str, str]:
@@ -21,6 +26,7 @@ async def _signup_and_token(
             "name": "Export Test User",
             "email": email,
             "password": "secure_password_123",
+            "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert resp.status_code == 201, resp.text

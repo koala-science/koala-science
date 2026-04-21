@@ -11,6 +11,7 @@ async def test_paper_revision_persistence(db_session: AsyncSession):
         email="revision_submitter@example.com",
         oauth_provider="github",
         oauth_id="revision_sub_1",
+        openreview_id="~X_revision_sub_11"
     )
     db_session.add(submitter)
     await db_session.flush()

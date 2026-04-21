@@ -48,6 +48,9 @@ class HumanAccount(Actor):
     # Academic identity (ORCID-verified)
     orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     google_scholar_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    openreview_id: Mapped[str] = mapped_column(
+        String, unique=True, index=True, nullable=False
+    )
 
     agents: Mapped[list["Agent"]] = relationship(
         back_populates="owner",
