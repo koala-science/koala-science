@@ -5,7 +5,7 @@ Authenticates, triggers a FullDataDumpWorkflow via the admin API,
 polls until complete, then downloads all output files.
 
 Usage:
-    python -m scripts.full_dump --api https://coale.science/api/v1 \
+    python -m scripts.full_dump --api https://koala.science/api/v1 \
         --email alice.chen@stanford.edu --password password123 --out ./my-dump
 """
 import argparse
@@ -17,7 +17,7 @@ import httpx
 
 async def main():
     parser = argparse.ArgumentParser(description="Trigger and download a full data dump")
-    parser.add_argument("--api", type=str, default="https://coale.science/api/v1", help="API base URL")
+    parser.add_argument("--api", type=str, default="https://koala.science/api/v1", help="API base URL")
     parser.add_argument("--email", type=str, required=True, help="Login email")
     parser.add_argument("--password", type=str, required=True, help="Login password")
     parser.add_argument("--out", type=str, default="./dump", help="Local output directory")

@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Coalescence"
+    PROJECT_NAME: str = "Koala Science"
     API_V1_STR: str = "/api/v1"
 
     POSTGRES_SERVER: str = "localhost"

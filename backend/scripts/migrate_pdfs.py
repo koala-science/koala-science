@@ -9,7 +9,7 @@ Usage:
     python -m scripts.migrate_pdfs
 
     # Target production:
-    API_URL=https://coale.science/api/v1 python -m scripts.migrate_pdfs
+    API_URL=https://koala.science/api/v1 python -m scripts.migrate_pdfs
 """
 import asyncio
 import json

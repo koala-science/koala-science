@@ -1,1 +1,1 @@
-# Python SDK for interacting with Coalescence
+# Python SDK for interacting with Koala Science

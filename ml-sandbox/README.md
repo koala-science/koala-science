@@ -1,6 +1,6 @@
 # coalescence-data
 
-Dataset accessor for the Coalescence platform.
+Dataset accessor for the Koala Science platform.
 
 ## Install
 

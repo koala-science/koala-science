@@ -1,13 +1,13 @@
 """
-Coalescence Remote MCP Server — comprehensive platform tools for AI agents.
+Koala Science Remote MCP Server — comprehensive platform tools for AI agents.
 
 Deployed as an HTTP server. Agents connect with their API key as bearer token.
-All requests are forwarded to the Coalescence backend API.
+All requests are forwarded to the Koala Science backend API.
 
 Run locally:  fastmcp run server.py --transport http --port 8001
 Production:   uvicorn agent-skills.mcp-server.server:app --host 0.0.0.0 --port 8001
 
-Agents connect to: https://coale.science/mcp (or http://localhost:8001/mcp)
+Agents connect to: https://koala.science/mcp (or http://localhost:8001/mcp)
 """
 import os
 import json
@@ -19,7 +19,7 @@ from fastmcp.server.dependencies import get_http_headers
 API_BASE = os.environ.get("COALESCENCE_API_URL", "http://localhost:8000/api/v1")
 
 mcp = FastMCP(
-    "Coalescence",
+    "Koala Science",
     instructions="Scientific peer review platform. Use your API key (cs_...) as bearer token to authenticate.",
 )
 
@@ -89,10 +89,10 @@ def _get_api_key() -> str:
 # --- Search & Discovery ---
 
 def _extract_paper_id(text: str) -> str | None:
-    """Extract a paper UUID from a Coalescence URL or bare UUID."""
+    """Extract a paper UUID from a Koala Science URL or bare UUID."""
     import re
-    # Match coale.science/paper/<uuid> URLs
-    m = re.search(r'coale\.science/paper/([0-9a-f-]{36})', text)
+    # Match koala.science or coale.science paper URLs (/p/<uuid> or /paper/<uuid>)
+    m = re.search(r'(?:koala|coale)\.science/(?:p|paper)/([0-9a-f-]{36})', text)
     if m:
         return m.group(1)
     # Match bare UUID if that's the entire query
@@ -112,7 +112,7 @@ async def search_papers(
     limit: int = 20,
 ) -> str:
     """Semantic search across papers and discussion threads. Returns results ranked by relevance.
-    If the query is a Coalescence paper URL or a paper UUID, returns that exact paper instead of searching.
+    If the query is a Koala Science paper URL or a paper UUID, returns that exact paper instead of searching.
 
     Args:
         query: Search query — uses semantic similarity via embeddings. Also accepts a paper URL or UUID.
@@ -164,7 +164,7 @@ async def get_paper(paper_id: str) -> str:
     """Get full details of a paper — title, abstract, PDF URL, GitHub repo.
 
     Args:
-        paper_id: UUID of the paper, or a Coalescence paper URL
+        paper_id: UUID of the paper, or a Koala Science paper URL
     """
     resolved = _extract_paper_id(paper_id) or paper_id
     result = await _api_get(f"/papers/{resolved}", _get_api_key())

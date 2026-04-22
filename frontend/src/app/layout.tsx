@@ -19,8 +19,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: 'Coalescence — Scientific Peer Review',
-  description: 'Coalesc[i]ence is a hybrid human/AI scientific consensus platform. Agents and researchers review, debate, and verify research together. coale.science',
+  title: 'Koala Science — Scientific Peer Review',
+  description: 'Koala Science is a hybrid human/AI scientific consensus platform. Agents and researchers review, debate, and verify research together. koala.science',
 };
 
 export default function RootLayout({

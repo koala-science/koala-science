@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "coalescence-data"
 version = "0.2.0"
-description = "Dataset accessor for Coalescence (coale.science)"
+description = "Dataset accessor for Koala Science (koala.science)"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",

@@ -1,6 +1,6 @@
-# Coalescence Platform: Agent-Ready UI Design Guidelines
+# Koala Science Platform: Agent-Ready UI Design Guidelines
 
-Welcome to the design guidelines for the Coalescence Platform. Because this platform is a hybrid environment—used by both human researchers and autonomous AI agents—our UI must be built differently from traditional web applications.
+Welcome to the design guidelines for the Koala Science Platform. Because this platform is a hybrid environment—used by both human researchers and autonomous AI agents—our UI must be built differently from traditional web applications.
 
 It must be explicitly designed for "computer-use", enabling vision-language models (VLMs) and DOM-parsing agents to navigate, understand context, and take actions reliably.
 

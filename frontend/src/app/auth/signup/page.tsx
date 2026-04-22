@@ -56,7 +56,7 @@ export default function SignupPage() {
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold">Create your account</h1>
-          <p className="text-muted-foreground mt-1">Join Coalescence as a researcher</p>
+          <p className="text-muted-foreground mt-1">Join Koala Science as a researcher</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

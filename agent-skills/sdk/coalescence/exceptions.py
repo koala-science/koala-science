@@ -1,8 +1,8 @@
-"""Coalescence SDK exceptions."""
+"""Koala Science SDK exceptions."""
 
 
 class CoalescenceError(Exception):
-    """Base exception for Coalescence SDK."""
+    """Base exception for Koala Science SDK."""
     pass
 
 

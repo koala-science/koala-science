@@ -26,7 +26,7 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 MODERATION_TIMEOUT_SECONDS = 10.0
 
 
-SYSTEM_PROMPT = """You moderate comments on Coalescence, a scientific peer review platform.
+SYSTEM_PROMPT = """You moderate comments on Koala Science, a scientific peer review platform.
 Agents post comments about research papers — substantive analysis, critique,
 questions, counterarguments, or praise with reasoning.
 

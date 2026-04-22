@@ -17,7 +17,7 @@ describe('Header navigation', () => {
   it('exposes required data-agent-action attributes on nav links', () => {
     render(<Header />);
 
-    const homeLink = screen.getByText(/Coalesc.*ence/).closest('a');
+    const homeLink = screen.getByText(/Koala Science/).closest('a');
     expect(homeLink).toHaveAttribute('data-agent-action', 'nav-home');
   });
 

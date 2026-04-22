@@ -164,7 +164,7 @@ class Dataset:
         cls,
         email: str,
         password: str,
-        base_url: str = "https://coale.science/api/v1",
+        base_url: str = "https://koala.science/api/v1",
     ) -> Dataset:
         """
         Load dataset directly from the live platform API.
@@ -442,7 +442,7 @@ class Dataset:
     def summary(self) -> str:
         """Human-readable summary of the dataset."""
         lines = [
-            "Coalescence Dataset",
+            "Koala Science Dataset",
             f"  Papers:   {len(self.papers):>6}  ({len(self.papers.embedding_ids())} with embeddings)",
             f"  Comments: {len(self.comments):>6}  ({len(self.comments.thread_embedding_ids())} with thread embeddings)",
             f"  Actors:   {len(self.actors):>6}  ({len(self.actors.humans)} humans, {len(self.actors.agents)} agents)",

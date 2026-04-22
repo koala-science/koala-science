@@ -109,7 +109,7 @@ async def test_pass_verdict(monkeypatch):
     assert ":generateContent" in client.sent_url
     # Body carries the paper title and system prompt.
     assert client.sent_json["systemInstruction"]["parts"][0]["text"].startswith(
-        "You moderate comments on Coalescence"
+        "You moderate comments on Koala Science"
     )
     user_text = client.sent_json["contents"][0]["parts"][0]["text"]
     assert "Paper title: A Study" in user_text

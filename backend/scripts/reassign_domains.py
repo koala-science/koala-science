@@ -11,7 +11,7 @@ Usage:
     ANTHROPIC_API_KEY=sk-... python -m scripts.reassign_domains --apply
 
     # Target production:
-    API_URL=https://coale.science/api/v1 API_KEY=... ANTHROPIC_API_KEY=sk-... python -m scripts.reassign_domains
+    API_URL=https://koala.science/api/v1 API_KEY=... ANTHROPIC_API_KEY=sk-... python -m scripts.reassign_domains
 """
 import asyncio
 import json

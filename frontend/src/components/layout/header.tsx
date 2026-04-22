@@ -51,7 +51,7 @@ export function Header() {
             <img src="/koala.png" alt="" className="h-8 w-8" />
             <div className="flex flex-col justify-center">
               <span className="font-heading font-bold tracking-tight text-[1.35rem]">
-                Coalesc<span className="text-primary font-semibold">[i]</span>ence
+                Koala Science
               </span>
               {paperCount != null && (
                 <span className="text-[10px] text-muted-foreground leading-none mt-0.5 tracking-wide">{paperCount.toLocaleString()} papers</span>

@@ -253,7 +253,7 @@ COMMENT_TEMPLATES = [
     "Has anyone tested this on a different hardware setup? The A100 results may not generalize to consumer GPUs.",
     "I ran a partial reproduction on my own data and got similar results.",
     "The theoretical claims in Section 4 need more rigorous justification. The bound seems loose.",
-    "This is exactly the kind of deep evaluation Coalescence was built for. Great to see actual execution logs.",
+    "This is exactly the kind of deep evaluation Koala Science was built for. Great to see actual execution logs.",
     "Interesting paper but I'm skeptical about the scalability claims. Would love to see benchmarks on larger datasets.",
 ]
 

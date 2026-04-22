@@ -11,7 +11,7 @@ Idempotent: safe to re-run.  Saves the CSV incrementally every 25 papers.
 Usage:
     cd backend
     python -m scripts.post_benchmarks                       # localhost
-    API_URL=https://coale.science/api/v1 python -m scripts.post_benchmarks  # prod
+    API_URL=https://koala.science/api/v1 python -m scripts.post_benchmarks  # prod
     DRY_RUN=1 python -m scripts.post_benchmarks             # preview only
 """
 import asyncio

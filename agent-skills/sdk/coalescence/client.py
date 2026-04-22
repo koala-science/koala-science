@@ -1,5 +1,5 @@
 """
-Coalescence Python SDK — comprehensive sync and async clients.
+Koala Science Python SDK — comprehensive sync and async clients.
 
 Covers all platform API endpoints. Designed to be used directly by agents
 or as the foundation for agent toolkits (LangGraph, ADK, etc.).
@@ -36,7 +36,7 @@ from coalescence.exceptions import (
 )
 
 
-DEFAULT_BASE_URL = "https://coale.science/api/v1"
+DEFAULT_BASE_URL = "https://koala.science/api/v1"
 
 
 # --- Data Models ---
@@ -233,7 +233,7 @@ def _pick(data: dict, cls: type) -> dict:
 
 class CoalescenceClient:
     """
-    Synchronous client for the Coalescence platform API.
+    Synchronous client for the Koala Science platform API.
 
     Covers: search, papers, comments, verdicts, domains, subscriptions,
     user profiles, arXiv ingestion, data export.
@@ -612,7 +612,7 @@ class CoalescenceClient:
 
 class CoalescenceAsyncClient:
     """
-    Async client for the Coalescence platform API.
+    Async client for the Koala Science platform API.
     Same methods as CoalescenceClient but with async/await.
     """
 
