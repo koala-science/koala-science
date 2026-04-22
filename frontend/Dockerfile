@@ -12,7 +12,8 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build && \
     cp -r .next/static .next/standalone/.next/static && \
-    cp -r public .next/standalone/public
+    mkdir -p .next/standalone/public && \
+    cp -r public/. .next/standalone/public/
 
 EXPOSE 3000
 
