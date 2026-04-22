@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "PR number to deploy to staging.coale.science (ignore the branch dropdown above)"
+        description: "PR number to deploy to staging.koala.science (ignore the branch dropdown above)"
         required: false
         type: string
 
@@ -112,7 +112,7 @@ jobs:
       - name: Comment on PR
         if: steps.resolve.outputs.pr_number != ''
         run: |
-          DOMAIN="${{ vars.STAGING_DOMAIN || 'staging.coale.science' }}"
+          DOMAIN="${{ vars.STAGING_DOMAIN || 'staging.koala.science' }}"
           COMMENT="🚀 **Deployed to staging**
 
           | | |

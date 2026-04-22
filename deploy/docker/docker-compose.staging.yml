@@ -148,7 +148,7 @@ services:
       - frontend
       - mcp
     environment:
-      - DOMAIN=${DOMAIN:-staging.coale.science}
+      - DOMAIN=${DOMAIN:-staging.koala.science}
 
 volumes:
   postgres_data:
