@@ -58,65 +58,66 @@ async def emit_notifications(
 async def _handle_comment_posted(
     db: AsyncSession,
     actor_id: uuid.UUID,
-    actor_name: str | None,
-    comment_id: uuid.UUID | None,
+    actor_name: str,
+    comment_id: uuid.UUID,
     payload: dict,
 ) -> list[Notification]:
     """A comment was posted. Notify:
-    1. The parent comment's author (if this is a reply)
-    2. The paper's submitter (if this is a root comment and submitter != actor)
+    1. REPLY → the parent comment's author (if reply and author != actor).
+    2. COMMENT_ON_PAPER → every other distinct prior commenter on the paper,
+       excluding the actor and the REPLY recipient.
     """
-    notifications = []
-    if comment_id is None:
-        return notifications
-
-    paper_id_str = payload.get("paper_id")
+    paper_id = uuid.UUID(payload["paper_id"])
     parent_id_str = payload.get("parent_id")
-    is_root = payload.get("is_root", parent_id_str is None)
-
-    # Look up the paper for context
-    paper_title = None
-    paper_submitter_id = None
-    if paper_id_str:
-        paper_id = uuid.UUID(paper_id_str)
-        result = await db.execute(select(Paper.title, Paper.submitter_id).where(Paper.id == paper_id))
-        row = result.one_or_none()
-        if row:
-            paper_title, paper_submitter_id = row
-    else:
-        paper_id = None
-
     content_preview = payload.get("content_preview", "")
 
-    # 1. Reply notification → parent comment author
+    paper_title = (
+        await db.execute(select(Paper.title).where(Paper.id == paper_id))
+    ).scalar_one()
+
+    notifications: list[Notification] = []
+    excluded = {actor_id}
+
     if parent_id_str:
-        parent_id = uuid.UUID(parent_id_str)
-        result = await db.execute(select(Comment.author_id).where(Comment.id == parent_id))
-        row = result.scalar_one_or_none()
-        if row and row != actor_id:
+        parent_author = (
+            await db.execute(
+                select(Comment.author_id).where(Comment.id == uuid.UUID(parent_id_str))
+            )
+        ).scalar_one()
+        if parent_author != actor_id:
+            excluded.add(parent_author)
             notifications.append(Notification(
-                recipient_id=row,
+                recipient_id=parent_author,
                 notification_type=NotificationType.REPLY,
                 actor_id=actor_id,
                 actor_name=actor_name,
                 paper_id=paper_id,
                 paper_title=paper_title,
                 comment_id=comment_id,
-                summary=f"{actor_name or 'Someone'} replied to your comment on \"{paper_title or 'a paper'}\"",
+                summary=f"{actor_name} replied to your comment",
                 payload={"content_preview": content_preview} if content_preview else None,
             ))
 
-    # 2. Root comment notification → paper submitter
-    if is_root and paper_submitter_id and paper_submitter_id != actor_id:
+    distinct_commenters = (
+        await db.execute(
+            select(Comment.author_id)
+            .where(Comment.paper_id == paper_id)
+            .distinct()
+        )
+    ).scalars().all()
+
+    for recipient_id in distinct_commenters:
+        if recipient_id in excluded:
+            continue
         notifications.append(Notification(
-            recipient_id=paper_submitter_id,
+            recipient_id=recipient_id,
             notification_type=NotificationType.COMMENT_ON_PAPER,
             actor_id=actor_id,
             actor_name=actor_name,
             paper_id=paper_id,
             paper_title=paper_title,
             comment_id=comment_id,
-            summary=f"{actor_name or 'Someone'} commented on your paper \"{paper_title or 'Untitled'}\"",
+            summary=f'{actor_name} commented on "{paper_title}"',
             payload={"content_preview": content_preview} if content_preview else None,
         ))
 
@@ -126,17 +127,14 @@ async def _handle_comment_posted(
 async def _handle_paper_submitted(
     db: AsyncSession,
     actor_id: uuid.UUID,
-    actor_name: str | None,
-    paper_id: uuid.UUID | None,
+    actor_name: str,
+    paper_id: uuid.UUID,
     payload: dict,
 ) -> list[Notification]:
     """A paper was submitted. Notify subscribers of the paper's domains."""
-    notifications = []
-    if paper_id is None:
-        return notifications
-
+    notifications: list[Notification] = []
     domains = payload.get("domains", [])
-    paper_title = payload.get("title", "")
+    paper_title = payload["title"]
 
     if not domains:
         return notifications
@@ -169,7 +167,7 @@ async def _handle_paper_submitted(
             actor_name=actor_name,
             paper_id=paper_id,
             paper_title=paper_title,
-            summary=f"{actor_name or 'Someone'} submitted \"{paper_title or 'a paper'}\" in {domain_label}",
+            summary=f'{actor_name} submitted "{paper_title}" in {domain_label}',
         ))
 
     return notifications

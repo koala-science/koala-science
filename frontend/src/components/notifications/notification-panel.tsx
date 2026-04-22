@@ -15,15 +15,79 @@ const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string }> = {
   PAPER_REVIEWED: { icon: CheckCircle2, label: "Reviewed" },
 };
 
+type StoreNotification = {
+  id: string;
+  recipient_id: string;
+  notification_type: string;
+  actor_id: string;
+  actor_name: string | null;
+  paper_id: string | null;
+  paper_title: string | null;
+  comment_id: string | null;
+  summary: string;
+  payload: Record<string, unknown> | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+type Group = {
+  key: string;
+  notifications: StoreNotification[];
+};
+
 function getNotificationIcon(type: string) {
   return TYPE_CONFIG[type]?.icon || Bell;
 }
 
-function getNotificationHref(n: { notification_type: string; paper_id: string | null; comment_id: string | null }): string | null {
-  if (n.paper_id) {
-    return `/p/${n.paper_id}`;
+function groupKey(n: StoreNotification): string {
+  if (n.is_read) return `read:${n.id}`;
+  if (n.notification_type === "COMMENT_ON_PAPER" || n.notification_type === "REPLY") {
+    return `unread:${n.notification_type}:${n.paper_id}`;
   }
-  return null;
+  return `unread:${n.id}`;
+}
+
+function groupNotifications(notifications: StoreNotification[]): Group[] {
+  const groups: Group[] = [];
+  for (const n of notifications) {
+    const key = groupKey(n);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key && !n.is_read) {
+      last.notifications.push(n);
+    } else {
+      groups.push({ key, notifications: [n] });
+    }
+  }
+  return groups;
+}
+
+function groupHref(group: Group): string {
+  const head = group.notifications[0];
+  if (head.notification_type === "REPLY" && head.comment_id) {
+    return `/p/${head.paper_id}#comment-${head.comment_id}`;
+  }
+  return `/p/${head.paper_id}`;
+}
+
+function groupLabel(group: Group): string {
+  const head = group.notifications[0];
+  if (group.notifications.length === 1) return head.summary;
+  if (head.notification_type === "REPLY") {
+    return `${group.notifications.length} new replies`;
+  }
+  return `${group.notifications.length} new comments`;
+}
+
+function groupActorNames(group: Group): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (let i = group.notifications.length - 1; i >= 0 && names.length < 3; i -= 1) {
+    const name = group.notifications[i].actor_name;
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
 }
 
 export function NotificationPanel() {
@@ -36,6 +100,8 @@ export function NotificationPanel() {
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
+
+  const groups = groupNotifications(notifications as StoreNotification[]);
 
   return (
     <div className="flex flex-col">
@@ -82,30 +148,44 @@ export function NotificationPanel() {
           </div>
         ) : (
           <ul className="divide-y">
-            {notifications.map((n) => {
-              const Icon = getNotificationIcon(n.notification_type);
-              const href = getNotificationHref(n);
+            {groups.map((group) => {
+              const head = group.notifications[0];
+              const Icon = getNotificationIcon(head.notification_type);
+              const href = groupHref(group);
+              const label = groupLabel(group);
+              const unread = !head.is_read;
+              const isGrouped = group.notifications.length > 1;
+              const actorNames = isGrouped ? groupActorNames(group) : [];
+              const lastCreatedAt = group.notifications[group.notifications.length - 1].created_at;
+              const groupedIds = group.notifications.map((n) => n.id);
+
               const content = (
                 <div
-                  className={`flex gap-3 px-4 py-3 transition-colors hover:bg-muted/50 ${!n.is_read ? 'bg-primary/5' : ''}`}
+                  data-testid="notification-row"
+                  className={`flex gap-3 px-4 py-3 transition-colors hover:bg-muted/50 ${unread ? 'bg-primary/5' : ''}`}
                 >
-                  <div className={`mt-0.5 flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${!n.is_read ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                  <div className={`mt-0.5 flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${unread ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm leading-snug ${!n.is_read ? 'font-medium' : 'text-muted-foreground'}`}>
-                      {n.summary}
+                    <p className={`text-sm leading-snug ${unread ? 'font-medium' : 'text-muted-foreground'}`}>
+                      {label}
                     </p>
+                    {isGrouped && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {actorNames.join(", ")}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {timeAgo(n.created_at)}
+                      {timeAgo(lastCreatedAt)}
                     </p>
                   </div>
-                  {!n.is_read && (
+                  {unread && (
                     <button
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        markAsRead([n.id]);
+                        markAsRead(groupedIds);
                       }}
                       className="flex-shrink-0 mt-1 text-muted-foreground hover:text-foreground"
                       title="Mark as read"
@@ -117,12 +197,8 @@ export function NotificationPanel() {
               );
 
               return (
-                <li key={n.id}>
-                  {href ? (
-                    <Link href={href}>{content}</Link>
-                  ) : (
-                    content
-                  )}
+                <li key={group.key}>
+                  <Link href={href}>{content}</Link>
                 </li>
               );
             })}

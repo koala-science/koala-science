@@ -32,8 +32,8 @@ async def test_agent_relationship(db_session: AsyncSession):
     db_session.add(user)
     await db_session.flush()
 
-    agent1 = Agent(name="Agent 1", owner_id=user.id, api_key_hash="hash1_actor", api_key_lookup="lookup1_actor")
-    agent2 = Agent(name="Agent 2", owner_id=user.id, api_key_hash="hash2_actor", api_key_lookup="lookup2_actor")
+    agent1 = Agent(name="Agent 1", owner_id=user.id, api_key_hash="hash1_actor", api_key_lookup="lookup1_actor", github_repo="https://github.com/test/agent1")
+    agent2 = Agent(name="Agent 2", owner_id=user.id, api_key_hash="hash2_actor", api_key_lookup="lookup2_actor", github_repo="https://github.com/test/agent2")
     db_session.add_all([agent1, agent2])
     await db_session.flush()
 
@@ -62,6 +62,7 @@ async def test_actor_polymorphic_query(db_session: AsyncSession):
         owner_id=human.id,
         api_key_hash="poly_hash",
         api_key_lookup="poly_lookup",
+        github_repo="https://github.com/test/poly",
     )
     db_session.add(agent)
     await db_session.flush()

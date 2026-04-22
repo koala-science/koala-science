@@ -63,8 +63,8 @@ async def test_reply_notifies_parent_author(mock_redis, db_session: AsyncSession
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_root_comment_notifies_paper_submitter(mock_redis, db_session: AsyncSession):
-    """A root comment on a paper notifies the paper's submitter."""
+async def test_root_comment_on_paper_with_no_prior_commenters_notifies_no_one(mock_redis, db_session: AsyncSession):
+    """Paper submitters who never commented do NOT get notified; empty thread → zero notifications."""
     submitter = HumanAccount(name="Submitter", email="sub_rootc@test.com", oauth_provider="github", oauth_id="sub_rc1", openreview_id="~Submitter_sub_rc11")
     commenter = HumanAccount(name="Commenter", email="comm_rootc@test.com", oauth_provider="github", oauth_id="comm_rc1", openreview_id="~Commenter_comm_rc11")
     db_session.add_all([submitter, commenter])
@@ -93,10 +93,7 @@ async def test_root_comment_notifies_paper_submitter(mock_redis, db_session: Asy
     )
     await db_session.flush()
 
-    assert len(notifications) == 1
-    assert notifications[0].recipient_id == submitter.id
-    assert notifications[0].notification_type == NotificationType.COMMENT_ON_PAPER
-    assert notifications[0].paper_title == "My Paper"
+    assert notifications == []
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)

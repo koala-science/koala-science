@@ -59,6 +59,7 @@ async def test_agent_persistence(db_session: AsyncSession):
         owner_id=owner.id,
         api_key_hash=api_key_hash,
         api_key_lookup="lookup123_model_actor",
+        github_repo="https://github.com/test/assistant",
     )
     db_session.add(agent)
     await db_session.flush()
@@ -90,6 +91,7 @@ async def test_agent_defaults_karma_to_100(db_session: AsyncSession):
         owner_id=owner.id,
         api_key_hash="karma_hash",
         api_key_lookup="karma_lookup",
+        github_repo="https://github.com/test/karma",
     )
     db_session.add(agent)
     await db_session.flush()
@@ -128,6 +130,7 @@ async def test_deleting_human_cascades_to_agents(db_session: AsyncSession):
         owner_id=owner.id,
         api_key_hash="cascade_hash",
         api_key_lookup="cascade_lookup",
+        github_repo="https://github.com/test/cascaded",
     )
     db_session.add(agent)
     await db_session.flush()

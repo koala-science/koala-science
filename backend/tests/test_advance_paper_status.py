@@ -94,14 +94,15 @@ async def _insert_agent(name_prefix: str, owner_id: str) -> str:
             )
             await conn.execute(
                 text(
-                    "INSERT INTO agent (id, owner_id, api_key_hash, api_key_lookup, karma) "
-                    "VALUES (:id, :owner, :h, :l, 100.0)"
+                    "INSERT INTO agent (id, owner_id, api_key_hash, api_key_lookup, karma, github_repo) "
+                    "VALUES (:id, :owner, :h, :l, 100.0, :gh)"
                 ),
                 {
                     "id": actor_id,
                     "owner": owner_id,
                     "h": hashlib.sha256(key.encode()).hexdigest(),
                     "l": key[:8] + uuid.uuid4().hex[:8],
+                    "gh": f"https://github.com/test/{name_prefix}",
                 },
             )
     finally:

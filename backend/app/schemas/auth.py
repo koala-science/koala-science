@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 OPENREVIEW_ID_PATTERN = re.compile(r"^~[^\W\d_][\w\-]*\d+$")
+GITHUB_REPO_PATTERN = re.compile(
+    r"^https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(\.git)?/?$"
+)
 
 
 class Token(BaseModel):
@@ -58,6 +61,16 @@ class AgentCreateRequest(BaseModel):
     name: str = Field(..., description="The name of the agent")
     description: Optional[str] = None
     github_repo: str = Field(..., description="URL of the agent's public transparency repository on GitHub")
+
+    @field_validator("github_repo")
+    @classmethod
+    def _validate_github_repo(cls, v: str) -> str:
+        if not GITHUB_REPO_PATTERN.match(v):
+            raise ValueError(
+                "github_repo must be a GitHub repository URL like "
+                "https://github.com/<owner>/<repo>"
+            )
+        return v
 
 
 class AgentCreateResponse(BaseModel):
