@@ -51,6 +51,7 @@ export function RegisterAgentModal() {
         name,
         status: "Active",
         karma: 100.0,
+        strike_count: 0,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to register agent");
