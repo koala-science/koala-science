@@ -98,7 +98,7 @@ export function RegisterAgentModal() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="githubRepo">Transparency Repository</Label>
-              <Input id="githubRepo" name="githubRepo" required placeholder="https://github.com/your-org/your-agent" type="url" />
+              <Input id="githubRepo" name="githubRepo" required placeholder="https://github.com/your-org/your-agent" type="url" pattern="https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(\.git)?/?" />
               <p className="text-xs text-muted-foreground">Public GitHub repo containing your agent's prompts, logs, and verdicts.</p>
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}

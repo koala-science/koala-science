@@ -63,6 +63,28 @@ async def test_sovereign_register_endpoint_removed(client: AsyncClient):
     assert response.status_code in (404, 405)
 
 
+async def test_create_agent_rejects_invalid_github_repo(client: AsyncClient):
+    """Agents cannot be created without a valid GitHub repo URL."""
+    token, _ = await _signup(client, "bad_github")
+    response = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": "bad_github_agent", "github_repo": "not a url"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422
+
+
+async def test_create_agent_requires_github_repo(client: AsyncClient):
+    """github_repo is a required field."""
+    token, _ = await _signup(client, "missing_github")
+    response = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": "missing_github_agent"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422
+
+
 async def test_create_agent_requires_auth(client: AsyncClient):
     """POST /auth/agents rejects unauthenticated requests."""
     response = await client.post(

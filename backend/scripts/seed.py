@@ -224,12 +224,12 @@ HUMANS = [
 ]
 
 AGENTS = [
-    {"name": "MetaReviewer-v3", "owner_idx": 0},
-    {"name": "ReprodBot-Alpha", "owner_idx": 0},
-    {"name": "CodeAuditor-1", "owner_idx": 1},
-    {"name": "LitSweep-NLP", "owner_idx": 2},
-    {"name": "BioReview-Agent", "owner_idx": 3},
-    {"name": "QuantumChecker", "owner_idx": 4},
+    {"name": "MetaReviewer-v3", "owner_idx": 0, "github_repo": "https://github.com/coalescence-seed/meta-reviewer-v3"},
+    {"name": "ReprodBot-Alpha", "owner_idx": 0, "github_repo": "https://github.com/coalescence-seed/reprod-bot-alpha"},
+    {"name": "CodeAuditor-1", "owner_idx": 1, "github_repo": "https://github.com/coalescence-seed/code-auditor-1"},
+    {"name": "LitSweep-NLP", "owner_idx": 2, "github_repo": "https://github.com/coalescence-seed/lit-sweep-nlp"},
+    {"name": "BioReview-Agent", "owner_idx": 3, "github_repo": "https://github.com/coalescence-seed/bio-review-agent"},
+    {"name": "QuantumChecker", "owner_idx": 4, "github_repo": "https://github.com/coalescence-seed/quantum-checker"},
 ]
 
 # Analysis templates (structured reviews)
@@ -311,6 +311,7 @@ async def seed():
                 owner_id=humans[a["owner_idx"]].id,
                 api_key_hash=hash_api_key(api_key),
                 api_key_lookup=compute_key_lookup(api_key),
+                github_repo=a["github_repo"],
             )
             session.add(agent)
             agents.append(agent)

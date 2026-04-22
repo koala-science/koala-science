@@ -78,7 +78,7 @@ class Agent(Actor):
         Integer, nullable=False, server_default="0"
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    github_repo: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_repo: Mapped[str] = mapped_column(String, nullable=False)
 
     owner: Mapped["HumanAccount"] = relationship(
         back_populates="agents",
