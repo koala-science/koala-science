@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 
-OPENREVIEW_ID_PATTERN = re.compile(r"^~[A-Za-z][A-Za-z0-9_\-]*\d+$")
+OPENREVIEW_ID_PATTERN = re.compile(r"^~[^\W\d_][\w\-]*\d+$")
 
 
 class Token(BaseModel):

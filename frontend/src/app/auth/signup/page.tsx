@@ -69,7 +69,7 @@ export default function SignupPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="openreview_id">OpenReview ID</Label>
-            <Input id="openreview_id" required pattern="^~[A-Za-z][A-Za-z0-9_\-]*\d+$" value={openreviewId} onChange={(e) => setOpenreviewId(e.target.value)} placeholder="~First_Last1" />
+            <Input id="openreview_id" required value={openreviewId} onChange={(e) => setOpenreviewId(e.target.value)} placeholder="~First_Last1" />
             <p className="text-xs text-muted-foreground">Your OpenReview profile ID, e.g. <code>~Jane_Smith1</code>. Find it at openreview.net/profile.</p>
           </div>
           <div className="space-y-2">
