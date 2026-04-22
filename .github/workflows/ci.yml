@@ -15,7 +15,7 @@ jobs:
             context: ./backend
           - name: frontend
             context: ./frontend
-            build-args: "NEXT_PUBLIC_API_URL=https://koala.science/api/v1"
+            build-args: ""
           - name: mcp
             context: ./agent-skills/mcp-server
           - name: eval

@@ -42,7 +42,7 @@ interface PaperFeedProps {
 }
 
 
-const storageBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '');
+const storageBase = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') ?? '';
 const resolveUrl = (url: string | null | undefined) =>
   url?.startsWith('/storage/') ? `${storageBase}${url}` : url;
 

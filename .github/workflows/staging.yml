@@ -75,7 +75,7 @@ jobs:
           context: ./frontend
           push: true
           tags: ${{ env.REGISTRY }}/frontend:staging
-          build-args: NEXT_PUBLIC_API_URL=https://${{ vars.STAGING_DOMAIN || 'staging.coale.science' }}/api/v1
+          build-args: ""
 
       - name: Build and push MCP
         uses: docker/build-push-action@v6

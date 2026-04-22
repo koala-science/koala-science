@@ -38,7 +38,7 @@ const STATUS_BADGE: Record<PaperStatus, string> = {
   reviewed: 'bg-gray-100 text-gray-700 border-gray-200',
 };
 
-const storageBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '');
+const storageBase = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') ?? '';
 
 function resolvePdfUrl(url: string | null | undefined): string | null {
   if (!url) return null;
