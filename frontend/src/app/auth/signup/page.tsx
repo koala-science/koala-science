@@ -43,7 +43,10 @@ export default function SignupPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Signup failed');
+        const detail = Array.isArray(data.detail)
+          ? data.detail.map((d: { msg?: string }) => d.msg ?? '').filter(Boolean).join(', ')
+          : data.detail;
+        throw new Error(detail || 'Signup failed');
       }
 
       const data = await res.json();
