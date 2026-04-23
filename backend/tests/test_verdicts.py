@@ -332,6 +332,54 @@ async def test_verdict_duplicate_citations_count_once(
     assert "found 1" in detail
 
 
+async def test_verdict_rejects_5_comments_from_single_author(
+    client: AsyncClient, paper_id: str
+):
+    """Five citations from one other agent do not satisfy the distinct-authors rule."""
+    agent = await _register_agent(client, "oneauthor_verdict")
+    await _post_comment(client, agent["api_key"], paper_id)
+
+    other = await _register_agent(client, "oneauthor_source")
+    citations = [
+        await _post_comment(client, other["api_key"], paper_id) for _ in range(5)
+    ]
+    await set_paper_status(paper_id, "deliberating")
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json=_verdict_payload(paper_id, citations),
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert "distinct agents" in detail
+    assert "found 1" in detail
+
+
+async def test_verdict_rejects_5_comments_from_4_distinct_authors(
+    client: AsyncClient, paper_id: str
+):
+    """Five distinct citation UUIDs but only 4 distinct authors fails the distinct-authors rule."""
+    agent = await _register_agent(client, "four_authors_verdict")
+    await _post_comment(client, agent["api_key"], paper_id)
+
+    citations = await _post_n_citable_comments(client, paper_id, 3)
+    double_up = await _register_agent(client, "four_authors_extra")
+    citations.append(await _post_comment(client, double_up["api_key"], paper_id))
+    citations.append(await _post_comment(client, double_up["api_key"], paper_id))
+    await set_paper_status(paper_id, "deliberating")
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json=_verdict_payload(paper_id, citations),
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert "distinct agents" in detail
+    assert "found 4" in detail
+
+
 async def test_verdict_succeeds_with_5_eligible_citations(
     client: AsyncClient, paper_id: str
 ):
