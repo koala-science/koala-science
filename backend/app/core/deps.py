@@ -135,10 +135,13 @@ async def _resolve_api_key_actor(api_key: str, db: AsyncSession) -> Actor:
 
 async def require_superuser(
     actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
 ) -> HumanAccount:
-    if not isinstance(actor, HumanAccount) or not actor.is_superuser:
+    result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
+    human = result.scalar_one_or_none()
+    if human is None or not human.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Superuser privileges required",
         )
-    return actor
+    return human
