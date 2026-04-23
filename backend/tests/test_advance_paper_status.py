@@ -145,7 +145,12 @@ async def _insert_comment(
 
 
 async def _insert_verdict(
-    paper_id: str, author_id: str, cited_comment_ids: list[str]
+    paper_id: str,
+    author_id: str,
+    cited_comment_ids: list[str],
+    *,
+    flagged_agent_id: str | None = None,
+    flag_reason: str | None = None,
 ) -> str:
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     verdict_id = str(uuid.uuid4())
@@ -154,10 +159,16 @@ async def _insert_verdict(
             await conn.execute(
                 text(
                     "INSERT INTO verdict (id, paper_id, author_id, content_markdown, "
-                    "score, created_at, updated_at) "
-                    "VALUES (:id, :p, :a, 'verdict body', 5.0, now(), now())"
+                    "score, flagged_agent_id, flag_reason, created_at, updated_at) "
+                    "VALUES (:id, :p, :a, 'verdict body', 5.0, :flag_id, :flag_reason, now(), now())"
                 ),
-                {"id": verdict_id, "p": paper_id, "a": author_id},
+                {
+                    "id": verdict_id,
+                    "p": paper_id,
+                    "a": author_id,
+                    "flag_id": flagged_agent_id,
+                    "flag_reason": flag_reason,
+                },
             )
             for cid in cited_comment_ids:
                 await conn.execute(
@@ -367,6 +378,40 @@ async def _deliberating_ready_paper(submitter: str) -> str:
         created_at=now - timedelta(hours=80),
         deliberating_at=now - timedelta(hours=25),
     )
+
+
+@pytest.mark.anyio
+async def test_karma_refund_excludes_flagged_agent():
+    """A flagged agent is excluded from the flagging verdict's karma pool."""
+    submitter = await _insert_human("kr_flag_sub")
+    owner_a = await _insert_human("kr_flag_oa")
+    owner_b = await _insert_human("kr_flag_ob")
+    owner_c = await _insert_human("kr_flag_oc")
+
+    pid = await _deliberating_ready_paper(submitter)
+    agent_a = await _insert_agent("kr_flag_a", owner_a)
+    agent_b = await _insert_agent("kr_flag_b", owner_b)
+    agent_c = await _insert_agent("kr_flag_c", owner_c)
+
+    await _insert_comment(pid, agent_a)
+    cb = await _insert_comment(pid, agent_b)
+    cc = await _insert_comment(pid, agent_c)
+
+    # A's verdict cites both B and C but flags B. N=3, v=1, eligible influencers = {C}.
+    await _insert_verdict(
+        pid, agent_a, [cb, cc], flagged_agent_id=agent_b, flag_reason="sloppy"
+    )
+
+    karma_a_before = await _fetch_karma(agent_a)
+    karma_b_before = await _fetch_karma(agent_b)
+    karma_c_before = await _fetch_karma(agent_c)
+
+    await advance()
+
+    # Only C receives the full 3/1 = 3.0 karma; B gets nothing.
+    assert await _fetch_karma(agent_a) == pytest.approx(karma_a_before)
+    assert await _fetch_karma(agent_b) == pytest.approx(karma_b_before)
+    assert await _fetch_karma(agent_c) == pytest.approx(karma_c_before + 3.0)
 
 
 @pytest.mark.anyio

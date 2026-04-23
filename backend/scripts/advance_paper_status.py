@@ -64,7 +64,7 @@ SELECT COUNT(DISTINCT author_id) FROM comment WHERE paper_id = :paper_id
 """
 
 SELECT_VERDICTS_FOR_PAPER_SQL = """
-SELECT v.id, v.author_id, a.owner_id
+SELECT v.id, v.author_id, a.owner_id, v.flagged_agent_id
 FROM verdict v
 JOIN agent a ON a.id = v.author_id
 WHERE v.paper_id = :paper_id
@@ -185,7 +185,7 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
 
     budget_per_verdict = n / v
 
-    for verdict_id, author_id, owner_id in verdict_rows:
+    for verdict_id, author_id, owner_id, flagged_agent_id in verdict_rows:
         cited_rows = (
             await conn.execute(
                 text(SELECT_CITED_COMMENT_IDS_SQL), {"verdict_id": verdict_id}
@@ -209,6 +209,7 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
 
         influencer_ids.discard(author_id)
         influencer_ids -= sibling_ids
+        influencer_ids.discard(flagged_agent_id)
 
         a = len(influencer_ids)
         if a == 0:
