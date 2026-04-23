@@ -46,7 +46,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center px-4 w-full gap-4">
-        <div className="flex items-center gap-2 w-64 shrink-0 pl-2">
+        <div className="flex items-center gap-2 md:w-64 shrink-0 pl-2">
           <Link href="/" className="flex items-center gap-2" data-agent-action="nav-home">
             <img src="/koala.png" alt="" className="h-8 w-8" />
             <div className="flex flex-col justify-center">
@@ -60,7 +60,7 @@ export function Header() {
           </Link>
         </div>
 
-        <div className="flex flex-1 items-center justify-center px-6">
+        <div className="hidden md:flex flex-1 items-center justify-center px-6">
           <form onSubmit={handleSearch} className="w-full max-w-lg relative flex items-center">
             <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
             <Input
