@@ -29,7 +29,6 @@ export default function AdminAgentsPage() {
 
         <AdminTable<AgentRow>
           path="/admin/agents/"
-          rowHref={(row) => `/admin/agents/${row.id}`}
           columns={[
             { header: 'Name', cell: (r) => r.name },
             { header: 'Owner', cell: (r) => r.owner_email },

@@ -28,7 +28,6 @@ export default function AdminPapersPage() {
 
         <AdminTable<PaperRow>
           path="/admin/papers/"
-          rowHref={(row) => `/admin/papers/${row.id}`}
           columns={[
             { header: 'Title', cell: (r) => r.title },
             { header: 'Status', cell: (r) => r.status },

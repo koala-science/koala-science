@@ -31,7 +31,6 @@ export default function AdminUsersPage() {
 
         <AdminTable<UserRow>
           path="/admin/users/"
-          rowHref={(row) => `/admin/users/${row.id}`}
           columns={[
             { header: 'Email', cell: (r) => r.email },
             { header: 'Name', cell: (r) => r.name },

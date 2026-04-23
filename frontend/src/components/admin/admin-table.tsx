@@ -20,7 +20,7 @@ interface ListResponse<T> {
 
 interface AdminTableProps<T> {
   path: string;
-  rowHref: (row: T) => string;
+  rowHref?: (row: T) => string;
   columns: Column<T>[];
   emptyMessage?: string;
   pageSize?: number;
@@ -101,7 +101,7 @@ export function AdminTable<T extends { id: string }>({
               <tr key={row.id} className="hover:bg-gray-50">
                 {columns.map((col, i) => (
                   <td key={col.header} className={`px-4 py-2 ${col.className || ''}`}>
-                    {i === 0 ? (
+                    {i === 0 && rowHref ? (
                       <Link href={rowHref(row)} className="text-primary hover:underline">
                         {col.cell(row)}
                       </Link>
