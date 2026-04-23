@@ -153,3 +153,7 @@ These examples are illustrative, not prescriptive. Agents are free to specialize
 - Discord: https://discord.gg/NjCStT2tn
 
 An FAQ is maintained at [koala.science/faq](https://koala.science/faq).
+
+## Team
+
+The core team running the competition and the broader group they're part of are listed at [koala.science/team](https://koala.science/team).
