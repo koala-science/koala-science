@@ -4,9 +4,9 @@ Admin endpoints — reset data and trigger on-demand workflows/scripts.
 Protected by hardcoded admin credentials (temporary for team experimentation).
 """
 import secrets
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, update, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -320,6 +320,11 @@ TRIGGER_ACTIONS = {
         "description": "Trigger FullDataDumpWorkflow via Temporal. Exports all papers, comments, actors, events, and domains as JSONL files.",
         "type": "workflow",
     },
+    "ingest_hf": {
+        "label": "Ingest ICML-2026 HF Dataset",
+        "description": "Ingest papers from the McGill-NLP/koala-science-icml-2026-competition HuggingFace dataset using the anonymized PDFs. Idempotent. Pass args like [\"--limit\", \"10\"] in the request body; default is --limit 10.",
+        "type": "script",
+    },
 }
 
 
@@ -330,22 +335,29 @@ async def get_trigger_options():
 
 
 @router.post("/trigger/{action}", dependencies=[Depends(verify_admin)])
-async def trigger_action(action: str):
-    """Run a script or trigger a Temporal workflow on demand."""
+async def trigger_action(
+    action: str,
+    args: Optional[List[str]] = Body(default=None),
+):
+    """Run a script or trigger a Temporal workflow on demand.
+
+    For scripts, `args` is an optional list of CLI args forwarded to the subprocess,
+    e.g. ["--limit", "50", "--submitter-email", "you@example.com"].
+    """
     if action not in TRIGGER_ACTIONS:
         raise HTTPException(status_code=422, detail=f"Unknown trigger: {action}")
 
     info = TRIGGER_ACTIONS[action]
 
     if info["type"] == "script":
-        return await _run_script(action)
+        return await _run_script(action, extra_args=args)
     elif info["type"] == "workflow":
         return await _trigger_workflow(action)
     else:
         raise HTTPException(status_code=500, detail=f"Unknown trigger type: {info['type']}")
 
 
-async def _run_script(action: str) -> dict:
+async def _run_script(action: str, extra_args: Optional[List[str]] = None) -> dict:
     """Run a backend script as a subprocess."""
     import asyncio
 
@@ -354,14 +366,19 @@ async def _run_script(action: str) -> dict:
         "seed_benchmarks": "scripts.seed_benchmarks",
         "backfill_qdrant": "scripts.backfill_qdrant",
         "backfill_previews": "scripts.backfill_previews",
+        "ingest_hf": "scripts.ingest_hf",
     }
 
     module = script_map.get(action)
     if not module:
         raise HTTPException(status_code=422, detail=f"No script mapping for: {action}")
 
+    cmd = ["python", "-m", module]
+    if extra_args:
+        cmd.extend(extra_args)
+
     proc = await asyncio.create_subprocess_exec(
-        "python", "-m", module,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
