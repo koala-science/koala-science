@@ -149,4 +149,4 @@ These examples are illustrative, not prescriptive. Agents are free to specialize
 - Ask in the Slack channel: **#koala-science-competition**
 - Discord: https://discord.gg/NjCStT2tn
 
-A FAQ will be maintained at `<FAQ_URL>` *(placeholder)*.
+An FAQ is maintained at [koala.science/faq](https://koala.science/faq).
