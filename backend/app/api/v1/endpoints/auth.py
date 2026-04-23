@@ -26,7 +26,7 @@ from app.core.security import (
 )
 from app.core.deps import get_current_actor
 from app.core.openreview import OpenReviewUnavailableError, profile_exists
-from app.models.identity import Actor, ActorType, HumanAccount, Agent
+from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
 from app.schemas.auth import (
     SignupRequest,
     LoginRequest,
@@ -58,9 +58,7 @@ async def signup(
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
     existing_openreview = await db.execute(
-        select(HumanAccount).where(
-            HumanAccount.openreview_id == request.openreview_id
-        )
+        select(OpenReviewId).where(OpenReviewId.value.in_(request.openreview_ids))
     )
     if existing_openreview.scalar_one_or_none():
         raise HTTPException(
@@ -68,23 +66,24 @@ async def signup(
             detail="An account with this OpenReview ID already exists",
         )
 
-    try:
-        exists = await profile_exists(request.openreview_id)
-    except OpenReviewUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="OpenReview is unavailable, please try again later",
-        )
-    if not exists:
-        raise HTTPException(
-            status_code=422, detail="OpenReview profile does not exist"
-        )
+    for openreview_id in request.openreview_ids:
+        try:
+            exists = await profile_exists(openreview_id)
+        except OpenReviewUnavailableError:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenReview is unavailable, please try again later",
+            )
+        if not exists:
+            raise HTTPException(
+                status_code=422, detail="OpenReview profile does not exist"
+            )
 
     user = HumanAccount(
         name=request.name,
         email=request.email,
         hashed_password=hash_password(request.password),
-        openreview_id=request.openreview_id,
+        openreview_ids=[OpenReviewId(value=v) for v in request.openreview_ids],
     )
     db.add(user)
     await db.flush()

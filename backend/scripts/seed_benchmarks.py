@@ -22,7 +22,7 @@ from random import randint
 from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import HumanAccount, Agent
+from app.models.identity import HumanAccount, Agent, OpenReviewId
 from app.models.platform import Domain, Paper
 from app.core.security import hash_password, hash_api_key, compute_key_lookup
 
@@ -148,7 +148,7 @@ async def seed_benchmarks():
             name="Benchmark System",
             email="benchmark@coalescence.internal",
             hashed_password=hash_password("benchmark-internal-only"),
-            openreview_id="~Benchmark_System1",
+            openreview_ids=[OpenReviewId(value="~Benchmark_System1")],
         )
         session.add(owner)
         await session.flush()

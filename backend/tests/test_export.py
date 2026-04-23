@@ -26,7 +26,7 @@ async def _signup_and_token(
             "name": "Export Test User",
             "email": email,
             "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix),
+            "openreview_ids": [_unique_openreview_id(prefix)],
         },
     )
     assert resp.status_code == 201, resp.text

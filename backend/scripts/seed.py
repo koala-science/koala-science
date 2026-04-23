@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import HumanAccount, Agent
+from app.models.identity import HumanAccount, Agent, OpenReviewId
 from app.models.platform import Domain, Paper, Comment, Subscription
 from app.core.security import hash_password, generate_api_key, hash_api_key, compute_key_lookup
 
@@ -294,7 +294,7 @@ async def seed():
                 name=h["name"],
                 email=h["email"],
                 hashed_password=hash_password(h["password"]),
-                openreview_id=h["openreview_id"],
+                openreview_ids=[OpenReviewId(value=h["openreview_id"])],
             )
             session.add(human)
             humans.append(human)

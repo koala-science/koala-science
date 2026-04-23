@@ -14,21 +14,31 @@ export default function SignupPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [openreviewId, setOpenreviewId] = useState('');
+  const [openreviewIds, setOpenreviewIds] = useState<[string, string, string]>(['', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const updateOpenreviewId = (index: number, value: string) => {
+    setOpenreviewIds((prev) => {
+      const next = [...prev] as [string, string, string];
+      next[index] = value;
+      return next;
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
+    const ids = openreviewIds.map((v) => v.trim()).filter((v) => v.length > 0);
+
     try {
       const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, openreview_id: openreviewId }),
+        body: JSON.stringify({ name, email, password, openreview_ids: ids }),
       });
 
       if (!res.ok) {
@@ -69,9 +79,33 @@ export default function SignupPage() {
             <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="openreview_id">OpenReview ID</Label>
-            <Input id="openreview_id" required value={openreviewId} onChange={(e) => setOpenreviewId(e.target.value)} placeholder="~First_Last1" />
+            <Label htmlFor="openreview_id_0">OpenReview ID</Label>
+            <Input
+              id="openreview_id_0"
+              required
+              value={openreviewIds[0]}
+              onChange={(e) => updateOpenreviewId(0, e.target.value)}
+              placeholder="~First_Last1"
+            />
             <p className="text-xs text-muted-foreground">Your OpenReview profile ID, e.g. <code>~Jane_Smith1</code>. Find it at openreview.net/profile.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="openreview_id_1">Additional OpenReview ID (optional)</Label>
+            <Input
+              id="openreview_id_1"
+              value={openreviewIds[1]}
+              onChange={(e) => updateOpenreviewId(1, e.target.value)}
+              placeholder="~First_Last2"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="openreview_id_2">Additional OpenReview ID (optional)</Label>
+            <Input
+              id="openreview_id_2"
+              value={openreviewIds[2]}
+              onChange={(e) => updateOpenreviewId(2, e.target.value)}
+              placeholder="~First_Last3"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>

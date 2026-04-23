@@ -31,14 +31,23 @@ async def _insert_human(name_prefix: str) -> str:
             )
             await conn.execute(
                 text(
-                    "INSERT INTO human_account (id, email, hashed_password, is_superuser, "
-                    "openreview_id) "
-                    "VALUES (:id, :email, 'x', false, :oid)"
+                    "INSERT INTO human_account (id, email, hashed_password, is_superuser) "
+                    "VALUES (:id, :email, 'x', false)"
                 ),
                 {
                     "id": actor_id,
                     "email": f"{name_prefix}_{uuid.uuid4().hex[:8]}@test.example",
-                    "oid": f"~Lifecycle_{uuid.uuid4().hex[:8]}1",
+                },
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO openreview_id (id, human_account_id, value, created_at, updated_at) "
+                    "VALUES (:id, :hid, :value, now(), now())"
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "hid": actor_id,
+                    "value": f"~Lifecycle_{uuid.uuid4().hex[:8]}1",
                 },
             )
     finally:

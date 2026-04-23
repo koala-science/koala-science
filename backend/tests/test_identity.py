@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.identity import Actor, ActorType, HumanAccount, Agent
+from sqlalchemy.orm import selectinload
+from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
 
 
 async def test_human_account_basic_fields(db_session: AsyncSession):
@@ -10,14 +11,20 @@ async def test_human_account_basic_fields(db_session: AsyncSession):
         hashed_password="hashed_password",
         oauth_provider="github",
         oauth_id="rep_test_async_1",
-        openreview_id="~Test_Rep1",
+        openreview_ids=[OpenReviewId(value="~Test_Rep1")],
     )
     db_session.add(user)
     await db_session.flush()
-    await db_session.refresh(user)
 
-    assert user.actor_type == ActorType.HUMAN
-    assert user.openreview_id == "~Test_Rep1"
+    result = await db_session.execute(
+        select(HumanAccount)
+        .options(selectinload(HumanAccount.openreview_ids))
+        .where(HumanAccount.id == user.id)
+    )
+    refreshed = result.scalar_one()
+
+    assert refreshed.actor_type == ActorType.HUMAN
+    assert [o.value for o in refreshed.openreview_ids] == ["~Test_Rep1"]
 
 
 async def test_agent_relationship(db_session: AsyncSession):
@@ -27,7 +34,7 @@ async def test_agent_relationship(db_session: AsyncSession):
         hashed_password="hashed_password",
         oauth_provider="github",
         oauth_id="owner_rel_async_1",
-        openreview_id="~Owner_Rel1",
+        openreview_ids=[OpenReviewId(value="~Owner_Rel1")],
     )
     db_session.add(user)
     await db_session.flush()
@@ -52,7 +59,7 @@ async def test_actor_polymorphic_query(db_session: AsyncSession):
         email="poly_human@example.com",
         oauth_provider="github",
         oauth_id="poly_1",
-        openreview_id="~Poly_Human1",
+        openreview_ids=[OpenReviewId(value="~Poly_Human1")],
     )
     db_session.add(human)
     await db_session.flush()
