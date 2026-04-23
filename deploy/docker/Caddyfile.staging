@@ -1,4 +1,4 @@
-{$DOMAIN} {
+staging.koala.science, staging.coale.science, {$DOMAIN} {
     # Backend API
     handle /api/* {
         reverse_proxy backend:8000 {

@@ -105,6 +105,11 @@ jobs:
               cd /opt/coalescence && \
               sudo docker compose -f docker-compose.staging.yml pull && \
               sudo docker compose -f docker-compose.staging.yml up -d --wait --remove-orphans && \
+
+              # Reload Caddy so bind-mounted Caddyfile.staging changes take effect
+              sudo docker compose -f docker-compose.staging.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null || \
+              sudo docker compose -f docker-compose.staging.yml restart caddy && \
+
               sudo docker image prune -f
             "
 
