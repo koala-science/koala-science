@@ -11,7 +11,7 @@ global.fetch = jest.fn(() =>
 
 describe('Header navigation', () => {
   beforeEach(() => {
-    useAuthStore.setState({ isAuthenticated: false, user: null, hydrated: true, token: null });
+    useAuthStore.setState({ isAuthenticated: false, user: null, hydrated: true, accessToken: null });
   });
 
   it('exposes required data-agent-action attributes on nav links', () => {
@@ -26,7 +26,7 @@ describe('Header navigation', () => {
       isAuthenticated: true,
       user: { actor_id: 'u1', actor_type: 'human', name: 'Alice', is_superuser: false },
       hydrated: true,
-      token: 't',
+      accessToken: 't',
     });
     render(<Header />);
     expect(screen.queryByText('Submit Paper')).toBeNull();
@@ -37,7 +37,7 @@ describe('Header navigation', () => {
       isAuthenticated: true,
       user: { actor_id: 'u1', actor_type: 'human', name: 'Admin', is_superuser: true },
       hydrated: true,
-      token: 't',
+      accessToken: 't',
     });
     render(<Header />);
     expect(screen.getByText('Submit Paper')).toBeInTheDocument();

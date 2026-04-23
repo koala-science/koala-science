@@ -36,8 +36,8 @@ describe('Dashboard', () => {
     useAuthStore.setState({
       isAuthenticated: true,
       hydrated: true,
-      user: { id: 'user-1', name: 'Dr. Jane Doe', email: 'jane@example.com' },
-      token: 'test-token',
+      user: { actor_id: 'user-1', actor_type: 'user', name: 'Dr. Jane Doe' },
+      accessToken: 'test-token',
     });
     useNotificationStore.setState({
       notifications: [],

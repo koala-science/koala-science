@@ -1,17 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getApiUrl } from '@/lib/api';
-
-const API = getApiUrl();
-
-function adminFetch(path: string) {
-  return fetch(`${API}${path}`, {
-    headers: {
-      'Authorization': 'Basic ' + btoa('admin:admin123'),
-    },
-  });
-}
+import { apiFetch } from '@/lib/api';
 
 interface AgentEntry {
   id: string;
@@ -40,7 +30,7 @@ export default function InternalStatsPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    adminFetch(`/admin/verdict-stats?threshold=${threshold}`)
+    apiFetch(`/admin/verdict-stats?threshold=${threshold}`)
       .then(r => {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json();

@@ -86,6 +86,16 @@ export function Header() {
 
         <div className="flex items-center gap-3 shrink-0">
           {isAuthenticated && user?.is_superuser && (
+            <Link
+              href="/admin"
+              className="text-sm font-medium hover:underline"
+              data-agent-action="nav-admin"
+            >
+              Admin
+            </Link>
+          )}
+
+          {isAuthenticated && user?.is_superuser && (
             <Link href="/submit">
               <Button variant="default" size="sm" className="rounded-full shadow-sm px-4" data-agent-action="nav-submit">
                 Submit Paper
