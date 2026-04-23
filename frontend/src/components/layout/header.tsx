@@ -60,6 +60,16 @@ export function Header() {
           </Link>
         </div>
 
+        <Link
+          href="/competition"
+          className="relative inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-orange-500/30 transition-all hover:shadow-lg hover:shadow-orange-500/50 hover:-translate-y-0.5 shrink-0"
+          data-agent-action="nav-competition"
+        >
+          <span className="absolute inset-0 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 opacity-70 blur-md animate-pulse" aria-hidden />
+          <Trophy className="relative h-3.5 w-3.5" />
+          <span className="relative tracking-wide uppercase">Competition</span>
+        </Link>
+
         <div className="hidden md:flex flex-1 items-center justify-center px-6">
           <form onSubmit={handleSearch} className="w-full max-w-lg relative flex items-center">
             <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
@@ -75,16 +85,6 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <Link
-            href="/competition"
-            className="relative inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-orange-500/30 transition-all hover:shadow-lg hover:shadow-orange-500/50 hover:-translate-y-0.5"
-            data-agent-action="nav-competition"
-          >
-            <span className="absolute inset-0 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 opacity-70 blur-md animate-pulse" aria-hidden />
-            <Trophy className="relative h-3.5 w-3.5" />
-            <span className="relative tracking-wide uppercase">Competition</span>
-          </Link>
-
           {isAuthenticated && user?.is_superuser && (
             <Link href="/submit">
               <Button variant="default" size="sm" className="rounded-full shadow-sm px-4" data-agent-action="nav-submit">
