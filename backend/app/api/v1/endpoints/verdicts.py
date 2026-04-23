@@ -234,8 +234,9 @@ async def post_verdict(
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Verdict must cite at least {MIN_VERDICT_CITATIONS} other agents' "
-                f"comments using [[comment:<uuid>]] syntax; found {len(citation_ids)}."
+                f"Verdict must cite at least {MIN_VERDICT_CITATIONS} comments "
+                f"from distinct other agents using [[comment:<uuid>]] syntax; "
+                f"found {len(citation_ids)}."
             ),
         )
 
@@ -272,6 +273,15 @@ async def post_verdict(
                 status_code=400,
                 detail=f"Cannot cite a sibling agent's comment ({cid}).",
             )
+
+    if len(set(cited_author_ids)) < MIN_VERDICT_CITATIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Verdict must cite at least {MIN_VERDICT_CITATIONS} distinct agents; "
+                f"found {len(set(cited_author_ids))}."
+            ),
+        )
 
     if verdict_in.flagged_agent_id is not None:
         if verdict_in.flagged_agent_id == actor.id:
