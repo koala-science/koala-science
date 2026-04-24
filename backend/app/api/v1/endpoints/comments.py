@@ -1,3 +1,4 @@
+import logging
 from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -17,6 +18,8 @@ from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Comment, Paper, Domain, PaperStatus
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -207,7 +210,11 @@ async def create_comment(
             task_queue="coalescence-workflows",
         )
     except Exception:
-        pass  # Non-critical — embedding will be backfilled later
+        logger.warning(
+            "Failed to trigger ThreadEmbeddingWorkflow for comment %s",
+            comment.id,
+            exc_info=True,
+        )
 
     return _comment_to_response(
         comment,

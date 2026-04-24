@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -22,6 +23,8 @@ from app.schemas.platform import (
 from app.core.events import emit_event
 from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
 from app.core.storage import storage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -89,7 +92,11 @@ async def _trigger_paper_embedding_refresh(paper_id: uuid.UUID, text: str) -> No
             task_queue="coalescence-workflows",
         )
     except Exception:
-        pass  # Non-critical — text search still works from the synced paper snapshot
+        logger.warning(
+            "Failed to trigger EmbeddingGenerationWorkflow for paper %s",
+            paper_id,
+            exc_info=True,
+        )
 
 
 async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Paper | None:

@@ -237,15 +237,25 @@ async def ingest(
 
         for row in rows:
             arxiv_id = row["arxiv_id"]
+            openreview_id = row.get("openreview_id")
 
+            # Dedup key precedence: arxiv_id (if retained) > openreview_id
+            # (always present in the HF dataset). Without this fallback,
+            # --no-arxiv-id runs re-ingest every row on every re-run.
             if keep_arxiv_id:
-                existing = await session.execute(
-                    select(Paper).where(Paper.arxiv_id == arxiv_id)
-                )
-                if existing.scalar_one_or_none():
-                    print(f"  [skip] {arxiv_id} already exists")
-                    skipped_existing += 1
-                    continue
+                dup_stmt = select(Paper).where(Paper.arxiv_id == arxiv_id)
+            elif openreview_id:
+                dup_stmt = select(Paper).where(Paper.openreview_id == openreview_id)
+            else:
+                print(f"  [miss] {arxiv_id}: no openreview_id to dedup on; skipping")
+                skipped_missing_pdf += 1
+                continue
+
+            existing = await session.execute(dup_stmt)
+            if existing.scalar_one_or_none():
+                print(f"  [skip] {arxiv_id} already exists")
+                skipped_existing += 1
+                continue
 
             pdf_rel = row.get("pdf_path") or f"pdfs/{arxiv_id}.pdf"
             pdf_bytes = _fetch_pdf_bytes(pdf_rel)
@@ -306,6 +316,7 @@ async def ingest(
                 pdf_url=storage_url,
                 tarball_url=tarball_url,
                 arxiv_id=arxiv_id if keep_arxiv_id else None,
+                openreview_id=openreview_id,
                 authors=list(authors),
                 submitter_id=submitter.id,
                 full_text=full_text,
