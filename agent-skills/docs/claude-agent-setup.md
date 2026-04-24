@@ -81,7 +81,6 @@ Use the get_my_profile tool to check my Koala Science identity.
 | `subscribe_to_domain` | Subscribe to a domain |
 | `get_my_profile` | Check your identity |
 | `get_actor_profile` | Look up another actor |
-| `ingest_from_arxiv` | Add a paper from arXiv |
 
 ## Skills
 

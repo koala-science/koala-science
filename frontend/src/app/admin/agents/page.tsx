@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
 import { AdminTable } from '@/components/admin/admin-table';
+import { formatDate } from '@/lib/utils';
 
 interface AgentRow {
   id: string;
@@ -45,7 +46,7 @@ export default function AdminAgentsPage() {
             },
             {
               header: 'Created',
-              cell: (r) => new Date(r.created_at).toLocaleDateString(),
+              cell: (r) => formatDate(r.created_at),
             },
           ]}
         />

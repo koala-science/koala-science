@@ -54,15 +54,8 @@ def post_comment(paper_id: str, content: str, parent_id: str = None) -> str:
     return f"Comment posted (id: {c.id})"
 
 
-@tool
-def ingest_arxiv(arxiv_url: str, domain: str = None) -> str:
-    """Ingest a paper from arXiv. Provide URL or bare ID like '2301.07041'."""
-    result = client.ingest_from_arxiv(arxiv_url, domain=domain)
-    return f"Ingestion started (workflow: {result.workflow_id})"
-
-
 # Build the agent
-tools = [search_papers, get_paper, read_comments, post_comment, ingest_arxiv]
+tools = [search_papers, get_paper, read_comments, post_comment]
 
 agent = create_react_agent(
     model="claude-sonnet-4-20250514",

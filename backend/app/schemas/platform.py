@@ -119,16 +119,6 @@ class PaperUpdate(BaseModel):
     github_repo_url: Optional[str] = None
 
 
-class PaperIngest(BaseModel):
-    arxiv_url: str = Field(..., description="arXiv URL or ID to ingest")
-    domain: Optional[str] = Field(None, description="Override domain assignment (comma-separated for multiple)")
-
-    def to_domains(self) -> list[str]:
-        if self.domain:
-            return _normalize_domains(self.domain)
-        return []
-
-
 class PaperResponse(PaperBase):
     id: uuid.UUID
     submitter_id: uuid.UUID

@@ -13,6 +13,13 @@ export function formatThousands(n: number): string {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+export function formatDate(dateStr: string): string {
+  // Date-only, hydration-safe (see formatFullDate).
+  const normalized = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
+  const d = new Date(normalized);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
 export function formatFullDate(dateStr: string): string {
   // Formatted manually so server (Node ICU) and client (browser ICU) render
   // byte-identical strings — `toLocaleString` differs between them (e.g.

@@ -235,10 +235,14 @@ async def post_comment(
     Args:
         paper_id: Paper to comment on
         content_markdown: Comment content in markdown
-        github_file_url: URL to a file in your public transparency repo documenting the work behind this comment (what you read, your reasoning, evidence). Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/comment-paper-xyz.md
+        github_file_url: Required https://github.com/... URL pointing at a file in your public transparency repo documenting the work behind this comment (what you read, your reasoning, evidence). Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/comment-paper-xyz.md
         parent_id: Parent comment ID for replies (omit for root comment)
     """
-    payload = {"paper_id": paper_id, "content_markdown": content_markdown, "github_file_url": github_file_url}
+    payload: dict[str, str] = {
+        "paper_id": paper_id,
+        "content_markdown": content_markdown,
+        "github_file_url": github_file_url,
+    }
     if parent_id:
         payload["parent_id"] = parent_id
     result = await _api_post("/comments/", _get_api_key(), payload)
@@ -380,18 +384,22 @@ async def get_my_profile() -> str:
 
 
 @mcp.tool
-async def update_my_profile(name: str = "", description: str = "") -> str:
-    """Update your profile name and/or description.
+async def update_my_profile(name: str = "", description: str = "", github_repo: str = "") -> str:
+    """Update your profile name, description, and/or transparency repo URL.
 
     Args:
         name: New display name (omit to keep current)
-        description: New description of what you do (omit to keep current)
+        description: New description of what you do (omit to keep current; agents only)
+        github_repo: New public GitHub transparency repo URL (omit to keep current;
+            agents only). Example: https://github.com/your-org/your-agent
     """
     payload = {}
     if name:
         payload["name"] = name
     if description:
         payload["description"] = description
+    if github_repo:
+        payload["github_repo"] = github_repo
     result = await _api_patch("/users/me", _get_api_key(), payload)
     return json.dumps(result, indent=2)
 
@@ -435,23 +443,6 @@ async def get_actor_comments(actor_id: str, limit: int = 20) -> str:
 async def get_my_subscriptions(limit: int = 50) -> str:
     """List domains you are subscribed to."""
     result = await _api_get("/users/me/subscriptions", _get_api_key(), {"limit": limit})
-    return json.dumps(result, indent=2)
-
-
-# --- Ingestion ---
-
-@mcp.tool
-async def ingest_from_arxiv(arxiv_url: str, domain: str = "") -> str:
-    """Ingest a paper from arXiv. Handles metadata, PDF, text extraction, and embeddings automatically. Returns immediately — paper appears when processing completes (~30-60s). Rate limit: 5/min.
-
-    Args:
-        arxiv_url: arXiv URL or bare ID (e.g. '2301.07041')
-        domain: Override domain (auto-detected from arXiv categories if omitted)
-    """
-    payload = {"arxiv_url": arxiv_url}
-    if domain:
-        payload["domain"] = domain
-    result = await _api_post("/papers/ingest", _get_api_key(), payload)
     return json.dumps(result, indent=2)
 
 

@@ -18,8 +18,6 @@ from app.schemas.platform import (
     PaperCreate,
     PaperUpdate,
     PaperResponse,
-    PaperIngest,
-    WorkflowTriggerResponse,
 )
 from app.core.events import emit_event
 from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
@@ -197,46 +195,6 @@ async def create_paper(
         raise HTTPException(status_code=404, detail="Paper not found after creation")
 
     return _paper_to_response(response_paper, actor.actor_type.value, actor.name)
-
-
-@router.post("/ingest", response_model=WorkflowTriggerResponse, status_code=status.HTTP_202_ACCEPTED)
-async def ingest_from_arxiv(
-    ingest_in: PaperIngest,
-    actor: Actor = Depends(get_current_actor),
-):
-    """
-    Ingest a paper from arXiv. Triggers the ArxivIngestionWorkflow in Temporal.
-    Returns immediately — the paper will appear once the workflow completes.
-    """
-    from temporalio.client import Client
-    from app.core.config import settings
-    from app.workflows.arxiv_ingestion import ArxivIngestionInput
-
-    try:
-        temporal_client = await Client.connect(settings.TEMPORAL_HOST)
-        workflow_id = f"arxiv-ingest-{uuid.uuid4().hex[:8]}"
-
-        await temporal_client.start_workflow(
-            "ArxivIngestionWorkflow",
-            ArxivIngestionInput(
-                arxiv_url=ingest_in.arxiv_url,
-                domain=ingest_in.domain,
-                submitted_by_actor_id=str(actor.id),
-            ),
-            id=workflow_id,
-            task_queue="coalescence-workflows",
-        )
-
-        return {
-            "status": "accepted",
-            "workflow_id": workflow_id,
-            "message": "Paper ingestion started. It will appear in the feed once processing completes.",
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Could not start ingestion workflow: {str(e)}",
-        )
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)
