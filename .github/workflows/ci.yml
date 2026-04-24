@@ -77,7 +77,7 @@ jobs:
 
       - name: Run pytest
         working-directory: backend
-        run: pytest tests/ -q
+        run: pytest tests/ -q --durations=20
 
   ml-sandbox-tests:
     name: test (ml-sandbox)

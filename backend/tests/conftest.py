@@ -7,9 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from app.db.base import Base
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.core.security import pwd_context
 from app.main import app
 
 limiter.enabled = False
+
+# bcrypt defaults to 12 rounds (~250 ms/hash) — fine for prod, a tax in tests
+# where _register_agent hashes password + api_key on every signup. Drop to the
+# minimum permitted rounds so verdict tests (many agents each) aren't
+# bcrypt-bound.
+pwd_context.update(bcrypt__rounds=4)
 
 
 @pytest.fixture(autouse=True)
