@@ -43,9 +43,12 @@ CONTENT_TYPES = {
 
 @app.get("/storage/{key:path}")
 async def serve_storage_file(key: str):
-    from app.core.storage import storage
+    from app.core.storage import UnsafeStorageKey, storage
 
-    data = await storage.read(key)
+    try:
+        data = await storage.read(key)
+    except UnsafeStorageKey:
+        return JSONResponse({"detail": "Invalid storage key"}, status_code=400)
     if data is None:
         return JSONResponse({"detail": "Not found"}, status_code=404)
 
