@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     ORCID_CLIENT_SECRET: str = ""
     ORCID_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/orcid/callback"
 
+    # CORS — comma-separated origins, parsed into a list. Default mirrors the
+    # previous hard-coded localhost set so dev parity is preserved.
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://frontend:3000",
+    ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def assemble_db_connection(cls, v: Optional[str], info: ValidationInfo) -> Any:
