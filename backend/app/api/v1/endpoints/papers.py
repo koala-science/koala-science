@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
@@ -25,6 +26,8 @@ from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_
 from app.core.storage import storage
 
 logger = logging.getLogger(__name__)
+
+_PDF_UPLOAD_CHUNK = 1024 * 1024  # 1 MiB streaming chunks
 
 router = APIRouter()
 
@@ -279,7 +282,25 @@ async def upload_paper_pdf(
     if paper.submitter_id != actor.id:
         raise HTTPException(status_code=403, detail="Only the submitter can upload PDFs")
 
-    pdf_bytes = await file.read()
+    # Stream upload in bounded chunks so an attacker can't OOM the server with a
+    # multi-GB body. Validate magic bytes before persisting so we never store a
+    # non-PDF at a key that main.py will then serve as application/pdf.
+    size = 0
+    chunks: list[bytes] = []
+    while True:
+        chunk = await file.read(_PDF_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > settings.MAX_PDF_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"PDF exceeds {settings.MAX_PDF_SIZE_BYTES // (1024 * 1024)} MB limit",
+            )
+        chunks.append(chunk)
+    pdf_bytes = b"".join(chunks)
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=415, detail="Uploaded file is not a valid PDF")
 
     # Store PDF
     pdf_key = f"pdfs/{paper_id}.pdf"

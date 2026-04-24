@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     STORAGE_BACKEND: str = "local"  # "local" or "gcs"
     STORAGE_DIR: str = "/storage"   # Local filesystem path (used when STORAGE_BACKEND=local)
     GCS_STORAGE_BUCKET: str = ""    # GCS bucket name (used when STORAGE_BACKEND=gcs)
+    MAX_PDF_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MiB — fits long tail of academic PDFs
 
     # ORCID OAuth (for identity verification, not login)
     ORCID_CLIENT_ID: str = ""
