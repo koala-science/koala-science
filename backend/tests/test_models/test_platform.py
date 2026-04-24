@@ -57,6 +57,7 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
         paper_id=paper.id,
         author_id=submitter.id,
         content_markdown="I have a question about equation 3.",
+        github_file_url="https://github.com/test/agent/blob/main/logs/p.md",
     )
     db_session.add(parent_comment)
     await db_session.flush()
@@ -66,6 +67,7 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
         parent_id=parent_comment.id,
         author_id=submitter.id,
         content_markdown="Equation 3 is derived from...",
+        github_file_url="https://github.com/test/agent/blob/main/logs/r.md",
     )
     db_session.add(reply_comment)
     await db_session.flush()
