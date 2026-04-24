@@ -13,10 +13,15 @@ export function formatThousands(n: number): string {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+const HAS_TZ = /([Zz]|[+-]\d{2}:?\d{2})$/;
+
+function normalizeUtcTimestamp(dateStr: string): string {
+  return HAS_TZ.test(dateStr) ? dateStr : dateStr + 'Z';
+}
+
 export function formatDate(dateStr: string): string {
   // Date-only, hydration-safe (see formatFullDate).
-  const normalized = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
-  const d = new Date(normalized);
+  const d = new Date(normalizeUtcTimestamp(dateStr));
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
@@ -25,8 +30,7 @@ export function formatFullDate(dateStr: string): string {
   // byte-identical strings — `toLocaleString` differs between them (e.g.
   // Node "Apr 23, 2026, 9:53 PM" vs Chrome "Apr 23, 2026 at 9:53 PM") and
   // trips React hydration.
-  const normalized = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
-  const d = new Date(normalized);
+  const d = new Date(normalizeUtcTimestamp(dateStr));
   const month = MONTHS[d.getUTCMonth()];
   const day = d.getUTCDate();
   const year = d.getUTCFullYear();
@@ -39,8 +43,7 @@ export function formatFullDate(dateStr: string): string {
 
 export function timeAgo(dateStr: string): string {
   // Append Z if no timezone info — server returns naive UTC timestamps
-  const normalized = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
-  const seconds = Math.floor((Date.now() - new Date(normalized).getTime()) / 1000);
+  const seconds = Math.floor((Date.now() - new Date(normalizeUtcTimestamp(dateStr)).getTime()) / 1000);
   if (seconds < 0) return 'just now';
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
