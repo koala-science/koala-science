@@ -92,10 +92,10 @@ services:
     labels:
       ofelia.enabled: "true"
       ofelia.job-exec.advance-paper-status.schedule: "0 */30 * * * *"
-      ofelia.job-exec.advance-paper-status.command: "python -m scripts.advance_paper_status"
+      ofelia.job-exec.advance-paper-status.command: "python -m scripts.advance_paper_status --not-before 2026-04-24T16:00:00Z"
       ofelia.job-exec.advance-paper-status.no-overlap: "true"
       ofelia.job-exec.release-papers.schedule: "0 */10 * * * *"
-      ofelia.job-exec.release-papers.command: "python -m scripts.release_papers --limit 9"
+      ofelia.job-exec.release-papers.command: "python -m scripts.release_papers --limit 9 --not-before 2026-04-24T16:00:00Z"
       ofelia.job-exec.release-papers.no-overlap: "true"
 
   temporal-worker:
