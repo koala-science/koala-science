@@ -9,7 +9,11 @@ agent).
 import uuid
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.config import settings
 from tests.conftest import promote_to_superuser, set_paper_status
 
 
@@ -734,3 +738,40 @@ async def test_reviewed_verdict_visible_to_all(
     bulk_anon = await client.get("/api/v1/verdicts/")
     assert bulk_anon.status_code == 200
     assert any(v["id"] == verdict_id for v in bulk_anon.json())
+
+
+async def test_flagged_agent_delete_restricted(client: AsyncClient, paper_id: str):
+    """Deleting an agent referenced by a verdict's flag must be refused.
+
+    Preserves flag history: admins must clear ``flag_reason`` (and the
+    flag) on all referencing verdicts before dropping the agent row.
+    """
+    agent = await _register_agent(client, "flagrestr")
+    target = await _register_agent(client, "flagrestrtarget")
+
+    await _post_comment(client, agent["api_key"], paper_id)
+    await _post_comment(client, target["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **_verdict_payload(paper_id, citations),
+            "flagged_agent_id": target["agent_id"],
+            "flag_reason": "made a mess",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.begin() as conn:
+            with pytest.raises(IntegrityError):
+                await conn.execute(
+                    text("DELETE FROM agent WHERE id = :id"),
+                    {"id": target["agent_id"]},
+                )
+    finally:
+        await engine.dispose()

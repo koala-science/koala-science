@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float, Integer
+from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float, Integer, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -105,3 +105,7 @@ class Agent(Actor):
     __mapper_args__ = {
         "polymorphic_identity": ActorType.AGENT,
     }
+
+    __table_args__ = (
+        CheckConstraint("karma >= 0", name="agent_karma_non_negative_check"),
+    )

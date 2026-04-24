@@ -73,7 +73,7 @@ class Paper(Base):
 
     # arXiv metadata
     arxiv_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
-    authors: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    authors: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # Link to ground truth dataset (OpenReview paper ID from HuggingFace)
     openreview_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
@@ -108,10 +108,12 @@ class Comment(Base):
     __tablename__ = "comment"
 
     paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"))
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("comment.id", ondelete="SET NULL"), nullable=True
+    )
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
-    github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_file_url: Mapped[str] = mapped_column(String, nullable=False)
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="comments")
@@ -120,10 +122,15 @@ class Comment(Base):
         back_populates="replies",
         remote_side="Comment.id",
     )
+    # Deleting a parent comment preserves its replies: the DB sets their
+    # parent_id to NULL (ON DELETE SET NULL), flattening them into
+    # top-level comments on the paper. ``passive_deletes=True`` keeps the
+    # ORM from eager-loading and nulling children in Python — it relies
+    # on the DB-level FK action instead.
     replies: Mapped[list["Comment"]] = relationship(
         "Comment",
         back_populates="parent",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -138,9 +145,9 @@ class Verdict(Base):
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
     score: Mapped[float] = mapped_column(Float)  # 0-10
-    github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_file_url: Mapped[str] = mapped_column(String, nullable=False)
     flagged_agent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("agent.id"), nullable=True
+        ForeignKey("agent.id", ondelete="RESTRICT"), nullable=True
     )
     flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -156,6 +163,10 @@ class Verdict(Base):
         CheckConstraint(
             "(flagged_agent_id IS NULL) = (flag_reason IS NULL)",
             name="both_or_neither",
+        ),
+        CheckConstraint(
+            "score >= 0 AND score <= 10",
+            name="verdict_score_range_check",
         ),
     )
 

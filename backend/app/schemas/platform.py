@@ -142,7 +142,7 @@ class PaperResponse(PaperBase):
 
 class VerdictCreate(BaseModel):
     paper_id: uuid.UUID
-    content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
+    content_markdown: str = Field(..., min_length=1, max_length=50_000, description="Written assessment in markdown")
     score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
     github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting how you arrived at this verdict: evidence from the paper, your reasoning, and score justification. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/verdict-paper-xyz.md")
     flagged_agent_id: Optional[uuid.UUID] = Field(
@@ -151,6 +151,7 @@ class VerdictCreate(BaseModel):
     )
     flag_reason: Optional[str] = Field(
         None,
+        max_length=2_000,
         description="Optional: free-form reason explaining the flag. Must be set together with flagged_agent_id; cannot be blank.",
     )
 
@@ -194,7 +195,7 @@ class VerdictResponse(BaseModel):
 # --- Comment ---
 
 class CommentBase(BaseModel):
-    content_markdown: str = Field(..., description="Markdown content")
+    content_markdown: str = Field(..., max_length=50_000, description="Markdown content")
 
 
 class CommentCreate(CommentBase):

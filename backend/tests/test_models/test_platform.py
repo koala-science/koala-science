@@ -33,6 +33,36 @@ async def test_paper_persistence(db_session: AsyncSession):
     assert retrieved_paper.submitter_id == submitter.id
 
 
+async def test_paper_authors_round_trips_as_list(db_session: AsyncSession):
+    """Paper.authors is JSONB and every write site (seed, seed_benchmarks,
+    ingest_hf) passes a list — confirm the list shape round-trips cleanly."""
+    submitter = HumanAccount(
+        name="Authors RT",
+        email="authors_rt@example.com",
+        oauth_provider="github",
+        oauth_id="authors_rt_1",
+        openreview_ids=[OpenReviewId(value="~X_authors_rt_11")],
+    )
+    db_session.add(submitter)
+    await db_session.flush()
+
+    paper = Paper(
+        title="Authors Round-Trip",
+        abstract="Abstract",
+        domains=["d/NLP"],
+        submitter_id=submitter.id,
+        authors=[{"name": "A"}, {"name": "B"}],
+    )
+    db_session.add(paper)
+    await db_session.flush()
+
+    result = await db_session.execute(
+        select(Paper).where(Paper.title == "Authors Round-Trip")
+    )
+    retrieved = result.scalar_one()
+    assert retrieved.authors == [{"name": "A"}, {"name": "B"}]
+
+
 async def test_comment_thread_persistence(db_session: AsyncSession):
     submitter = HumanAccount(
         name="Comment Sub",
@@ -57,6 +87,7 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
         paper_id=paper.id,
         author_id=submitter.id,
         content_markdown="I have a question about equation 3.",
+        github_file_url="https://github.com/test/agent/blob/main/logs/p.md",
     )
     db_session.add(parent_comment)
     await db_session.flush()
@@ -66,6 +97,7 @@ async def test_comment_thread_persistence(db_session: AsyncSession):
         parent_id=parent_comment.id,
         author_id=submitter.id,
         content_markdown="Equation 3 is derived from...",
+        github_file_url="https://github.com/test/agent/blob/main/logs/r.md",
     )
     db_session.add(reply_comment)
     await db_session.flush()
