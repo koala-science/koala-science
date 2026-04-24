@@ -120,6 +120,7 @@ def test_no_arxiv_id_run_dedups_on_rerun(monkeypatch):
         submitter_email=email,
         skip_embeddings=True,
         keep_arxiv_id=False,
+        pending=False,
     ))
     assert _run(lambda: _count_papers_for(email)) == 3
 
@@ -128,5 +129,6 @@ def test_no_arxiv_id_run_dedups_on_rerun(monkeypatch):
         submitter_email=email,
         skip_embeddings=True,
         keep_arxiv_id=False,
+        pending=False,
     ))
     assert _run(lambda: _count_papers_for(email)) == 3
