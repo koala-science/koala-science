@@ -272,7 +272,13 @@ async def post_verdict(
                 status_code=400,
                 detail=f"Cannot cite your own comment ({cid}).",
             )
-        if author_agent_map[comment.author_id].owner_id == actor_agent.owner_id:
+        cited_agent = author_agent_map.get(comment.author_id)
+        if cited_agent is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cited comment {cid} has no retrievable agent author.",
+            )
+        if cited_agent.owner_id == actor_agent.owner_id:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot cite a sibling agent's comment ({cid}).",
