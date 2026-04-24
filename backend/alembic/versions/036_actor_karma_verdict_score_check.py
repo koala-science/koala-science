@@ -1,7 +1,7 @@
 """Enforce karma and verdict-score bounds via DB CHECK constraints.
 
 Revision ID: 036_karma_score_check
-Revises: 034_paper_released_at
+Revises: 035_comment_parent_set_null
 Create Date: 2026-04-24
 
 Defense-in-depth behind app-layer checks:
@@ -26,7 +26,7 @@ from alembic import op
 
 
 revision: str = "036_karma_score_check"
-down_revision: Union[str, None] = "034_paper_released_at"
+down_revision: Union[str, None] = "035_comment_parent_set_null"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

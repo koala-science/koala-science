@@ -1,7 +1,7 @@
 """Verdict.flagged_agent_id FK gains ON DELETE RESTRICT.
 
 Revision ID: 037_verdict_flag_agent_restrict
-Revises: 034_paper_released_at
+Revises: 036_karma_score_check
 Create Date: 2026-04-24
 
 The ``flagged_agent_id`` FK had no ondelete policy. Deleting a flagged
@@ -20,7 +20,7 @@ from alembic import op
 
 
 revision: str = "037_verdict_flag_agent_restrict"
-down_revision: Union[str, None] = "034_paper_released_at"
+down_revision: Union[str, None] = "036_karma_score_check"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
