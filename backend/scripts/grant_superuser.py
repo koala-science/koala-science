@@ -6,6 +6,11 @@ Credentials are read from environment variables or interactive prompts. Nothing
 is ever taken from command-line arguments (which would leak into shell history
 and `ps` output) and nothing is committed to the repo.
 
+Before any write, the script prints a summary of the matched (or to-be-created)
+account and asks for an explicit ``[y/N]`` confirmation. A typo in ``--email``
+that happens to match a different live account therefore cannot silently
+promote the wrong user.
+
 Usage (from an already-authenticated shell on the deploy host):
 
     # promote an existing account
@@ -22,6 +27,9 @@ You can skip the prompts by exporting env vars before the call:
     export SUPERUSER_NAME="Alice Smith"
     export SUPERUSER_OPENREVIEW_ID="~Alice_Smith1"
 
+For scripted / non-interactive deploys, set ``SUPERUSER_AUTO_CONFIRM=1`` to
+skip the confirmation prompt. Use with care: this disables the typo guard.
+
 The password is never echoed and never stored in plaintext — it is hashed with
 the same `hash_password` the signup endpoint uses.
 """
@@ -32,10 +40,34 @@ import os
 import sys
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.db.session import AsyncSessionLocal
 from app.models.identity import HumanAccount, OpenReviewId
 from app.core.security import hash_password
+
+
+def _auto_confirm() -> bool:
+    return os.environ.get("SUPERUSER_AUTO_CONFIRM") == "1"
+
+
+def _confirm(prompt: str) -> bool:
+    """Return True iff the operator explicitly answers y/yes (case-insensitive).
+
+    Empty input, EOF, or anything other than ``y``/``yes`` is a refusal.
+    """
+    if _auto_confirm():
+        return True
+    try:
+        answer = input(prompt).strip().lower()
+    except EOFError:
+        return False
+    return answer in ("y", "yes")
+
+
+def _abort() -> int:
+    print("Aborted — no changes made.", file=sys.stderr)
+    return 2
 
 
 def _prompt_password() -> str:
@@ -73,13 +105,32 @@ async def main() -> int:
 
     async with AsyncSessionLocal() as db:
         existing = (await db.execute(
-            select(HumanAccount).where(HumanAccount.email == args.email)
+            select(HumanAccount)
+            .options(
+                selectinload(HumanAccount.openreview_ids),
+                selectinload(HumanAccount.agents),
+            )
+            .where(HumanAccount.email == args.email)
         )).scalar_one_or_none()
 
         if existing:
             if existing.is_superuser:
                 print(f"{args.email} is already a superuser — no change.")
                 return 0
+
+            or_values = [o.value for o in existing.openreview_ids] or ["(none)"]
+            print("Matched account:")
+            print(f"  Name:             {existing.name}")
+            print(f"  Email:            {existing.email}")
+            print(f"  ID:               {existing.id}")
+            print(f"  Active:           {'yes' if existing.is_active else 'no'}")
+            print(f"  Existing agents:  {len(existing.agents)}")
+            print(f"  OpenReview IDs:   {', '.join(or_values)}")
+            print(f"  Is currently:     {'superuser' if existing.is_superuser else 'non-superuser'}")
+            print()
+            if not _confirm("Promote this account to superuser? [y/N]: "):
+                return _abort()
+
             existing.is_superuser = True
             await db.commit()
             print(f"Promoted {args.email} to superuser.")
@@ -105,6 +156,14 @@ async def main() -> int:
         if dup_or:
             print(f"OpenReview ID '{openreview_id}' is already claimed.", file=sys.stderr)
             return 1
+
+        print("Create new superuser with:")
+        print(f"  Name:             {name}")
+        print(f"  Email:            {args.email}")
+        print(f"  OpenReview ID:    {openreview_id}")
+        print()
+        if not _confirm("Create and promote this new account? [y/N]: "):
+            return _abort()
 
         user = HumanAccount(
             name=name,
