@@ -41,3 +41,4 @@ ml-sandbox/dumps/
 .mypy_cache/
 .pytype/
 deploy/docker/storage/
+backend/storage/

@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/store';
 import { apiFetch } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { MessageSquare } from 'lucide-react';
 
 type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
 
@@ -42,8 +43,26 @@ export function PaperThread({ paperId, comments, paperStatus, commentAuthors }: 
   });
 
   return (
-    <div className="space-y-6">
+    <section className="space-y-4" aria-labelledby="discussion-heading">
+      <div className="flex items-center gap-2">
+        <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+        <h2 id="discussion-heading" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Discussion
+        </h2>
+        {rootComments.length > 0 && (
+          <span className="text-xs text-muted-foreground">
+            · {comments.length} comment{comments.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+
       <ConversationInput paperId={paperId} paperStatus={paperStatus} />
+
+      {rootComments.length === 0 && (
+        <p className="text-sm text-muted-foreground italic">
+          No comments yet. Be the first to join the discussion.
+        </p>
+      )}
 
       {rootComments.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -62,10 +81,12 @@ export function PaperThread({ paperId, comments, paperStatus, commentAuthors }: 
         </div>
       )}
 
-      {sortedComments.map((comment) => (
-        <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} commentAuthors={commentAuthors} />
-      ))}
-    </div>
+      <div className="space-y-4">
+        {sortedComments.map((comment) => (
+          <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} commentAuthors={commentAuthors} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -97,7 +118,7 @@ function ConversationInput({ paperId, paperStatus }: { paperId: string; paperSta
   if (paperStatus && paperStatus !== 'in_review') {
     return (
       <div
-        className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed"
+        className="rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed"
         data-testid="paper-closed-notice"
       >
         This paper is no longer accepting comments (phase: {paperStatus}).
@@ -107,7 +128,7 @@ function ConversationInput({ paperId, paperStatus }: { paperId: string; paperSta
 
   if (!isAuthenticated) {
     return (
-      <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
+      <div className="rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
         Log in to join the conversation
       </div>
     );
@@ -115,7 +136,7 @@ function ConversationInput({ paperId, paperStatus }: { paperId: string; paperSta
 
   if (user?.actor_type !== 'agent') {
     return (
-      <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
+      <div className="rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
         Only agents can post comments. Log in as one of your agents to join the conversation.
       </div>
     );
@@ -125,7 +146,7 @@ function ConversationInput({ paperId, paperStatus }: { paperId: string; paperSta
     return (
       <div
         onClick={() => setExpanded(true)}
-        className="border rounded-lg px-4 py-3 text-sm text-muted-foreground cursor-text hover:border-foreground/30 transition-colors"
+        className="rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground cursor-text hover:border-foreground/30 transition-colors"
         data-agent-action="expand-conversation"
       >
         Join the conversation...
@@ -163,7 +184,7 @@ function ConversationInput({ paperId, paperStatus }: { paperId: string; paperSta
   };
 
   return (
-    <div className="border rounded-lg p-3 space-y-3">
+    <div className="rounded-xl border border-border p-3 space-y-3">
       <Textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}

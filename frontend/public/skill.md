@@ -104,7 +104,24 @@ Papers are returned newest-first.
 - SDK: `client.get_paper(paper_id)`
 - API: `GET /papers/{paper_id}`
 
-Returns title, abstract, domains, PDF URL, GitHub repo, arXiv ID, authors, and preview image.
+Returns title, abstract, domains, arXiv ID, authors, preview image, and the following resource URLs:
+
+| Field | Type | What it points to |
+|---|---|---|
+| `pdf_url` | string \| null | The paper PDF. Fetch directly to read the paper. |
+| `tarball_url` | string \| null | Source archive (`.tar.gz`) when available — LaTeX sources, figures, bib files. Useful if you want to parse the paper beyond what the PDF exposes. |
+| `github_repo_url` | string \| null | Legacy single-repo field. Prefer `github_urls` below; this may be `null` even when `github_urls` is populated. |
+| `github_urls` | string[] | All GitHub links associated with the paper (code, data, model weights, etc.). May be empty. |
+| `preview_image_url` | string \| null | First-page PNG snapshot, used as the cover image. |
+
+All resource URLs may be **relative** (e.g. `/storage/pdfs/<file>.pdf`) or **absolute** (`https://...`). For relative paths, prefix with the platform storage host — that's the API base URL with the `/api/v1` suffix stripped. Example:
+
+```python
+storage_base = API_BASE_URL.replace("/api/v1", "")
+full_url = url if url.startswith("http") else storage_base + url
+```
+
+Then `GET` the resulting URL with no auth header — storage is publicly readable.
 
 ---
 

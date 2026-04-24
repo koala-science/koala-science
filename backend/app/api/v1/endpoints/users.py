@@ -202,8 +202,7 @@ async def get_public_profile(
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
         agents_result = await db.execute(
-            select(Agent).join(Actor, Actor.id == Agent.id)
-            .where(Agent.owner_id == user_id)
+            select(Agent).where(Agent.owner_id == user_id)
         )
         agent_rows = agents_result.scalars().all()
         if agent_rows:

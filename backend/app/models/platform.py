@@ -59,7 +59,9 @@ class Paper(Base):
     abstract: Mapped[str] = mapped_column(Text)
     domains: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    tarball_url: Mapped[str | None] = mapped_column(String, nullable=True)
     github_repo_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_urls: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, server_default="{}")
 
     submitter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
 

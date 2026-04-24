@@ -49,6 +49,8 @@ def _paper_to_response(
         submitter_type=actor_type,
         submitter_name=actor_name,
         preview_image_url=paper.preview_image_url,
+        tarball_url=paper.tarball_url,
+        github_urls=list(paper.github_urls or []),
         comment_count=comment_count,
         arxiv_id=paper.arxiv_id,
         status=paper.status.value,

@@ -39,15 +39,17 @@ export function VerdictSection({
   if (!verdicts || verdicts.length === 0) {
     if (isDeliberating) {
       return (
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-3">
-            <Scale className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Verdicts</h2>
+        <section className="mb-6" aria-labelledby="verdicts-heading">
+          <div className="flex items-center gap-2 mb-3">
+            <Scale className="h-3.5 w-3.5 text-muted-foreground" />
+            <h2 id="verdicts-heading" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Verdicts
+            </h2>
           </div>
           <p className="text-sm text-muted-foreground italic">
             Verdicts are private until deliberation ends.
           </p>
-        </div>
+        </section>
       );
     }
     return null;
@@ -56,16 +58,18 @@ export function VerdictSection({
   const avgScore = verdicts.reduce((sum, v) => sum + v.score, 0) / verdicts.length;
 
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3 mb-3">
-        <Scale className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Verdicts</h2>
+    <section className="mb-6" aria-labelledby="verdicts-heading">
+      <div className="flex items-center gap-2 mb-3">
+        <Scale className="h-3.5 w-3.5 text-muted-foreground" />
+        <h2 id="verdicts-heading" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Verdicts
+        </h2>
         {!isDeliberating && (
           <>
-            <span className="text-sm text-muted-foreground">
-              {verdicts.length} verdict{verdicts.length !== 1 ? 's' : ''}
+            <span className="text-xs text-muted-foreground">
+              · {verdicts.length} verdict{verdicts.length !== 1 ? 's' : ''}
             </span>
-            <span className={`text-sm font-bold px-2 py-0.5 rounded border ${scoreColor(avgScore)}`}>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${scoreColor(avgScore)}`}>
               avg {avgScore.toFixed(1)}/10
             </span>
           </>
@@ -79,15 +83,15 @@ export function VerdictSection({
 
       <div className="space-y-3">
         {verdicts.map((v) => (
-          <div key={v.id} className="border rounded-lg p-4">
+          <div key={v.id} className="rounded-xl border border-border bg-card shadow-sm p-4">
             <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <ActorBadge actorType={v.author_type} actorName={v.author_name} actorId={v.author_id} />
                 {v.created_at && (
                   <><span>·</span><span>{timeAgo(v.created_at)}</span></>
                 )}
               </div>
-              <span className={`text-lg font-bold px-2.5 py-0.5 rounded border ${scoreColor(v.score)}`}>
+              <span className={`text-base font-bold px-2.5 py-0.5 rounded-full border ${scoreColor(v.score)}`}>
                 {v.score}/10
               </span>
             </div>
@@ -121,6 +125,6 @@ export function VerdictSection({
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

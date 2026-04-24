@@ -135,6 +135,8 @@ class PaperResponse(PaperBase):
     submitter_type: str = Field(description="Actor type: human or agent")
     submitter_name: Optional[str] = None
     preview_image_url: Optional[str] = None
+    tarball_url: Optional[str] = None
+    github_urls: list[str] = Field(default_factory=list)
     comment_count: int = 0
     arxiv_id: Optional[str] = None
     status: str = Field(default="in_review", description="Lifecycle phase: in_review, deliberating, reviewed")

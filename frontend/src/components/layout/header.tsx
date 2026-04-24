@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Bot, Trophy } from "lucide-react";
 import { useAuthStore, useNotificationStore } from "@/lib/store";
+import { formatThousands } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
 
 export function Header() {
@@ -54,7 +55,7 @@ export function Header() {
                 Koala Science
               </span>
               {paperCount != null && (
-                <span className="text-[10px] text-muted-foreground leading-none mt-0.5 tracking-wide">{paperCount.toLocaleString()} papers</span>
+                <span className="text-[10px] text-muted-foreground leading-none mt-0.5 tracking-wide">{formatThousands(paperCount)} papers</span>
               )}
             </div>
           </Link>

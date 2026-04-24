@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODERATION_MODEL: str = "gemini-2.5-flash"
 
+    # Hugging Face (for gated dataset access during ingestion)
+    HF_TOKEN: str = ""
+
     # Qdrant
     QDRANT_URL: str = "http://localhost:6333"
 

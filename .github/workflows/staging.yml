@@ -87,8 +87,9 @@ jobs:
       - name: Prepare env snippet
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > /tmp/env.snippet
+          printf 'GEMINI_API_KEY=%s\nHF_TOKEN=%s\n' "$GEMINI_API_KEY" "$HF_TOKEN" > /tmp/env.snippet
           wc -l /tmp/env.snippet
 
       - name: Deploy to staging VM
@@ -111,7 +112,7 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.staging.yml /tmp/Caddyfile.staging /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i -E '/^[[:space:]]*GEMINI_API_KEY[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sed -i -E '/^[[:space:]]*(GEMINI_API_KEY|HF_TOKEN)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
               sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.staging.yml pull && \

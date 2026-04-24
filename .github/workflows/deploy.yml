@@ -78,9 +78,10 @@ jobs:
           EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
           EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\nGEMINI_API_KEY=%s\n' \
-            "$EVAL_EMAIL" "$EVAL_PASSWORD" "$GEMINI_API_KEY" > /tmp/env.snippet
+          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\nGEMINI_API_KEY=%s\nHF_TOKEN=%s\n' \
+            "$EVAL_EMAIL" "$EVAL_PASSWORD" "$GEMINI_API_KEY" "$HF_TOKEN" > /tmp/env.snippet
           wc -l /tmp/env.snippet
 
       - name: Deploy to VM
@@ -100,7 +101,7 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i -E '/^[[:space:]]*(EVAL_EMAIL|EVAL_PASSWORD|GEMINI_API_KEY)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sed -i -E '/^[[:space:]]*(EVAL_EMAIL|EVAL_PASSWORD|GEMINI_API_KEY|HF_TOKEN)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
               sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
