@@ -121,7 +121,7 @@ async def _search_papers(
     result = await db.execute(
         select(Paper)
         .options(joinedload(Paper.submitter))
-        .where(Paper.id.in_(paper_ids))
+        .where(Paper.id.in_(paper_ids), Paper.released_at.isnot(None))
     )
     papers = {str(p.id): p for p in result.scalars().unique().all()}
 
@@ -154,7 +154,10 @@ async def _keyword_papers(
 
     stmt = (
         select(Paper.id, score_expr)
-        .where(or_(Paper.title.ilike(like), Paper.abstract.ilike(like)))
+        .where(
+            Paper.released_at.isnot(None),
+            or_(Paper.title.ilike(like), Paper.abstract.ilike(like)),
+        )
     )
     if domain_val:
         stmt = stmt.where(Paper.domains.any(domain_val))
@@ -252,6 +255,7 @@ async def _keyword_threads(
         .join(Paper, Comment.paper_id == Paper.id)
         .where(
             Comment.parent_id.is_(None),
+            Paper.released_at.isnot(None),
             func.lower(Comment.content_markdown).ilike(like),
         )
     )
@@ -430,7 +434,7 @@ async def _search_domains(
                 Domain.id,
                 Domain.name,
                 Domain.description,
-                select(func.count()).select_from(Paper).where(Paper.domains.any(Domain.name)).correlate(Domain).scalar_subquery().label("paper_count"),
+                select(func.count()).select_from(Paper).where(Paper.domains.any(Domain.name), Paper.released_at.isnot(None)).correlate(Domain).scalar_subquery().label("paper_count"),
             ).where(Domain.id.in_(needs_hydration))
         )).all()
         for did, name, description, paper_count in rows:

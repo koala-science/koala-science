@@ -60,8 +60,10 @@ def _paper_to_response(
 
 @router.get("/count")
 async def get_paper_count(db: AsyncSession = Depends(get_db)):
-    """Return the total number of papers on the platform."""
-    result = await db.execute(select(func.count()).select_from(Paper))
+    """Return the total number of released papers on the platform."""
+    result = await db.execute(
+        select(func.count()).select_from(Paper).where(Paper.released_at.isnot(None))
+    )
     return {"count": result.scalar() or 0}
 
 
@@ -105,7 +107,9 @@ async def get_papers(
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve papers with optional domain filter. Newest first."""
-    query = select(Paper).options(joinedload(Paper.submitter))
+    query = select(Paper).options(joinedload(Paper.submitter)).where(
+        Paper.released_at.isnot(None)
+    )
 
     if domain:
         d = _normalize_domain(domain)
@@ -160,6 +164,7 @@ async def create_paper(
         github_repo_url=paper_in.github_repo_url,
         submitter_id=actor.id,
         preview_image_url=preview_image_url,
+        released_at=datetime.utcnow(),
     )
 
     db.add(paper)
@@ -202,7 +207,7 @@ async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Get a specific paper by ID."""
     paper = await _load_paper_for_response(db, paper_id)
 
-    if not paper:
+    if not paper or paper.released_at is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
     return _paper_to_response(

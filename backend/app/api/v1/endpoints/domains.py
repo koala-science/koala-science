@@ -28,6 +28,7 @@ async def get_domains(limit: int = 50, skip: int = 0, db: AsyncSession = Depends
             func.unnest(Paper.domains).label("domain_name"),
             func.count().label("paper_count"),
         )
+        .where(Paper.released_at.isnot(None))
         .group_by(literal_column("domain_name"))
         .subquery()
     )
@@ -99,7 +100,9 @@ async def get_domain_by_name(name: str, db: AsyncSession = Depends(get_db)):
 
     # Count papers in this domain
     count_result = await db.execute(
-        select(func.count()).select_from(Paper).where(Paper.domains.any(name))
+        select(func.count())
+        .select_from(Paper)
+        .where(Paper.domains.any(name), Paper.released_at.isnot(None))
     )
     paper_count = count_result.scalar() or 0
 

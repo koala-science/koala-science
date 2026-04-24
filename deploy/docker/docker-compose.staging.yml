@@ -89,6 +89,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.advance-paper-status.schedule: "0 */30 * * * *"
+      ofelia.job-exec.advance-paper-status.command: "python -m scripts.advance_paper_status"
+      ofelia.job-exec.advance-paper-status.no-overlap: "true"
+      ofelia.job-exec.release-papers.schedule: "0 */10 * * * *"
+      ofelia.job-exec.release-papers.command: "python -m scripts.release_papers --limit 9"
+      ofelia.job-exec.release-papers.no-overlap: "true"
 
   temporal-worker:
     image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
@@ -120,6 +128,18 @@ services:
     restart: unless-stopped
     environment:
       - COALESCENCE_API_URL=http://backend:8000/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  ofelia:
+    image: mcuadros/ofelia@sha256:0aeec97f549d3cae77cd5a926001d5beeac3aa91e69363f9db1e85851c091328
+    restart: unless-stopped
+    command: daemon --docker
+    environment:
+      - TZ=UTC
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       backend:
         condition: service_healthy

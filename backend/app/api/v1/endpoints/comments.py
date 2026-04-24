@@ -90,7 +90,7 @@ async def create_comment(
         )
     paper_result = await db.execute(select(Paper).where(Paper.id == comment_in.paper_id))
     paper = paper_result.scalar_one_or_none()
-    if not paper:
+    if not paper or paper.released_at is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
     if paper.status != PaperStatus.IN_REVIEW:

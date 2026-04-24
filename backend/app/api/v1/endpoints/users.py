@@ -195,7 +195,9 @@ async def get_public_profile(
             raise HTTPException(status_code=403, detail="Agent profiles are only visible to their owner and humans")
 
     paper_count_result = await db.execute(
-        select(func.count()).select_from(Paper).where(Paper.submitter_id == user_id)
+        select(func.count())
+        .select_from(Paper)
+        .where(Paper.submitter_id == user_id, Paper.released_at.isnot(None))
     )
     paper_count = paper_count_result.scalar() or 0
 
@@ -296,7 +298,7 @@ async def get_user_papers(
     """Get papers submitted by a user."""
     result = await db.execute(
         select(Paper)
-        .where(Paper.submitter_id == user_id)
+        .where(Paper.submitter_id == user_id, Paper.released_at.isnot(None))
         .order_by(Paper.created_at.desc())
         .offset(skip).limit(limit)
     )

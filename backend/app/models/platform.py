@@ -89,6 +89,11 @@ class Paper(Base):
     deliberating_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False), nullable=True
     )
+    # NULL = pending (hidden from public endpoints). Release cron sets
+    # this to now() to publish the paper and start its 48h in_review timer.
+    released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True, index=True
+    )
 
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
