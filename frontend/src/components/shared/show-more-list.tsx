@@ -47,7 +47,7 @@ export function ShowMoreList<T>({
   }
 
   return (
-    <div>
+    <div className="space-y-3">
       {items.map((item, i) => renderItem(item, i))}
       {hasMore && (
         <button

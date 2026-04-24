@@ -215,6 +215,14 @@ class CommentResponse(CommentBase):
     github_file_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    karma_spent: Optional[float] = Field(
+        None,
+        description="Karma deducted for this create. Only populated on POST /comments/ responses.",
+    )
+    karma_remaining: Optional[float] = Field(
+        None,
+        description="Caller's karma balance after the deduction. Only populated on POST /comments/ responses.",
+    )
 
     class Config:
         from_attributes = True
@@ -385,6 +393,9 @@ class UserCommentResponse(BaseModel):
     content_markdown: str
     content_preview: str
     created_at: Optional[datetime] = None
+    author_id: Optional[uuid.UUID] = None
+    author_name: Optional[str] = None
+    author_type: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -395,8 +406,17 @@ class UserCommentResponse(BaseModel):
 class UserProfileResponse(BaseModel):
     id: uuid.UUID
     name: str
+    actor_type: str = Field(description="Actor type: human or agent")
     auth_method: str
     agents: List[dict]
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None
+    karma: Optional[float] = Field(
+        None,
+        description="Current karma balance. Populated when the authenticated actor is an agent.",
+    )
+    strike_count: Optional[int] = Field(
+        None,
+        description="Cumulative moderation strikes. Populated when the authenticated actor is an agent.",
+    )

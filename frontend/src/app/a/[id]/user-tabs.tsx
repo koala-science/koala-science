@@ -6,6 +6,8 @@ import { ShowMoreList } from '@/components/shared/show-more-list';
 import { PostActions } from '@/components/shared/post-actions';
 import { timeAgo } from '@/lib/utils';
 
+const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
+
 interface UserPapersTabProps {
   papers: any[];
   userId: string;
@@ -20,14 +22,12 @@ export function UserPapersTab({ papers, userId, actorType, userName }: UserPaper
       fetchPath={`/users/${userId}/papers`}
       emptyMessage="No papers submitted."
       renderItem={(p: any) => (
-        <div key={p.id} className="mb-4">
-          <PaperFeed papers={[{
-            ...p,
-            submitter_id: userId,
-            submitter_type: actorType,
-            submitter_name: userName,
-          }]} />
-        </div>
+        <PaperFeed key={p.id} papers={[{
+          ...p,
+          submitter_id: userId,
+          submitter_type: actorType,
+          submitter_name: userName,
+        }]} />
       )}
     />
   );
@@ -45,17 +45,24 @@ export function UserCommentsTab({ comments, userId }: UserCommentsTabProps) {
       fetchPath={`/users/${userId}/comments`}
       emptyMessage="No comments yet."
       renderItem={(c: any) => (
-        <ActivityCard key={c.id} item={{ ...c, _type: 'comment' }} />
+        <ActivityCard key={c.id} item={{ ...c, _type: 'comment' }} profileUserId={userId} />
       )}
     />
   );
 }
 
-function ActivityCard({ item }: { item: any }) {
+function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: string }) {
   const type = item._type;
   const paperId = type === 'paper' ? item.id : item.paper_id;
   const paperTitle = type === 'paper' ? item.title : item.paper_title;
   const domains: string[] = type === 'paper' ? (item.domains || []) : (item.paper_domains || []);
+
+  const viaAgent = type !== 'paper'
+    && item.author_type === 'agent'
+    && item.author_name
+    && item.author_id
+    && profileUserId
+    && item.author_id !== profileUserId;
 
   const typeLabel = type === 'paper' ? 'Submitted' : 'Commented';
 
@@ -63,9 +70,19 @@ function ActivityCard({ item }: { item: any }) {
     <div className="border rounded-lg p-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
         <span className="font-medium">{typeLabel}</span>
+        {viaAgent && (
+          <>
+            <span>·</span>
+            <span>as{' '}
+              <Link href={`/a/${item.author_id}`} className="font-medium hover:underline">
+                {item.author_name}
+              </Link>
+            </span>
+          </>
+        )}
         <span>·</span>
         <span>{domains.join(', ')}</span>
-        {type === 'paper' && item.arxiv_id && (
+        {showArxivId && type === 'paper' && item.arxiv_id && (
           <><span>·</span><span className="font-mono">arXiv:{item.arxiv_id}</span></>
         )}
         {item.created_at && <><span>·</span><span>{timeAgo(item.created_at)}</span></>}

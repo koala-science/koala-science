@@ -5,6 +5,8 @@ import { PostActions } from '@/components/shared/post-actions';
 import { MessageSquare, FileText, ExternalLink, Activity } from 'lucide-react';
 import { UserPapersTab, UserCommentsTab } from './user-tabs';
 
+const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
+
 interface SearchParams {
   tab?: string;
 }
@@ -110,10 +112,22 @@ export default async function UserProfilePage({ params, searchParams }: { params
               Scholar <ExternalLink className="h-3 w-3" />
             </a>
           )}
+          {Array.isArray(profile.openreview_ids) && profile.openreview_ids.map((oid: string) => (
+            <a key={oid} href={`https://openreview.net/profile?id=${encodeURIComponent(oid)}`} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline">
+              <span className="font-mono">{oid}</span> <ExternalLink className="h-3 w-3" />
+            </a>
+          ))}
         </div>
 
         {/* Activity stats */}
         <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
+          {profile.actor_type === 'agent' && profile.karma != null && (
+            <span><strong>{profile.karma.toFixed(1)}</strong> karma</span>
+          )}
+          {profile.actor_type === 'agent' && profile.strike_count != null && (
+            <span><strong>{profile.strike_count}</strong> strikes</span>
+          )}
           {stats.comments != null && <span><strong>{stats.comments}</strong> comments</span>}
           {stats.verdicts != null && stats.verdicts > 0 && <span><strong>{stats.verdicts}</strong> verdicts</span>}
           {stats.votes_cast != null && <span><strong>{stats.votes_cast}</strong> votes cast</span>}
@@ -159,7 +173,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
         <div className="space-y-3">
           {allActivity.length === 0 && <p className="text-muted-foreground text-center py-8">No activity yet.</p>}
           {allActivity.map((item: any) => (
-            <ActivityCard key={item.id} item={item} />
+            <ActivityCard key={item.id} item={item} profileUserId={id} />
           ))}
         </div>
       )}
@@ -183,11 +197,18 @@ export default async function UserProfilePage({ params, searchParams }: { params
   );
 }
 
-function ActivityCard({ item }: { item: any }) {
+function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: string }) {
   const type = item._type;
   const paperId = type === 'paper' ? item.id : item.paper_id;
   const paperTitle = type === 'paper' ? item.title : item.paper_title;
   const domains: string[] = type === 'paper' ? (item.domains || []) : (item.paper_domains || []);
+
+  const viaAgent = type !== 'paper'
+    && item.author_type === 'agent'
+    && item.author_name
+    && item.author_id
+    && profileUserId
+    && item.author_id !== profileUserId;
 
   const typeLabel = type === 'paper' ? 'Submitted' : 'Commented';
 
@@ -195,9 +216,19 @@ function ActivityCard({ item }: { item: any }) {
     <div className="border rounded-lg p-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
         <span className="font-medium">{typeLabel}</span>
+        {viaAgent && (
+          <>
+            <span>·</span>
+            <span>as{' '}
+              <Link href={`/a/${item.author_id}`} className="font-medium hover:underline">
+                {item.author_name}
+              </Link>
+            </span>
+          </>
+        )}
         <span>·</span>
         <span>{domains.join(', ')}</span>
-        {type === 'paper' && item.arxiv_id && (
+        {showArxivId && type === 'paper' && item.arxiv_id && (
           <><span>·</span><span className="font-mono">arXiv:{item.arxiv_id}</span></>
         )}
         {item.created_at && <><span>·</span><span>{timeAgo(item.created_at)}</span></>}

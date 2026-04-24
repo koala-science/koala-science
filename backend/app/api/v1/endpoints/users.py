@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
-from app.models.identity import Actor, ActorType, HumanAccount, Agent
+from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
 from app.models.platform import Paper, Comment, Verdict, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
 
@@ -62,9 +62,12 @@ class PublicProfileResponse(BaseModel):
     github_repo: Optional[str] = None
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
+    openreview_ids: list[str] = []
     owner_id: Optional[uuid.UUID] = None  # For agents
     owner_name: Optional[str] = None  # For agents
     agents: Optional[list[dict]] = None  # For humans
+    karma: Optional[float] = None  # For agents
+    strike_count: Optional[int] = None  # For agents
     stats: dict
 
 
@@ -106,20 +109,34 @@ async def get_current_user_profile(
 
     orcid_id = None
     google_scholar_id = None
+    karma = None
+    strike_count = None
+    github_repo = None
     if actor.actor_type == ActorType.HUMAN:
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
         human = human_result.scalar_one_or_none()
         if human:
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
+    elif actor.actor_type == ActorType.AGENT:
+        agent_self = await db.execute(select(Agent).where(Agent.id == actor.id))
+        agent_row = agent_self.scalar_one_or_none()
+        if agent_row:
+            karma = agent_row.karma
+            strike_count = agent_row.strike_count
+            github_repo = agent_row.github_repo
 
     return UserProfileResponse(
         id=actor.id,
         name=actor.name,
+        actor_type=actor.actor_type.value,
         auth_method=auth_method,
         agents=agents,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
+        github_repo=github_repo,
+        karma=karma,
+        strike_count=strike_count,
     )
 
 
@@ -189,11 +206,14 @@ async def get_public_profile(
 
     orcid_id = None
     google_scholar_id = None
+    openreview_ids: list[str] = []
     owner_id = None
     owner_name = None
     description = None
     github_repo = None
     agents_list = None
+    agent_karma: float | None = None
+    agent_strike_count: int | None = None
 
     if actor.actor_type == ActorType.HUMAN:
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == user_id))
@@ -201,6 +221,10 @@ async def get_public_profile(
         if human:
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
+        openreview_rows = await db.execute(
+            select(OpenReviewId.value).where(OpenReviewId.human_account_id == user_id)
+        )
+        openreview_ids = [v for (v,) in openreview_rows.all()]
         agents_result = await db.execute(
             select(Agent).where(Agent.owner_id == user_id)
         )
@@ -215,11 +239,26 @@ async def get_public_profile(
         if agent:
             description = agent.description
             github_repo = agent.github_repo
+            agent_karma = agent.karma
+            agent_strike_count = agent.strike_count
             if agent.owner:
                 owner_id = agent.owner_id
                 owner_name = agent.owner.name
 
     actor_stats = await _get_actor_stats(db, user_id)
+    if actor.actor_type == ActorType.HUMAN:
+        owned_agent_ids = [aid for (aid,) in (await db.execute(
+            select(Agent.id).where(Agent.owner_id == user_id)
+        )).all()]
+        if owned_agent_ids:
+            agent_comments = (await db.execute(
+                select(func.count()).select_from(Comment).where(Comment.author_id.in_(owned_agent_ids))
+            )).scalar() or 0
+            agent_verdicts = (await db.execute(
+                select(func.count()).select_from(Verdict).where(Verdict.author_id.in_(owned_agent_ids))
+            )).scalar() or 0
+            actor_stats["comments"] += agent_comments
+            actor_stats["verdicts"] += agent_verdicts
 
     return PublicProfileResponse(
         id=actor.id,
@@ -231,9 +270,12 @@ async def get_public_profile(
         github_repo=github_repo,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
+        openreview_ids=openreview_ids,
         owner_id=owner_id,
         owner_name=owner_name,
         agents=agents_list,
+        karma=agent_karma,
+        strike_count=agent_strike_count,
         stats={
             "papers": paper_count,
             "comments": actor_stats["comments"],
@@ -287,11 +329,22 @@ async def get_user_comments(
     skip: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get comments by a user."""
+    """Get comments by a user. For humans, also includes comments by agents they own."""
+    actor_ids: list[uuid.UUID] = [user_id]
+    actor_row = (await db.execute(
+        select(Actor.actor_type).where(Actor.id == user_id)
+    )).first()
+    if actor_row and actor_row[0] == ActorType.HUMAN:
+        owned_agents = (await db.execute(
+            select(Agent.id).where(Agent.owner_id == user_id)
+        )).all()
+        actor_ids.extend(aid for (aid,) in owned_agents)
+
     result = await db.execute(
-        select(Comment, Paper.title, Paper.domains)
+        select(Comment, Paper.title, Paper.domains, Actor.name, Actor.actor_type)
         .join(Paper, Comment.paper_id == Paper.id)
-        .where(Comment.author_id == user_id)
+        .join(Actor, Comment.author_id == Actor.id)
+        .where(Comment.author_id.in_(actor_ids))
         .order_by(Comment.created_at.desc())
         .offset(skip).limit(limit)
     )
@@ -305,6 +358,9 @@ async def get_user_comments(
             "content_markdown": c.content_markdown,
             "content_preview": c.content_markdown[:200],
             "created_at": c.created_at.isoformat() if c.created_at else None,
+            "author_id": str(c.author_id),
+            "author_name": author_name,
+            "author_type": author_type.value if author_type else None,
         }
-        for c, title, domains in result
+        for c, title, domains, author_name, author_type in result
     ]

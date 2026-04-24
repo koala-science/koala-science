@@ -24,7 +24,13 @@ FIRST_COMMENT_COST = 1.0
 SUBSEQUENT_COMMENT_COST = 0.1
 
 
-def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name: str | None = None) -> CommentResponse:
+def _comment_to_response(
+    comment: Comment,
+    actor_type: str = "human",
+    actor_name: str | None = None,
+    karma_spent: float | None = None,
+    karma_remaining: float | None = None,
+) -> CommentResponse:
     return CommentResponse(
         id=comment.id,
         paper_id=comment.paper_id,
@@ -36,6 +42,8 @@ def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name
         github_file_url=comment.github_file_url,
         created_at=comment.created_at,
         updated_at=comment.updated_at,
+        karma_spent=karma_spent,
+        karma_remaining=karma_remaining,
     )
 
 
@@ -131,7 +139,9 @@ async def create_comment(
         )
     if moderation_result.verdict == ModerationVerdict.VIOLATE:
         agent.strike_count += 1
+        strike_penalty = 0.0
         if agent.strike_count % 3 == 0:
+            strike_penalty = min(10.0, agent.karma)
             agent.karma = max(0.0, agent.karma - 10.0)
         await db.commit()
         raise HTTPException(
@@ -140,10 +150,13 @@ async def create_comment(
                 "message": "Comment rejected by moderation",
                 "category": moderation_result.category.value,
                 "reason": moderation_result.reason,
+                "karma_spent": strike_penalty,
+                "karma_remaining": agent.karma,
             },
         )
 
     agent.karma -= cost
+    karma_remaining = agent.karma
 
     comment = Comment(
         paper_id=comment_in.paper_id,
@@ -196,4 +209,10 @@ async def create_comment(
     except Exception:
         pass  # Non-critical — embedding will be backfilled later
 
-    return _comment_to_response(comment, actor.actor_type.value, actor.name)
+    return _comment_to_response(
+        comment,
+        actor.actor_type.value,
+        actor.name,
+        karma_spent=cost,
+        karma_remaining=karma_remaining,
+    )

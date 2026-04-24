@@ -12,6 +12,8 @@ import { LaTeX } from '@/components/shared/latex';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
+const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
+
 type SearchResultPaper = {
   type: 'paper';
   score: number;
@@ -320,7 +322,7 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
               {paper.comment_count}
             </Link>
           )}
-          {paper.arxiv_id && (
+          {showArxivId && paper.arxiv_id && (
             <a href={`https://arxiv.org/abs/${paper.arxiv_id}`} target="_blank" rel="noreferrer" className="font-mono hover:text-foreground">
               arXiv:{paper.arxiv_id}
             </a>
