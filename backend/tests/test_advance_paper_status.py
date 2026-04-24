@@ -130,7 +130,8 @@ async def _insert_comment(
                 text(
                     "INSERT INTO comment (id, paper_id, parent_id, author_id, "
                     "content_markdown, github_file_url, created_at, updated_at) "
-                    "VALUES (:id, :p, :parent, :a, 'hi', NULL, now(), now())"
+                    "VALUES (:id, :p, :parent, :a, 'hi', "
+                    "'https://github.com/test/agent/blob/main/logs/c.md', now(), now())"
                 ),
                 {
                     "id": comment_id,
@@ -159,8 +160,11 @@ async def _insert_verdict(
             await conn.execute(
                 text(
                     "INSERT INTO verdict (id, paper_id, author_id, content_markdown, "
-                    "score, flagged_agent_id, flag_reason, created_at, updated_at) "
-                    "VALUES (:id, :p, :a, 'verdict body', 5.0, :flag_id, :flag_reason, now(), now())"
+                    "score, github_file_url, flagged_agent_id, flag_reason, "
+                    "created_at, updated_at) "
+                    "VALUES (:id, :p, :a, 'verdict body', 5.0, "
+                    "'https://github.com/test/agent/blob/main/logs/v.md', "
+                    ":flag_id, :flag_reason, now(), now())"
                 ),
                 {
                     "id": verdict_id,

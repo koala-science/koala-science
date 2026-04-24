@@ -31,11 +31,11 @@ async def test_reply_notifies_parent_author(mock_redis, db_session: AsyncSession
     db_session.add(paper)
     await db_session.flush()
 
-    root = Comment(paper_id=paper.id, author_id=bob.id, content_markdown="Great paper!")
+    root = Comment(paper_id=paper.id, author_id=bob.id, content_markdown="Great paper!", github_file_url="https://github.com/test/agent/blob/main/logs/a.md")
     db_session.add(root)
     await db_session.flush()
 
-    reply = Comment(paper_id=paper.id, parent_id=root.id, author_id=alice.id, content_markdown="Thanks!")
+    reply = Comment(paper_id=paper.id, parent_id=root.id, author_id=alice.id, content_markdown="Thanks!", github_file_url="https://github.com/test/agent/blob/main/logs/b.md")
     db_session.add(reply)
     await db_session.flush()
 
@@ -74,7 +74,7 @@ async def test_root_comment_on_paper_with_no_prior_commenters_notifies_no_one(mo
     db_session.add(paper)
     await db_session.flush()
 
-    comment = Comment(paper_id=paper.id, author_id=commenter.id, content_markdown="Interesting approach")
+    comment = Comment(paper_id=paper.id, author_id=commenter.id, content_markdown="Interesting approach", github_file_url="https://github.com/test/agent/blob/main/logs/c.md")
     db_session.add(comment)
     await db_session.flush()
 
@@ -110,11 +110,11 @@ async def test_reply_only_notifies_parent_not_submitter(mock_redis, db_session: 
     db_session.add(paper)
     await db_session.flush()
 
-    review = Comment(paper_id=paper.id, author_id=reviewer.id, content_markdown="Good work")
+    review = Comment(paper_id=paper.id, author_id=reviewer.id, content_markdown="Good work", github_file_url="https://github.com/test/agent/blob/main/logs/d.md")
     db_session.add(review)
     await db_session.flush()
 
-    reply = Comment(paper_id=paper.id, parent_id=review.id, author_id=replier.id, content_markdown="I agree")
+    reply = Comment(paper_id=paper.id, parent_id=review.id, author_id=replier.id, content_markdown="I agree", github_file_url="https://github.com/test/agent/blob/main/logs/e.md")
     db_session.add(reply)
     await db_session.flush()
 
@@ -148,7 +148,7 @@ async def test_no_self_notification_on_comment(mock_redis, db_session: AsyncSess
     db_session.add(paper)
     await db_session.flush()
 
-    comment = Comment(paper_id=paper.id, author_id=author.id, content_markdown="My own thoughts")
+    comment = Comment(paper_id=paper.id, author_id=author.id, content_markdown="My own thoughts", github_file_url="https://github.com/test/agent/blob/main/logs/f.md")
     db_session.add(comment)
     await db_session.flush()
 
@@ -176,11 +176,11 @@ async def test_no_self_notification_on_reply(mock_redis, db_session: AsyncSessio
     db_session.add(paper)
     await db_session.flush()
 
-    root = Comment(paper_id=paper.id, author_id=author.id, content_markdown="Root")
+    root = Comment(paper_id=paper.id, author_id=author.id, content_markdown="Root", github_file_url="https://github.com/test/agent/blob/main/logs/g.md")
     db_session.add(root)
     await db_session.flush()
 
-    reply = Comment(paper_id=paper.id, parent_id=root.id, author_id=author.id, content_markdown="Self reply")
+    reply = Comment(paper_id=paper.id, parent_id=root.id, author_id=author.id, content_markdown="Self reply", github_file_url="https://github.com/test/agent/blob/main/logs/h.md")
     db_session.add(reply)
     await db_session.flush()
 
@@ -213,7 +213,7 @@ async def test_verdict_posted_emits_no_notifications(mock_redis, db_session: Asy
     db_session.add(paper)
     await db_session.flush()
 
-    verdict = Verdict(paper_id=paper.id, author_id=reviewer.id, content_markdown="Strong work", score=8)
+    verdict = Verdict(paper_id=paper.id, author_id=reviewer.id, content_markdown="Strong work", score=8, github_file_url="https://github.com/test/agent/blob/main/logs/v.md")
     db_session.add(verdict)
     await db_session.flush()
 

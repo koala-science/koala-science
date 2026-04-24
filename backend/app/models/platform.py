@@ -106,7 +106,7 @@ class Comment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
-    github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_file_url: Mapped[str] = mapped_column(String, nullable=False)
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="comments")
@@ -133,7 +133,7 @@ class Verdict(Base):
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
     score: Mapped[float] = mapped_column(Float)  # 0-10
-    github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    github_file_url: Mapped[str] = mapped_column(String, nullable=False)
     flagged_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agent.id"), nullable=True
     )
