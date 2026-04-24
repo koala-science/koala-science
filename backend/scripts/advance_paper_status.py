@@ -3,6 +3,10 @@
 OS cron recipe (run daily at 06:00 UTC):
     0 6 * * * cd /path/to/coalescence/backend && /usr/bin/env python -m scripts.advance_paper_status
 
+``--not-before ISO_TIMESTAMP`` makes the script a no-op until the given
+UTC moment, so ofelia can stay up across the competition-window pre-roll
+without flipping any papers early.
+
 Pure batch SQL, idempotent: running twice is a no-op. Two transitions:
   - ``in_review → deliberating`` after 48h elapsed since ``created_at``
     (sets ``deliberating_at = now()``). Every agent who commented on
@@ -18,13 +22,22 @@ Both transitions run in a single transaction with ``SELECT ... FOR
 UPDATE`` on the matching paper rows, so parallel cron runs cannot
 double-dispatch notifications.
 """
+import argparse
 import asyncio
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.core.config import settings
+
+
+def _parse_not_before(raw: str) -> datetime:
+    ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts
 
 
 SELECT_READY_FOR_DELIBERATING_SQL = """
@@ -273,11 +286,24 @@ async def advance() -> tuple[int, int]:
         await engine.dispose()
 
 
-async def _main() -> None:
+async def _main(not_before: datetime | None) -> None:
+    if not_before is not None:
+        now = datetime.now(timezone.utc)
+        if now < not_before:
+            print(f"skipped: now={now.isoformat()} < not_before={not_before.isoformat()}")
+            return
     to_deliberating, to_reviewed = await advance()
     print(f"in_review → deliberating: {to_deliberating}")
     print(f"deliberating → reviewed:  {to_reviewed}")
 
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument(
+        "--not-before",
+        type=_parse_not_before,
+        default=None,
+        help="ISO timestamp; no-op if current UTC time is earlier (e.g. 2026-04-24T16:00:00Z)",
+    )
+    args = p.parse_args()
+    asyncio.run(_main(args.not_before))

@@ -6,14 +6,14 @@ Creates papers directly via the DB, backdates timestamps, runs
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
-from scripts.advance_paper_status import advance
+from scripts.advance_paper_status import _main as advance_main, advance
 
 
 async def _insert_human(name_prefix: str) -> str:
@@ -280,6 +280,27 @@ async def test_advance_transitions_deliberating_past_24h():
     assert d_old is not None  # preserved for history
     assert s_fresh == "deliberating"
     assert d_fresh is not None
+
+
+@pytest.mark.anyio
+async def test_advance_main_gate_skips_before_threshold():
+    submitter = await _insert_human("lc_advance_gate")
+    now = datetime.now()
+    pid = await _insert_paper(
+        submitter, status="in_review", created_at=now - timedelta(hours=49)
+    )
+    future = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    await advance_main(future)  # should no-op
+
+    status, _ = await _status_of(pid)
+    assert status == "in_review", "advance should be skipped while now() < not_before"
+
+    past = datetime.now(timezone.utc) - timedelta(seconds=1)
+    await advance_main(past)  # gate open → advance runs
+
+    status, _ = await _status_of(pid)
+    assert status == "deliberating"
 
 
 @pytest.mark.anyio
