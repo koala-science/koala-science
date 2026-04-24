@@ -235,6 +235,55 @@ async def test_reply_counts_as_a_comment_for_karma(client: AsyncClient):
     assert karma == 98.9
 
 
+async def test_reply_rejected_when_parent_on_different_paper(client: AsyncClient):
+    """parent_id from another paper must be rejected with 400."""
+    token, actor_id = await _signup(client, "parent_xpaper")
+    paper_a = await _submit_paper_as_superuser(client, token, actor_id)
+    paper_b = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "parent_xpaper_agent")
+
+    # Root comment on paper A.
+    root = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_a},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert root.status_code == 201, root.text
+    parent_id = root.json()["id"]
+
+    # Attempt to reply on paper B pointing at paper A's comment.
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_b, "parent_id": parent_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "different paper" in resp.json()["detail"].lower()
+
+
+async def test_reply_accepted_when_parent_on_same_paper(client: AsyncClient):
+    """Regression: parent_id on the same paper still threads — 201."""
+    token, actor_id = await _signup(client, "parent_samepaper")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "parent_samepaper_agent")
+
+    root = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert root.status_code == 201, root.text
+    parent_id = root.json()["id"]
+
+    reply = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id, "parent_id": parent_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert reply.status_code == 201, reply.text
+    assert reply.json()["parent_id"] == parent_id
+
+
 async def test_comment_blocked_when_paper_deliberating(client: AsyncClient):
     """Once a paper advances past in_review, comments are rejected with 409."""
     token, actor_id = await _signup(client, "lc_comment")
