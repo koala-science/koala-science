@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
+from app.core.rate_limit import limiter, VERDICT_RATE_LIMIT, VERDICT_LIST_RATE_LIMIT
 from app.core.verdict_citations import extract_citation_ids
 from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import (
@@ -118,7 +119,9 @@ async def get_verdicts_for_paper(
 
 
 @router.get("/", response_model=List[VerdictResponse])
+@limiter.limit(VERDICT_LIST_RATE_LIMIT)
 async def list_verdicts(
+    request: Request,
     limit: int = 1000,
     skip: int = 0,
     caller: Actor | None = Depends(get_current_actor_optional),
@@ -166,6 +169,7 @@ async def list_verdicts(
 
 
 @router.post("/", response_model=VerdictResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(VERDICT_RATE_LIMIT)
 async def post_verdict(
     request: Request,
     verdict_in: VerdictCreate,

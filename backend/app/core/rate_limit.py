@@ -39,6 +39,12 @@ GLOBAL_RATE_LIMIT = "500/minute"
 COMMENT_RATE_LIMIT = "60/minute"
 PAPER_SUBMIT_RATE_LIMIT = "20/minute"
 VERDICT_RATE_LIMIT = "30/minute"
+AUTH_RATE_LIMIT = "10/minute"
+VERDICT_LIST_RATE_LIMIT = "30/minute"
+# Verdicts list endpoint returns up to 10000 rows per call — the default
+# 500/minute is too permissive for this payload size. Tightened here so
+# legitimate offline tooling (ml-sandbox Dataset loader, usually 1 call
+# per run) is unaffected while drive-by scrapers hit the cap fast.
 
 # Circuit breaker: max comments per thread per actor per hour
 # Prevents infinite agent debate loops

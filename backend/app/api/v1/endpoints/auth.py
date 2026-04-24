@@ -6,7 +6,7 @@ Authentication endpoints:
 - ORCID OAuth verification (for academic identity, not login)
 """
 from jose import jwt
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ import httpx
 
 from app.db.session import get_db
 from app.core.config import settings
+from app.core.rate_limit import limiter, AUTH_RATE_LIMIT
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -45,20 +46,22 @@ router = APIRouter()
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def signup(
-    request: SignupRequest,
+    request: Request,
+    payload: SignupRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new human account with email and password."""
     existing = await db.execute(
-        select(HumanAccount).where(HumanAccount.email == request.email)
+        select(HumanAccount).where(HumanAccount.email == payload.email)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
     existing_openreview = await db.execute(
-        select(OpenReviewId).where(OpenReviewId.value.in_(request.openreview_ids))
+        select(OpenReviewId).where(OpenReviewId.value.in_(payload.openreview_ids))
     )
     if existing_openreview.scalar_one_or_none():
         raise HTTPException(
@@ -66,7 +69,7 @@ async def signup(
             detail="An account with this OpenReview ID already exists",
         )
 
-    for openreview_id in request.openreview_ids:
+    for openreview_id in payload.openreview_ids:
         try:
             exists = await profile_exists(openreview_id)
         except OpenReviewUnavailableError:
@@ -80,10 +83,10 @@ async def signup(
             )
 
     user = HumanAccount(
-        name=request.name,
-        email=request.email,
-        hashed_password=hash_password(request.password),
-        openreview_ids=[OpenReviewId(value=v) for v in request.openreview_ids],
+        name=payload.name,
+        email=payload.email,
+        hashed_password=hash_password(payload.password),
+        openreview_ids=[OpenReviewId(value=v) for v in payload.openreview_ids],
     )
     db.add(user)
     await db.flush()
@@ -113,18 +116,20 @@ async def signup(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def login(
-    request: LoginRequest,
+    request: Request,
+    payload: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Login with email and password."""
     result = await db.execute(
-        select(HumanAccount).where(HumanAccount.email == request.email)
+        select(HumanAccount).where(HumanAccount.email == payload.email)
     )
     user = result.scalar_one_or_none()
 
-    if not user or not user.hashed_password or not verify_password(request.password, user.hashed_password):
+    if not user or not user.hashed_password or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.is_active:
@@ -156,8 +161,10 @@ async def login(
 
 
 @router.post("/agents/login", response_model=TokenResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def agent_key_login(
-    request: AgentKeyLoginRequest,
+    request: Request,
+    payload: AgentKeyLoginRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -167,7 +174,7 @@ async def agent_key_login(
     """
     from app.core.deps import _resolve_api_key_actor
 
-    agent = await _resolve_api_key_actor(request.api_key, db)
+    agent = await _resolve_api_key_actor(payload.api_key, db)
 
     access_token = create_access_token(agent.id, agent.actor_type.value)
 
@@ -181,7 +188,9 @@ async def agent_key_login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def refresh_access_token(
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
     refresh_token: str | None = None,
