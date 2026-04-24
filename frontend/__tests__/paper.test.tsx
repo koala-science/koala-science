@@ -43,8 +43,14 @@ describe('PaperDetailView', () => {
     render(<AppProvider>{jsx}</AppProvider>);
 
     expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Detail');
-    expect(screen.getByText('PDF')).toHaveAttribute('data-agent-action', 'download-pdf');
-    expect(screen.getByText('Code')).toHaveAttribute('data-agent-action', 'view-code');
+    expect(document.querySelector('[data-agent-action="download-pdf"]')).toHaveAttribute(
+      'href',
+      mockPaper.pdf_url,
+    );
+    expect(document.querySelector('[data-agent-action="view-code"]')).toHaveAttribute(
+      'href',
+      mockPaper.github_repo_url,
+    );
     expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('in review');
   });
 

@@ -39,8 +39,8 @@ async def test_verdict_score_below_zero_rejected(client: AsyncClient):
             await conn.execute(
                 text(
                     "INSERT INTO paper "
-                    "(id, title, abstract, domains, submitter_id, status) "
-                    "VALUES (:id, :t, :a, '{}', :s, 'in_review')"
+                    "(id, title, abstract, domains, submitter_id, status, created_at, updated_at) "
+                    "VALUES (:id, :t, :a, '{}', :s, 'in_review', NOW(), NOW())"
                 ),
                 {
                     "id": paper_id,
@@ -77,8 +77,8 @@ async def test_verdict_score_above_ten_rejected(client: AsyncClient):
             await conn.execute(
                 text(
                     "INSERT INTO paper "
-                    "(id, title, abstract, domains, submitter_id, status) "
-                    "VALUES (:id, :t, :a, '{}', :s, 'in_review')"
+                    "(id, title, abstract, domains, submitter_id, status, created_at, updated_at) "
+                    "VALUES (:id, :t, :a, '{}', :s, 'in_review', NOW(), NOW())"
                 ),
                 {
                     "id": paper_id,
@@ -116,8 +116,8 @@ async def test_verdict_score_boundary_accepted(client: AsyncClient):
             await conn.execute(
                 text(
                     "INSERT INTO paper "
-                    "(id, title, abstract, domains, submitter_id, status) "
-                    "VALUES (:id, :t, :a, '{}', :s, 'in_review')"
+                    "(id, title, abstract, domains, submitter_id, status, created_at, updated_at) "
+                    "VALUES (:id, :t, :a, '{}', :s, 'in_review', NOW(), NOW())"
                 ),
                 {
                     "id": paper_id,
@@ -129,8 +129,8 @@ async def test_verdict_score_boundary_accepted(client: AsyncClient):
             await conn.execute(
                 text(
                     "INSERT INTO verdict "
-                    "(id, paper_id, author_id, content_markdown, score, github_file_url) "
-                    "VALUES (:id, :pid, :aid, :c, :sc, 'https://github.com/koala-science/test/blob/main/v.md')"
+                    "(id, paper_id, author_id, content_markdown, score, github_file_url, created_at, updated_at) "
+                    "VALUES (:id, :pid, :aid, :c, :sc, 'https://github.com/koala-science/test/blob/main/v.md', NOW(), NOW())"
                 ),
                 {
                     "id": uuid.uuid4(),
@@ -143,8 +143,8 @@ async def test_verdict_score_boundary_accepted(client: AsyncClient):
             await conn.execute(
                 text(
                     "INSERT INTO verdict "
-                    "(id, paper_id, author_id, content_markdown, score, github_file_url) "
-                    "VALUES (:id, :pid, :aid, :c, :sc, 'https://github.com/koala-science/test/blob/main/v.md')"
+                    "(id, paper_id, author_id, content_markdown, score, github_file_url, created_at, updated_at) "
+                    "VALUES (:id, :pid, :aid, :c, :sc, 'https://github.com/koala-science/test/blob/main/v.md', NOW(), NOW())"
                 ),
                 {
                     "id": uuid.uuid4(),
