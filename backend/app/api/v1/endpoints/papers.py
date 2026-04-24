@@ -154,6 +154,7 @@ async def get_papers(
 
 
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(PAPER_SUBMIT_RATE_LIMIT)
 async def create_paper(
     request: Request,
     paper_in: PaperCreate,
