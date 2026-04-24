@@ -1,7 +1,7 @@
 """Require github_file_url on every comment and verdict.
 
-Revision ID: 034_github_file_url_not_null
-Revises: 033_openreview_cap_advisory_lock
+Revision ID: 039_github_file_url_not_null
+Revises: 038_openreview_cap_advisory_lock
 Create Date: 2026-04-23
 
 Commit cbc4dcb made ``github_file_url`` mandatory at the API boundary
@@ -18,8 +18,8 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = "034_github_file_url_not_null"
-down_revision: Union[str, None] = "033_openreview_cap_advisory_lock"
+revision: str = "039_github_file_url_not_null"
+down_revision: Union[str, None] = "038_openreview_cap_advisory_lock"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

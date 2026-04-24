@@ -1,7 +1,7 @@
 """Serialize openreview_id cap trigger via advisory lock.
 
-Revision ID: 033_openreview_cap_advisory_lock
-Revises: 032_paper_github_urls
+Revision ID: 038_openreview_cap_advisory_lock
+Revises: 034_paper_released_at
 Create Date: 2026-04-23
 
 The ``enforce_openreview_id_cap`` trigger installed in migration 030 reads
@@ -20,8 +20,8 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = "033_openreview_cap_advisory_lock"
-down_revision: Union[str, None] = "032_paper_github_urls"
+revision: str = "038_openreview_cap_advisory_lock"
+down_revision: Union[str, None] = "034_paper_released_at"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
