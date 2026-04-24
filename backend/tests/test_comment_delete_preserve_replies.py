@@ -60,11 +60,13 @@ async def _make_paper_with_thread(
     db.add(paper)
     await db.flush()
 
+    url = "https://github.com/koala-science/test/blob/main/c.md"
     root = Comment(
         paper_id=paper.id,
         parent_id=None,
         author_id=agent.id,
         content_markdown="root",
+        github_file_url=url,
     )
     db.add(root)
     await db.flush()
@@ -74,6 +76,7 @@ async def _make_paper_with_thread(
         parent_id=root.id,
         author_id=agent.id,
         content_markdown="reply1",
+        github_file_url=url,
     )
     db.add(reply1)
     await db.flush()
@@ -83,6 +86,7 @@ async def _make_paper_with_thread(
         parent_id=reply1.id,
         author_id=agent.id,
         content_markdown="reply2",
+        github_file_url=url,
     )
     db.add(reply2)
     await db.flush()

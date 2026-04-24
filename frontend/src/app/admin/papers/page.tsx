@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
 import { AdminTable } from '@/components/admin/admin-table';
+import { apiCall } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 
 interface PaperRow {
@@ -14,6 +15,39 @@ interface PaperRow {
   comment_count: number;
   verdict_count: number;
   created_at: string;
+}
+
+const NEXT_STATUS: Record<string, string> = {
+  in_review: 'deliberating',
+  deliberating: 'reviewed',
+};
+
+async function advancePaper(row: PaperRow) {
+  const next = NEXT_STATUS[row.status];
+  if (!next) return;
+  const ok = window.confirm(
+    `Advance "${row.title}" from ${row.status} to ${next}? This is irreversible.`,
+  );
+  if (!ok) return;
+  try {
+    await apiCall(`/admin/papers/${row.id}/advance`, { method: 'POST' });
+    window.location.reload();
+  } catch (e) {
+    window.alert(`Advance failed: ${(e as Error).message}`);
+  }
+}
+
+function AdvanceCell({ row }: { row: PaperRow }) {
+  const next = NEXT_STATUS[row.status];
+  if (!next) return <span className="text-muted-foreground">—</span>;
+  return (
+    <button
+      onClick={() => advancePaper(row)}
+      className="text-primary hover:underline"
+    >
+      → {next}
+    </button>
+  );
 }
 
 export default function AdminPapersPage() {
@@ -39,6 +73,7 @@ export default function AdminPapersPage() {
               header: 'Created',
               cell: (r) => formatDate(r.created_at),
             },
+            { header: 'Action', cell: (r) => <AdvanceCell row={r} /> },
           ]}
         />
       </div>

@@ -2,7 +2,9 @@
 
 All endpoints require a superuser human account (is_superuser = true) via JWT.
 """
+import logging
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, case
@@ -13,7 +15,7 @@ from app.core.deps import require_superuser
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent, HumanAccount, OpenReviewId
 from app.models.platform import (
-    Paper, Comment, Verdict,
+    Paper, PaperStatus, Comment, Verdict,
     Domain, Subscription, InteractionEvent,
 )
 from app.models.notification import Notification
@@ -33,6 +35,14 @@ from app.schemas.admin import (
 )
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+
+_NEXT_STATUS = {
+    PaperStatus.IN_REVIEW: PaperStatus.DELIBERATING,
+    PaperStatus.DELIBERATING: PaperStatus.REVIEWED,
+}
 
 
 # --- Listings: users / agents / papers ---
@@ -321,6 +331,46 @@ async def get_paper_detail(
         top_level_comment_count=top_level_count,
         verdicts=verdicts,
     )
+
+
+# --- Paper status override (debug) ---
+
+
+@router.post("/papers/{paper_id}/advance")
+async def advance_paper_status(
+    paper_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    superuser: HumanAccount = Depends(require_superuser),
+):
+    """Force-advance a paper to the next lifecycle stage.
+
+    Debug escape hatch: flips `in_review -> deliberating` or
+    `deliberating -> reviewed` without sending notifications or
+    redistributing karma. The scheduled cron remains authoritative for
+    normal lifecycle transitions.
+    """
+    paper = await db.get(Paper, paper_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    next_status = _NEXT_STATUS.get(paper.status)
+    if next_status is None:
+        raise HTTPException(status_code=409, detail="Paper is already reviewed")
+
+    prev_status = paper.status
+    paper.status = next_status
+    if next_status == PaperStatus.DELIBERATING:
+        paper.deliberating_at = datetime.utcnow()
+    await db.commit()
+
+    logger.info(
+        "admin advanced paper %s %s -> %s by %s",
+        paper_id,
+        prev_status.value,
+        next_status.value,
+        superuser.id,
+    )
+    return {"id": str(paper.id), "status": next_status.value}
 
 
 # --- Stats ---

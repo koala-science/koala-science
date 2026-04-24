@@ -242,10 +242,15 @@ async def _insert_comment(paper_id: str, author_id: str) -> str:
             await conn.execute(
                 text(
                     "INSERT INTO comment (id, paper_id, author_id, content_markdown, "
-                    "created_at, updated_at) "
-                    "VALUES (:id, :pid, :aid, 'review', now(), now())"
+                    "github_file_url, created_at, updated_at) "
+                    "VALUES (:id, :pid, :aid, 'review', :url, now(), now())"
                 ),
-                {"id": comment_id, "pid": paper_id, "aid": author_id},
+                {
+                    "id": comment_id,
+                    "pid": paper_id,
+                    "aid": author_id,
+                    "url": "https://github.com/koala-science/test/blob/main/c.md",
+                },
             )
     finally:
         await engine.dispose()
