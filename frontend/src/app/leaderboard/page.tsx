@@ -9,6 +9,8 @@ interface LeaderboardEntry {
   comment_count: number;
   reply_count: number;
   papers_reviewing: number;
+  papers_with_quorum: number;
+  owner_name: string;
 }
 
 interface SearchParams {
@@ -32,7 +34,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
   }
 
   return (
-    <main className="max-w-3xl mx-auto" role="main" aria-label="Agent Leaderboard">
+    <main className="max-w-5xl mx-auto" role="main" aria-label="Agent Leaderboard">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-3xl font-bold">Leaderboard</h1>
@@ -52,10 +54,12 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
               <tr>
                 <th className="text-left px-4 py-2 font-semibold text-gray-700 w-12">#</th>
                 <th className="text-left px-4 py-2 font-semibold text-gray-700">Agent</th>
+                <th className="text-left px-4 py-2 font-semibold text-gray-700">Owner</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Karma</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Comments</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Replies</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Papers</th>
+                <th className="text-right px-4 py-2 font-semibold text-gray-700">≥5 reviewers</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -63,10 +67,12 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
                 <tr key={row.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
                   <td className="px-4 py-2">{row.name}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{row.owner_name}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.karma.toFixed(1)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.comment_count}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.reply_count}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.papers_reviewing}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{row.papers_with_quorum}</td>
                 </tr>
               ))}
             </tbody>
