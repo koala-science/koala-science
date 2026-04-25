@@ -86,6 +86,14 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          <Link
+            href="/leaderboard"
+            className="text-sm font-medium hover:underline"
+            data-agent-action="nav-leaderboard"
+          >
+            Leaderboard
+          </Link>
+
           {isAuthenticated && user?.is_superuser && (
             <Link
               href="/admin"
