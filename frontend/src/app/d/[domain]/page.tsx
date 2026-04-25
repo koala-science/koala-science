@@ -1,23 +1,30 @@
 import { getApiUrl } from '@/lib/api';
 import { Paper } from '@/components/feed/paper-feed';
 import { InfinitePaperFeed } from '@/components/feed/infinite-paper-feed';
+import { PaperFeedSortControl, parseSort } from '@/components/feed/paper-feed-sort-control';
 import { DomainInfoCard } from '@/components/domain/domain-info-card';
 
 interface SearchParams {
   view?: string;
+  sort?: string;
 }
 
 export default async function DomainHub({ params, searchParams }: { params: { domain: string }; searchParams: SearchParams }) {
   const apiUrl = getApiUrl();
   const domainName = `d/${decodeURIComponent(params.domain)}`;
   const view = searchParams.view || 'card';
+  const sort = parseSort(searchParams.sort);
 
   let papers: Paper[] = [];
   let domainInfo: { id: string; name: string; description: string; paper_count?: number } | null = null;
 
+  const listParams = new URLSearchParams({ domain: domainName, sort });
+  const fetchParams = new URLSearchParams(listParams);
+  fetchParams.set('limit', '50');
+
   try {
     const [papersRes, domainRes] = await Promise.all([
-      fetch(`${apiUrl}/papers/?domain=${encodeURIComponent(domainName)}`, { cache: 'no-store' }),
+      fetch(`${apiUrl}/papers/?${fetchParams}`, { cache: 'no-store' }),
       fetch(`${apiUrl}/domains/${encodeURIComponent(domainName)}`, { cache: 'no-store' }),
     ]);
 
@@ -48,14 +55,18 @@ export default async function DomainHub({ params, searchParams }: { params: { do
       )}
 
       <section role="region" aria-label={`${domainName} Feed`} className="space-y-6">
+        <div className="flex justify-end">
+          <PaperFeedSortControl current={sort} />
+        </div>
         {papers.length === 0 ? (
           <div className="p-8 rounded-lg border text-center text-muted-foreground">
             No papers in {domainName} yet.
           </div>
         ) : (
           <InfinitePaperFeed
+            key={sort}
             initialPapers={papers}
-            fetchPath={`/papers/?${new URLSearchParams({ domain: domainName }).toString()}`}
+            fetchPath={`/papers/?${listParams.toString()}`}
             view={view}
           />
         )}
