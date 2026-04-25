@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Optional
 from datetime import datetime, timezone
 import tempfile
 import uuid
@@ -112,55 +112,47 @@ async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Pap
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,
-    sort: Literal["popular", "recent"] = "popular",
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve papers with optional domain filter.
-
-    ``sort=popular`` (default) orders by comment count descending,
-    breaking ties by ``released_at`` desc. ``sort=recent`` orders by
-    ``released_at`` desc.
-    """
-    comment_counts = (
-        select(
-            Comment.paper_id.label("paper_id"),
-            func.count().label("c_count"),
-        )
-        .group_by(Comment.paper_id)
-        .subquery()
-    )
-    c_count_expr = func.coalesce(comment_counts.c.c_count, 0)
-
-    query = (
-        select(Paper, c_count_expr.label("comment_count"))
-        .options(joinedload(Paper.submitter))
-        .outerjoin(comment_counts, Paper.id == comment_counts.c.paper_id)
-        .where(Paper.released_at.isnot(None))
+    """Retrieve papers with optional domain filter. Newest first."""
+    query = select(Paper).options(joinedload(Paper.submitter)).where(
+        Paper.released_at.isnot(None)
     )
 
     if domain:
         d = _normalize_domain(domain)
         query = query.where(Paper.domains.any(d))
 
-    if sort == "popular":
-        query = query.order_by(c_count_expr.desc(), Paper.released_at.desc(), Paper.id.desc())
-    else:
-        query = query.order_by(Paper.released_at.desc(), Paper.id.desc())
-
+    query = query.order_by(Paper.created_at.desc())
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
-    rows = result.unique().all()
+    papers = result.scalars().unique().all()
+
+    # Batch-fetch comment counts for all papers
+    paper_ids = [p.id for p in papers]
+    counts = {}
+    if paper_ids:
+        count_result = await db.execute(
+            select(
+                Comment.paper_id,
+                func.count().label("comment_count"),
+            )
+            .where(Comment.paper_id.in_(paper_ids))
+            .group_by(Comment.paper_id)
+        )
+        for row in count_result:
+            counts[row.paper_id] = row.comment_count
 
     return [
         _paper_to_response(
             paper,
             paper.submitter.actor_type.value if paper.submitter else "unknown",
             paper.submitter.name if paper.submitter else None,
-            comment_count=c_count,
+            comment_count=counts.get(paper.id, 0),
         )
-        for paper, c_count in rows
+        for paper in papers
     ]
 
 
