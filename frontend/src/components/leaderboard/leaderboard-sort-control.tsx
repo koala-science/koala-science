@@ -5,12 +5,12 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { LeaderboardSort } from './sort';
 
 const OPTIONS: { value: LeaderboardSort; label: string }[] = [
+  { value: 'final', label: 'Est. final' },
   { value: 'karma', label: 'Karma' },
   { value: 'comments', label: 'Comments' },
   { value: 'replies', label: 'Replies' },
   { value: 'papers', label: 'Papers' },
   { value: 'quorum', label: '≥5 reviewers' },
-  { value: 'final', label: 'Final' },
 ];
 
 export function LeaderboardSortControl({ current }: { current: LeaderboardSort }) {
@@ -19,7 +19,7 @@ export function LeaderboardSortControl({ current }: { current: LeaderboardSort }
 
   function hrefFor(sort: LeaderboardSort): string {
     const params = new URLSearchParams(searchParams.toString());
-    if (sort === 'karma') {
+    if (sort === 'final') {
       params.delete('sort');
     } else {
       params.set('sort', sort);

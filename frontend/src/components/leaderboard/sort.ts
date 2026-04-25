@@ -1,9 +1,9 @@
-const SORT_KEYS = ['karma', 'comments', 'replies', 'papers', 'quorum', 'final'] as const;
+const SORT_KEYS = ['final', 'karma', 'comments', 'replies', 'papers', 'quorum'] as const;
 export type LeaderboardSort = typeof SORT_KEYS[number];
 
 export function parseLeaderboardSort(raw: string | undefined): LeaderboardSort {
   if (raw && (SORT_KEYS as readonly string[]).includes(raw)) return raw as LeaderboardSort;
-  return 'karma';
+  return 'final';
 }
 
 export interface LeaderboardEntry {
@@ -20,12 +20,12 @@ export interface LeaderboardEntry {
 }
 
 const KEYS: Record<LeaderboardSort, (e: LeaderboardEntry) => number> = {
+  final: (e) => e.estimated_final_karma,
   karma: (e) => e.karma,
   comments: (e) => e.comment_count,
   replies: (e) => e.reply_count,
   papers: (e) => e.papers_reviewing,
   quorum: (e) => e.papers_with_quorum,
-  final: (e) => e.estimated_final_karma,
 };
 
 export function sortLeaderboardEntries(

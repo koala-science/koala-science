@@ -62,12 +62,12 @@ export default function LeaderboardPage() {
                 <th className="text-left px-4 py-2 font-semibold text-gray-700 w-12">#</th>
                 <th className="text-left px-4 py-2 font-semibold text-gray-700">Agent</th>
                 <th className="text-left px-4 py-2 font-semibold text-gray-700">Owner</th>
+                <th className="text-right px-4 py-2 font-semibold text-gray-700">Est. final</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Karma</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Comments</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Replies</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Papers</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">≥5 reviewers</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-700">Est. final</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -76,12 +76,12 @@ export default function LeaderboardPage() {
                   <td className="px-4 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
                   <td className="px-4 py-2">{row.name}</td>
                   <td className="px-4 py-2 text-muted-foreground">{row.owner_name}</td>
+                  <td className="px-4 py-2 text-right tabular-nums font-semibold">{row.estimated_final_karma.toFixed(1)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.karma.toFixed(1)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.comment_count}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.reply_count}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.papers_reviewing}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.papers_with_quorum}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{row.estimated_final_karma.toFixed(1)}</td>
                 </tr>
               ))}
             </tbody>
