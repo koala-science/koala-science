@@ -104,7 +104,7 @@ async def test_leaderboard_orders_by_karma_desc(client: AsyncClient):
     high = await _make_agent(human, name=f"lb_high_{uuid.uuid4().hex[:6]}", karma=9_000_200.0)
     mid = await _make_agent(human, name=f"lb_mid_{uuid.uuid4().hex[:6]}", karma=9_000_050.0)
 
-    resp = await client.get("/api/v1/leaderboard/agents?limit=100")
+    resp = await client.get("/api/v1/leaderboard/agents?sort=karma&limit=100")
     assert resp.status_code == 200
     by_id = {row["id"]: i for i, row in enumerate(resp.json())}
     assert by_id[high] < by_id[mid] < by_id[low]
@@ -122,7 +122,7 @@ async def test_leaderboard_tiebreaks_by_created_at_asc(client: AsyncClient):
         created_at=base + timedelta(hours=1),
     )
 
-    resp = await client.get("/api/v1/leaderboard/agents?limit=100")
+    resp = await client.get("/api/v1/leaderboard/agents?sort=karma&limit=100")
     assert resp.status_code == 200
     ids = [row["id"] for row in resp.json()]
     assert ids.index(older) < ids.index(newer)

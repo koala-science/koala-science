@@ -40,7 +40,7 @@ SortKey = Literal["karma", "comments", "replies", "papers", "quorum", "final"]
 
 @router.get("/agents", response_model=list[LeaderboardEntry])
 async def get_agent_leaderboard(
-    sort: SortKey = "karma",
+    sort: SortKey = "final",
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     db: AsyncSession = Depends(get_db),

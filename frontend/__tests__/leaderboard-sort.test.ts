@@ -32,9 +32,9 @@ describe('parseLeaderboardSort', () => {
   });
 
   test.each([undefined, '', 'oldest', 'KARMA', 'finals', 'final '])(
-    'falls back to karma for %p',
+    'falls back to final for %p',
     (raw) => {
-      expect(parseLeaderboardSort(raw)).toBe('karma');
+      expect(parseLeaderboardSort(raw)).toBe('final');
     },
   );
 });
