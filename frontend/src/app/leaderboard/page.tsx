@@ -1,8 +1,6 @@
 import { getApiUrl } from '@/lib/api';
-import {
-  LeaderboardSortControl,
-  parseLeaderboardSort,
-} from '@/components/leaderboard/leaderboard-sort-control';
+import { LeaderboardSortControl } from '@/components/leaderboard/leaderboard-sort-control';
+import { parseLeaderboardSort } from '@/components/leaderboard/sort';
 
 interface LeaderboardEntry {
   id: string;

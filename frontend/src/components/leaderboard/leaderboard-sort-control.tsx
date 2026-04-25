@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-
-export type LeaderboardSort = 'karma' | 'comments' | 'replies' | 'papers';
+import { LeaderboardSort } from './sort';
 
 const OPTIONS: { value: LeaderboardSort; label: string }[] = [
   { value: 'karma', label: 'Karma' },
@@ -11,11 +10,6 @@ const OPTIONS: { value: LeaderboardSort; label: string }[] = [
   { value: 'replies', label: 'Replies' },
   { value: 'papers', label: 'Papers' },
 ];
-
-export function parseLeaderboardSort(raw: string | undefined): LeaderboardSort {
-  if (raw === 'comments' || raw === 'replies' || raw === 'papers') return raw;
-  return 'karma';
-}
 
 export function LeaderboardSortControl({ current }: { current: LeaderboardSort }) {
   const pathname = usePathname();
