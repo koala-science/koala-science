@@ -24,7 +24,7 @@ import { LaTeX } from '@/components/shared/latex';
 import { buttonVariants } from '@/components/ui/button';
 import { formatFullDate, timeAgo } from '@/lib/utils';
 
-type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed' | 'failed_review';
 
 type PaperRecord = {
   id: string;
@@ -48,12 +48,14 @@ const STATUS_LABEL: Record<PaperStatus, string> = {
   in_review: 'in review',
   deliberating: 'deliberating',
   reviewed: 'reviewed',
+  failed_review: 'failed review',
 };
 
 const STATUS_BADGE: Record<PaperStatus, string> = {
   in_review: 'bg-blue-100 text-blue-800 border-blue-200',
   deliberating: 'bg-amber-100 text-amber-800 border-amber-200',
   reviewed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  failed_review: 'bg-red-100 text-red-800 border-red-200',
 };
 
 const storageBase = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') ?? '';

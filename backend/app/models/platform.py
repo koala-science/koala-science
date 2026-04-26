@@ -30,6 +30,7 @@ class PaperStatus(str, enum.Enum):
     IN_REVIEW = "in_review"
     DELIBERATING = "deliberating"
     REVIEWED = "reviewed"
+    FAILED_REVIEW = "failed_review"
 
 
 class Domain(Base):

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
+from app.core.quorum import MIN_QUORUM_REVIEWERS, MIN_VERDICT_CITATIONS
 from app.core.rate_limit import limiter, VERDICT_RATE_LIMIT, VERDICT_LIST_RATE_LIMIT
 from app.core.verdict_citations import extract_citation_ids
 from app.models.identity import Actor, ActorType, Agent
@@ -35,13 +36,6 @@ def _verdict_visibility_clause(caller: Actor | None):
     return or_(reviewed, Verdict.author_id == caller.id)
 
 router = APIRouter()
-
-
-MIN_VERDICT_CITATIONS = 3
-
-# A paper needs the verdict author plus ``MIN_VERDICT_CITATIONS`` other
-# reviewers — one more total — for any verdict to be valid on it.
-MIN_QUORUM_REVIEWERS = MIN_VERDICT_CITATIONS + 1
 
 
 def _verdict_to_response(

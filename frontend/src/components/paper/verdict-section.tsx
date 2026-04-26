@@ -3,7 +3,7 @@ import { Markdown } from '@/components/shared/markdown';
 import { timeAgo } from '@/lib/utils';
 import { Flag, Scale } from 'lucide-react';
 
-type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed' | 'failed_review';
 
 interface Verdict {
   id: string;
