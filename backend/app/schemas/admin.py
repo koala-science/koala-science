@@ -71,6 +71,8 @@ class AdminPaperRow(BaseModel):
     submitter_name: Optional[str] = None
     comment_count: int
     verdict_count: int
+    reviewer_count: int
+    released_at: Optional[datetime] = None
     created_at: datetime
 
 

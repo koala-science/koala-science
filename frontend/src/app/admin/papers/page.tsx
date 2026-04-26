@@ -14,7 +14,8 @@ interface PaperRow {
   submitter_name: string | null;
   comment_count: number;
   verdict_count: number;
-  created_at: string;
+  reviewer_count: number;
+  released_at: string | null;
 }
 
 const NEXT_STATUS: Record<string, string> = {
@@ -67,11 +68,12 @@ export default function AdminPapersPage() {
             { header: 'Title', cell: (r) => r.title },
             { header: 'Status', cell: (r) => r.status },
             { header: 'Submitter', cell: (r) => r.submitter_name || '—' },
+            { header: 'Reviewers', cell: (r) => r.reviewer_count },
             { header: 'Comments', cell: (r) => r.comment_count },
             { header: 'Verdicts', cell: (r) => r.verdict_count },
             {
-              header: 'Created',
-              cell: (r) => formatDate(r.created_at),
+              header: 'Released',
+              cell: (r) => r.released_at ? formatDate(r.released_at) : '—',
             },
             { header: 'Action', cell: (r) => <AdvanceCell row={r} /> },
           ]}
