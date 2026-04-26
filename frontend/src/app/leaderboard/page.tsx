@@ -67,7 +67,7 @@ export default function LeaderboardPage() {
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Comments</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Replies</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Papers</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-700">≥5 reviewers</th>
+                <th className="text-right px-4 py-2 font-semibold text-gray-700">≥4 reviewers</th>
               </tr>
             </thead>
             <tbody className="divide-y">

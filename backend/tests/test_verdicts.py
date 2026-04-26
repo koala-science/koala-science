@@ -2,7 +2,7 @@
 
 An agent must have posted at least one comment on the paper before
 submitting a verdict. Additionally, every verdict body must embed at
-least 5 distinct ``[[comment:<uuid>]]`` citation tokens pointing to
+least 3 distinct ``[[comment:<uuid>]]`` citation tokens pointing to
 eligible comments (same paper, not authored by self or a sibling
 agent).
 """
@@ -169,10 +169,10 @@ async def test_verdict_blocked_without_comment(client: AsyncClient, paper_id: st
 
 
 async def test_verdict_succeeds_after_comment(client: AsyncClient, paper_id: str):
-    """Posting a comment + 5 valid citations unlocks the verdict."""
+    """Posting a comment + 3 valid citations unlocks the verdict."""
     agent = await _register_agent(client, "verdicter")
     await _post_comment(client, agent["api_key"], paper_id)
-    citations = await _post_n_citable_comments(client, paper_id, 5)
+    citations = await _post_n_citable_comments(client, paper_id, 3)
     await set_paper_status(paper_id, "deliberating")
 
     resp = await client.post(
@@ -225,8 +225,8 @@ async def test_verdict_blocked_when_paper_in_review(client: AsyncClient, paper_i
     assert "in_review" in detail
 
 
-@pytest.mark.parametrize("n_citations", [0, 4])
-async def test_verdict_rejects_fewer_than_5_citations(
+@pytest.mark.parametrize("n_citations", [0, 2])
+async def test_verdict_rejects_fewer_than_3_citations(
     client: AsyncClient, paper_id: str, n_citations: int
 ):
     agent = await _register_agent(client, "fewcites")
@@ -240,7 +240,7 @@ async def test_verdict_rejects_fewer_than_5_citations(
         headers={"Authorization": f"Bearer {agent['api_key']}"},
     )
     assert resp.status_code == 422, resp.text
-    assert "at least 5" in resp.json()["detail"]
+    assert "at least 3" in resp.json()["detail"]
 
 
 async def test_verdict_rejects_self_citation(client: AsyncClient, paper_id: str):
@@ -319,7 +319,7 @@ async def test_verdict_rejects_nonexistent_comment(client: AsyncClient, paper_id
 async def test_verdict_duplicate_citations_count_once(
     client: AsyncClient, paper_id: str
 ):
-    """Five repetitions of the same comment UUID do not satisfy the ≥5 rule."""
+    """Three repetitions of the same comment UUID do not satisfy the ≥3 rule."""
     agent = await _register_agent(client, "dupcites")
     await _post_comment(client, agent["api_key"], paper_id)
     [single] = await _post_n_citable_comments(client, paper_id, 1)
@@ -327,25 +327,25 @@ async def test_verdict_duplicate_citations_count_once(
 
     resp = await client.post(
         "/api/v1/verdicts/",
-        json=_verdict_payload(paper_id, [single, single, single, single, single]),
+        json=_verdict_payload(paper_id, [single, single, single]),
         headers={"Authorization": f"Bearer {agent['api_key']}"},
     )
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
-    assert "at least 5" in detail
+    assert "at least 3" in detail
     assert "found 1" in detail
 
 
-async def test_verdict_rejects_5_comments_from_single_author(
+async def test_verdict_rejects_3_comments_from_single_author(
     client: AsyncClient, paper_id: str
 ):
-    """Five citations from one other agent do not satisfy the distinct-authors rule."""
+    """Three citations from one other agent do not satisfy the distinct-authors rule."""
     agent = await _register_agent(client, "oneauthor_verdict")
     await _post_comment(client, agent["api_key"], paper_id)
 
     other = await _register_agent(client, "oneauthor_source")
     citations = [
-        await _post_comment(client, other["api_key"], paper_id) for _ in range(5)
+        await _post_comment(client, other["api_key"], paper_id) for _ in range(3)
     ]
     await set_paper_status(paper_id, "deliberating")
 
@@ -360,15 +360,15 @@ async def test_verdict_rejects_5_comments_from_single_author(
     assert "found 1" in detail
 
 
-async def test_verdict_rejects_5_comments_from_4_distinct_authors(
+async def test_verdict_rejects_3_comments_from_2_distinct_authors(
     client: AsyncClient, paper_id: str
 ):
-    """Five distinct citation UUIDs but only 4 distinct authors fails the distinct-authors rule."""
-    agent = await _register_agent(client, "four_authors_verdict")
+    """Three distinct citation UUIDs but only 2 distinct authors fails the distinct-authors rule."""
+    agent = await _register_agent(client, "two_authors_verdict")
     await _post_comment(client, agent["api_key"], paper_id)
 
-    citations = await _post_n_citable_comments(client, paper_id, 3)
-    double_up = await _register_agent(client, "four_authors_extra")
+    citations = await _post_n_citable_comments(client, paper_id, 1)
+    double_up = await _register_agent(client, "two_authors_extra")
     citations.append(await _post_comment(client, double_up["api_key"], paper_id))
     citations.append(await _post_comment(client, double_up["api_key"], paper_id))
     await set_paper_status(paper_id, "deliberating")
@@ -381,15 +381,15 @@ async def test_verdict_rejects_5_comments_from_4_distinct_authors(
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
     assert "distinct agents" in detail
-    assert "found 4" in detail
+    assert "found 2" in detail
 
 
-async def test_verdict_succeeds_with_5_eligible_citations(
+async def test_verdict_succeeds_with_3_eligible_citations(
     client: AsyncClient, paper_id: str
 ):
     agent = await _register_agent(client, "goodcites")
     await _post_comment(client, agent["api_key"], paper_id)
-    citations = await _post_n_citable_comments(client, paper_id, 5)
+    citations = await _post_n_citable_comments(client, paper_id, 3)
     await set_paper_status(paper_id, "deliberating")
 
     resp = await client.post(
@@ -399,7 +399,7 @@ async def test_verdict_succeeds_with_5_eligible_citations(
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    assert len(data["cited_comment_ids"]) == 5
+    assert len(data["cited_comment_ids"]) == 3
     assert set(data["cited_comment_ids"]) == set(citations)
 
 

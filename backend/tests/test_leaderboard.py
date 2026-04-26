@@ -262,10 +262,10 @@ async def test_leaderboard_includes_owner_name(client: AsyncClient):
 
 
 async def test_leaderboard_papers_with_quorum_count(client: AsyncClient):
-    """Only papers with >=5 distinct agent commenters count toward `papers_with_quorum`.
+    """Only papers with >=4 distinct agent commenters count toward `papers_with_quorum`.
 
-    Scenario: agent A comments on two papers. P1 has 5 distinct agent commenters
-    (quorum hit), P2 has 4 (one short). A.papers_with_quorum must be 1.
+    Scenario: agent A comments on two papers. P1 has 4 distinct agent commenters
+    (quorum hit), P2 has 3 (one short). A.papers_with_quorum must be 1.
     """
     human, _ = await _make_human()
     aid = await _make_agent(human, name=f"lb_q_{uuid.uuid4().hex[:6]}", karma=2_000_500.0)
@@ -276,13 +276,13 @@ async def test_leaderboard_papers_with_quorum_count(client: AsyncClient):
     await _make_comment(p_quorum, aid)
     await _make_comment(p_short, aid)
 
-    # 4 more distinct agents on p_quorum -> 5 total
-    for _ in range(4):
+    # 3 more distinct agents on p_quorum -> 4 total
+    for _ in range(3):
         other = await _make_agent(human, name=f"lb_q_o_{uuid.uuid4().hex[:6]}", karma=1.0)
         await _make_comment(p_quorum, other)
 
-    # only 3 more on p_short -> 4 total (one shy of quorum)
-    for _ in range(3):
+    # only 2 more on p_short -> 3 total (one shy of quorum)
+    for _ in range(2):
         other = await _make_agent(human, name=f"lb_q_s_{uuid.uuid4().hex[:6]}", karma=1.0)
         await _make_comment(p_short, other)
 
@@ -309,38 +309,39 @@ async def test_leaderboard_papers_with_quorum_does_not_count_repeat_comments(cli
 
 async def test_leaderboard_estimated_final_karma_value(client: AsyncClient):
     """estimated_final_karma = karma + sum_over_qualifying_papers(10 / N)
-    where N is the paper's distinct-reviewer count and qualifying = N >= 5.
+    where N is the paper's distinct-reviewer count and qualifying = N >= 4.
     Every reviewer of a quorum-eligible paper gets the bonus, not just one.
     """
     human, _ = await _make_human()
     aid = await _make_agent(human, name=f"lb_efk_{uuid.uuid4().hex[:6]}", karma=9_002_400.0)
 
-    # Paper with 5 reviewers (aid + 4 others). Each reviewer's bonus from this
-    # paper: 10/5 = 2.0. We track one filler with a uniquely-high karma so we
-    # can find it in the response and assert it also got the bonus.
+    # Paper with 4 reviewers (aid + 3 others, the new quorum threshold). Each
+    # reviewer's bonus from this paper: 10/4 = 2.5. We track one filler with a
+    # uniquely-high karma so we can find it in the response and assert it also
+    # got the bonus.
     p_quorum = await _make_paper(human)
     await _make_comment(p_quorum, aid)
     tracked_filler = await _make_agent(human, name=f"lb_efk_tf_{uuid.uuid4().hex[:6]}", karma=9_002_350.0)
     await _make_comment(p_quorum, tracked_filler)
-    for _ in range(3):
+    for _ in range(2):
         other = await _make_agent(human, name=f"lb_efk_o_{uuid.uuid4().hex[:6]}", karma=1.0)
         await _make_comment(p_quorum, other)
 
-    # Paper with 4 reviewers (below quorum). aid bonus: 0.
+    # Paper with 3 reviewers (below quorum). aid bonus: 0.
     p_short = await _make_paper(human)
     await _make_comment(p_short, aid)
-    for _ in range(3):
+    for _ in range(2):
         other = await _make_agent(human, name=f"lb_efk_s_{uuid.uuid4().hex[:6]}", karma=1.0)
         await _make_comment(p_short, other)
 
     body = (await client.get("/api/v1/leaderboard/agents?limit=100")).json()
 
     aid_row = next(r for r in body if r["id"] == aid)
-    assert aid_row["estimated_final_karma"] == 9_002_400.0 + 2.0
+    assert aid_row["estimated_final_karma"] == 9_002_400.0 + 2.5
 
-    # Symmetry: a fellow reviewer of the same quorum paper also gets +2.0.
+    # Symmetry: a fellow reviewer of the same quorum paper also gets +2.5.
     filler_row = next(r for r in body if r["id"] == tracked_filler)
-    assert filler_row["estimated_final_karma"] == 9_002_350.0 + 2.0
+    assert filler_row["estimated_final_karma"] == 9_002_350.0 + 2.5
 
 
 async def test_leaderboard_estimated_final_karma_repeat_comments(client: AsyncClient):
@@ -353,15 +354,15 @@ async def test_leaderboard_estimated_final_karma_repeat_comments(client: AsyncCl
     # aid comments 3 times
     for _ in range(3):
         await _make_comment(p, aid)
-    # plus 4 more distinct agents → 5 total reviewers → quorum
-    for _ in range(4):
+    # plus 3 more distinct agents → 4 total reviewers → quorum
+    for _ in range(3):
         other = await _make_agent(human, name=f"lb_efk2_o_{uuid.uuid4().hex[:6]}", karma=1.0)
         await _make_comment(p, other)
 
     resp = await client.get("/api/v1/leaderboard/agents?limit=100")
     assert resp.status_code == 200
     row = next(r for r in resp.json() if r["id"] == aid)
-    assert row["estimated_final_karma"] == 9_002_700.0 + 2.0
+    assert row["estimated_final_karma"] == 9_002_700.0 + 2.5
 
 
 async def test_leaderboard_sort_by_final(client: AsyncClient):
@@ -374,7 +375,7 @@ async def test_leaderboard_sort_by_final(client: AsyncClient):
     async def _quorum_paper(commenter: str):
         p = await _make_paper(human)
         await _make_comment(p, commenter)
-        for _ in range(4):
+        for _ in range(3):
             other = await _make_agent(human, name=f"lb_ffill_{uuid.uuid4().hex[:6]}", karma=1.0)
             await _make_comment(p, other)
 
@@ -403,7 +404,7 @@ async def test_leaderboard_sort_by_quorum(client: AsyncClient):
     async def _quorum_paper(commenter: str):
         p = await _make_paper(human)
         await _make_comment(p, commenter)
-        for _ in range(4):
+        for _ in range(3):
             other = await _make_agent(human, name=f"lb_filler_{uuid.uuid4().hex[:6]}", karma=1.0)
             await _make_comment(p, other)
         return p

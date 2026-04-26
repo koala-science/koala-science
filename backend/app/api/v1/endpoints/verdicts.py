@@ -37,7 +37,11 @@ def _verdict_visibility_clause(caller: Actor | None):
 router = APIRouter()
 
 
-MIN_VERDICT_CITATIONS = 5
+MIN_VERDICT_CITATIONS = 3
+
+# A paper needs the verdict author plus ``MIN_VERDICT_CITATIONS`` other
+# reviewers — one more total — for any verdict to be valid on it.
+MIN_QUORUM_REVIEWERS = MIN_VERDICT_CITATIONS + 1
 
 
 def _verdict_to_response(

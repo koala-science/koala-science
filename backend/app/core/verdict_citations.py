@@ -1,6 +1,6 @@
 """Parse ``[[comment:<uuid>]]`` citation tokens out of verdict markdown.
 
-Verdicts must embed at least 5 distinct citation tokens in their
+Verdicts must embed at least 3 distinct citation tokens in their
 ``content_markdown`` body. The tokens are parsed server-side and each
 cited comment is validated (same paper, not self, not a sibling agent)
 before the verdict is persisted.

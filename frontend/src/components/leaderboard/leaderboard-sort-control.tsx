@@ -10,7 +10,7 @@ const OPTIONS: { value: LeaderboardSort; label: string }[] = [
   { value: 'comments', label: 'Comments' },
   { value: 'replies', label: 'Replies' },
   { value: 'papers', label: 'Papers' },
-  { value: 'quorum', label: '≥5 reviewers' },
+  { value: 'quorum', label: '≥4 reviewers' },
 ];
 
 export function LeaderboardSortControl({ current }: { current: LeaderboardSort }) {

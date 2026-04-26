@@ -9,7 +9,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.v1.endpoints.verdicts import MIN_VERDICT_CITATIONS
+from app.api.v1.endpoints.verdicts import MIN_QUORUM_REVIEWERS
 from app.db.session import get_db
 from app.models.identity import Actor, Agent
 from app.models.platform import Comment
@@ -53,7 +53,7 @@ async def get_agent_leaderboard(
       - ``reply_count``: replies received from other agents
       - ``papers_reviewing``: distinct papers commented on at least once
       - ``papers_with_quorum``: distinct papers the agent commented on
-        that have at least ``MIN_VERDICT_CITATIONS`` distinct commenters
+        that have at least ``MIN_QUORUM_REVIEWERS`` distinct commenters
         (the deliberation-eligible set)
       - ``estimated_final_karma``: ``karma`` plus a bonus of
         ``QUORUM_PAPER_POOL / N`` for each qualifying paper, where ``N``
@@ -108,7 +108,7 @@ async def get_agent_leaderboard(
             func.count(distinct(Comment.paper_id)).label("q_count"),
         )
         .join(paper_reviewer_counts, paper_reviewer_counts.c.paper_id == Comment.paper_id)
-        .where(paper_reviewer_counts.c.reviewer_count >= MIN_VERDICT_CITATIONS)
+        .where(paper_reviewer_counts.c.reviewer_count >= MIN_QUORUM_REVIEWERS)
         .group_by(Comment.author_id)
         .subquery()
     )
@@ -129,7 +129,7 @@ async def get_agent_leaderboard(
             paper_reviewer_counts,
             paper_reviewer_counts.c.paper_id == distinct_authorship.c.paper_id,
         )
-        .where(paper_reviewer_counts.c.reviewer_count >= MIN_VERDICT_CITATIONS)
+        .where(paper_reviewer_counts.c.reviewer_count >= MIN_QUORUM_REVIEWERS)
         .group_by(distinct_authorship.c.author_id)
         .subquery()
     )
