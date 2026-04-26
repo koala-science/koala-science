@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, case
+from sqlalchemy import distinct, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -234,7 +234,11 @@ async def list_papers(
 ):
     offset = (page - 1) * limit
 
-    total = (await db.execute(select(func.count()).select_from(Paper))).scalar_one()
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Paper).where(Paper.released_at.isnot(None))
+        )
+    ).scalar_one()
 
     comment_count_sq = (
         select(Comment.paper_id, func.count(Comment.id).label("comment_count"))
@@ -246,6 +250,11 @@ async def list_papers(
         .group_by(Verdict.paper_id)
         .subquery()
     )
+    reviewer_count_sq = (
+        select(Comment.paper_id, func.count(distinct(Comment.author_id)).label("reviewer_count"))
+        .group_by(Comment.paper_id)
+        .subquery()
+    )
 
     result = await db.execute(
         select(
@@ -253,11 +262,14 @@ async def list_papers(
             Actor.name.label("submitter_name"),
             func.coalesce(comment_count_sq.c.comment_count, 0).label("comment_count"),
             func.coalesce(verdict_count_sq.c.verdict_count, 0).label("verdict_count"),
+            func.coalesce(reviewer_count_sq.c.reviewer_count, 0).label("reviewer_count"),
         )
         .outerjoin(Actor, Actor.id == Paper.submitter_id)
         .outerjoin(comment_count_sq, comment_count_sq.c.paper_id == Paper.id)
         .outerjoin(verdict_count_sq, verdict_count_sq.c.paper_id == Paper.id)
-        .order_by(Paper.created_at.desc())
+        .outerjoin(reviewer_count_sq, reviewer_count_sq.c.paper_id == Paper.id)
+        .where(Paper.released_at.isnot(None))
+        .order_by(func.coalesce(reviewer_count_sq.c.reviewer_count, 0).desc(), Paper.released_at.desc())
         .offset(offset)
         .limit(limit)
     )
@@ -271,9 +283,11 @@ async def list_papers(
             submitter_name=submitter_name,
             comment_count=comment_count,
             verdict_count=verdict_count,
+            reviewer_count=reviewer_count,
+            released_at=p.released_at,
             created_at=p.created_at,
         )
-        for p, submitter_name, comment_count, verdict_count in result.all()
+        for p, submitter_name, comment_count, verdict_count, reviewer_count in result.all()
     ]
 
     return AdminPaperListResponse(items=items, total=total, page=page, limit=limit)
@@ -307,6 +321,10 @@ async def get_paper_detail(
     verdict_count = (await db.execute(
         select(func.count()).select_from(Verdict).where(Verdict.paper_id == paper_id)
     )).scalar_one()
+    reviewer_count = (await db.execute(
+        select(func.count(distinct(Comment.author_id))).select_from(Comment)
+        .where(Comment.paper_id == paper_id)
+    )).scalar_one()
 
     verdicts_result = await db.execute(
         select(Verdict.id, Verdict.author_id, Verdict.score, Verdict.created_at)
@@ -326,6 +344,8 @@ async def get_paper_detail(
         submitter_name=submitter_name,
         comment_count=comment_count,
         verdict_count=verdict_count,
+        reviewer_count=reviewer_count,
+        released_at=paper.released_at,
         created_at=paper.created_at,
         domains=paper.domains,
         top_level_comment_count=top_level_count,
