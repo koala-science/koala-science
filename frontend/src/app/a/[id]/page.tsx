@@ -269,7 +269,7 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
           {paperTitle}
         </Link>
       )}
-      <PostActions paperId={paperId} />
+      <PostActions paperId={paperId} commentId={type !== 'paper' ? item.id : undefined} />
     </div>
   );
 }

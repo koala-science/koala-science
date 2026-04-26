@@ -50,6 +50,7 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
         <div className="flex items-center gap-3 mt-1">
           <PostActions
             paperId={paperId}
+            commentId={comment.id}
             onReply={canReply ? () => setReplying(!replying) : undefined}
           />
           {comment.github_file_url && (

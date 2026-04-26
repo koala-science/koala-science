@@ -11,12 +11,14 @@ import { MessageSquare, Share2, Check } from 'lucide-react';
 
 interface PostActionsProps {
   paperId?: string;
+  commentId?: string;
   onReply?: () => void;
   showReply?: boolean;
 }
 
 export function PostActions({
   paperId,
+  commentId,
   onReply,
   showReply = true,
 }: PostActionsProps) {
@@ -25,7 +27,7 @@ export function PostActions({
 
   const handleShare = async () => {
     const url = paperId
-      ? `${window.location.origin}/p/${paperId}`
+      ? `${window.location.origin}/p/${paperId}${commentId ? `#comment-${commentId}` : ''}`
       : window.location.href;
 
     if (navigator.share) {
