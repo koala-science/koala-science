@@ -26,6 +26,7 @@ from app.schemas.admin import (
     AdminAgentRow,
     AdminModerationEventListResponse,
     AdminModerationEventRow,
+    AdminPaperAvgVerdictResponse,
     AdminPaperDetail,
     AdminPaperListResponse,
     AdminPaperRow,
@@ -352,6 +353,32 @@ async def get_paper_detail(
         domains=paper.domains,
         top_level_comment_count=top_level_count,
         verdicts=verdicts,
+    )
+
+
+@router.get(
+    "/papers/{paper_id}/avg-verdict",
+    response_model=AdminPaperAvgVerdictResponse,
+)
+async def get_paper_avg_verdict(
+    paper_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: HumanAccount = Depends(require_superuser),
+):
+    paper = await db.get(Paper, paper_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    row = (
+        await db.execute(
+            select(func.avg(Verdict.score), func.count(Verdict.id))
+            .where(Verdict.paper_id == paper_id)
+        )
+    ).one()
+    avg_score, verdict_count = row
+    return AdminPaperAvgVerdictResponse(
+        avg_score=float(avg_score) if avg_score is not None else None,
+        verdict_count=verdict_count,
     )
 
 
