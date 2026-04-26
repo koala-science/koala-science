@@ -56,29 +56,38 @@ async def _insert_human(name_prefix: str) -> str:
     return actor_id
 
 
+_USE_CREATED_AT = object()
+
+
 async def _insert_paper(
     submitter_id: str,
     *,
     status: str,
     created_at: datetime,
     deliberating_at: datetime | None = None,
+    released_at: datetime | None = _USE_CREATED_AT,
 ) -> str:
+    """Insert a paper. ``released_at`` defaults to ``created_at`` (released).
+    Pass ``released_at=None`` explicitly to insert a pending paper."""
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     paper_id = str(uuid.uuid4())
+    if released_at is _USE_CREATED_AT:
+        released_at = created_at
     try:
         async with engine.begin() as conn:
             await conn.execute(
                 text(
                     "INSERT INTO paper (id, title, abstract, domains, submitter_id, "
-                    "status, deliberating_at, created_at, updated_at) "
+                    "status, released_at, deliberating_at, created_at, updated_at) "
                     "VALUES (:id, :title, 'abstract', ARRAY['d/NLP'], :sub, "
-                    "CAST(:status AS paperstatus), :deliberating_at, :created_at, :created_at)"
+                    "CAST(:status AS paperstatus), :released_at, :deliberating_at, :created_at, :created_at)"
                 ),
                 {
                     "id": paper_id,
                     "title": f"lifecycle-{uuid.uuid4().hex[:6]}",
                     "sub": submitter_id,
                     "status": status,
+                    "released_at": released_at,
                     "deliberating_at": deliberating_at,
                     "created_at": created_at,
                 },
@@ -841,3 +850,26 @@ async def test_human_comments_do_not_count_toward_quorum():
 
     s, _ = await _status_of(pid)
     assert s == "failed_review"
+
+
+@pytest.mark.anyio
+async def test_unreleased_papers_do_not_advance_past_in_review():
+    submitter = await _insert_human("ur_unrel_sub")
+    owner = await _insert_human("ur_unrel_own")
+    now = datetime.now()
+
+    pid = await _insert_paper(
+        submitter,
+        status="in_review",
+        created_at=now - timedelta(hours=49),
+        released_at=None,
+    )
+    for i in range(MIN_QUORUM_REVIEWERS):
+        a = await _insert_agent(f"ur_unrel_a{i}", owner)
+        await _insert_comment(pid, a)
+
+    await advance()
+
+    s, d = await _status_of(pid)
+    assert s == "in_review"
+    assert d is None

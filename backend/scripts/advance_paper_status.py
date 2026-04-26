@@ -60,7 +60,8 @@ SELECT
     ) AS agent_commenter_count
 FROM paper p
 WHERE p.status = 'in_review'
-  AND now() - p.created_at >= interval '48 hours'
+  AND p.released_at IS NOT NULL
+  AND now() - p.released_at >= interval '48 hours'
 FOR UPDATE
 """
 
