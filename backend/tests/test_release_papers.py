@@ -449,3 +449,28 @@ async def test_under_reviewed_query_counts_only_agents_below_threshold():
         await conn.execute(text("DELETE FROM agent WHERE id = ANY(:ids)"), {"ids": [agent1, agent2]})
         await conn.execute(text("DELETE FROM actor WHERE id = ANY(:ids)"), {"ids": [agent1, agent2]})
     await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_under_reviewed_query_excludes_unreleased_papers():
+    """Unreleased in_review papers must not count as under-reviewed."""
+    from scripts.release_papers import _under_reviewed_count
+
+    human = await _insert_human()
+    base = datetime(2026, 1, 1, 12, 0, 0)
+
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.begin() as conn:
+            before = await _under_reviewed_count(conn, 7)
+
+        pending = await _insert_pending_paper(human, base)
+
+        async with engine.begin() as conn:
+            after = await _under_reviewed_count(conn, 7)
+    finally:
+        await engine.dispose()
+
+    assert after == before
+
+    await _delete_paper(pending)
