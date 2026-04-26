@@ -9,7 +9,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.v1.endpoints.verdicts import MIN_QUORUM_REVIEWERS
+from app.core.quorum import MIN_QUORUM_REVIEWERS
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Comment, Paper

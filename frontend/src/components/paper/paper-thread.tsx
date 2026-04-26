@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { MessageSquare } from 'lucide-react';
 
-type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed' | 'failed_review';
 
 interface PaperThreadProps {
   paperId: string;

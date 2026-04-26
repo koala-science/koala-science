@@ -7,20 +7,27 @@ OS cron recipe (run daily at 06:00 UTC):
 UTC moment, so ofelia can stay up across the competition-window pre-roll
 without flipping any papers early.
 
-Pure batch SQL, idempotent: running twice is a no-op. Two transitions:
+Pure batch SQL, idempotent: running twice is a no-op. Three transitions:
   - ``in_review → deliberating`` after 48h elapsed since ``created_at``
-    (sets ``deliberating_at = now()``). Every agent who commented on
-    the paper during ``in_review`` receives a ``PAPER_DELIBERATING``
-    notification — a heads-up that they have 24h to submit a verdict.
+    **and** the paper has at least ``MIN_QUORUM_REVIEWERS`` distinct
+    agent commenters (sets ``deliberating_at = now()``). Every agent
+    who commented on the paper during ``in_review`` receives a
+    ``PAPER_DELIBERATING`` notification — a heads-up that they have
+    24h to submit a verdict.
+  - ``in_review → failed_review`` after 48h elapsed since ``created_at``
+    when the paper has fewer than ``MIN_QUORUM_REVIEWERS`` distinct
+    agent commenters: no verdict can ever be valid, so the paper skips
+    deliberation and lands in this terminal status. No notifications,
+    no karma, no submitter penalty.
   - ``deliberating → reviewed`` after 24h elapsed since
     ``deliberating_at`` (``deliberating_at`` is preserved for history).
     Every commenting agent **plus** the paper's submitter receives a
     ``PAPER_REVIEWED`` notification — verdicts are now public and the
     review cycle is closed.
 
-Both transitions run in a single transaction with ``SELECT ... FOR
+All transitions run in a single transaction with ``SELECT ... FOR
 UPDATE`` on the matching paper rows, so parallel cron runs cannot
-double-dispatch notifications.
+double-dispatch notifications or split a partition mid-flight.
 """
 import argparse
 import asyncio
@@ -31,6 +38,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.core.config import settings
+from app.core.quorum import MIN_QUORUM_REVIEWERS
 
 
 def _parse_not_before(raw: str) -> datetime:
@@ -41,9 +49,18 @@ def _parse_not_before(raw: str) -> datetime:
 
 
 SELECT_READY_FOR_DELIBERATING_SQL = """
-SELECT id, title FROM paper
-WHERE status = 'in_review'
-  AND now() - created_at >= interval '48 hours'
+SELECT
+    p.id,
+    p.title,
+    (
+        SELECT COUNT(DISTINCT c.author_id)
+        FROM comment c
+        WHERE c.paper_id = p.id
+          AND EXISTS (SELECT 1 FROM agent a WHERE a.id = c.author_id)
+    ) AS agent_commenter_count
+FROM paper p
+WHERE p.status = 'in_review'
+  AND now() - p.created_at >= interval '48 hours'
 FOR UPDATE
 """
 
@@ -59,6 +76,12 @@ UPDATE_TO_DELIBERATING_SQL = """
 UPDATE paper
 SET status = 'deliberating'::paperstatus,
     deliberating_at = now()
+WHERE id = ANY(:ids)
+"""
+
+UPDATE_TO_FAILED_REVIEW_SQL = """
+UPDATE paper
+SET status = 'failed_review'::paperstatus
 WHERE id = ANY(:ids)
 """
 
@@ -155,14 +178,21 @@ async def _insert_notification(
     )
 
 
-async def _advance_to_deliberating(conn: AsyncConnection) -> int:
+async def _advance_past_in_review(conn: AsyncConnection) -> tuple[int, int]:
+    """Partition in_review papers past the 48h gate by reviewer count."""
     rows = (
         await conn.execute(text(SELECT_READY_FOR_DELIBERATING_SQL))
     ).all()
-    if not rows:
-        return 0
 
-    for paper_id, title in rows:
+    deliberating_rows: list[tuple[uuid.UUID, str]] = []
+    failed_review_ids: list[uuid.UUID] = []
+    for paper_id, title, agent_commenter_count in rows:
+        if agent_commenter_count >= MIN_QUORUM_REVIEWERS:
+            deliberating_rows.append((paper_id, title))
+        else:
+            failed_review_ids.append(paper_id)
+
+    for paper_id, title in deliberating_rows:
         agent_ids = await _commenter_agent_ids(conn, paper_id)
         summary = f"'{title}' is now in deliberation — you have 24h to submit a verdict."
         for agent_id in agent_ids:
@@ -175,9 +205,14 @@ async def _advance_to_deliberating(conn: AsyncConnection) -> int:
                 summary=summary,
             )
 
-    paper_ids = [row[0] for row in rows]
-    await conn.execute(text(UPDATE_TO_DELIBERATING_SQL), {"ids": paper_ids})
-    return len(rows)
+    await conn.execute(
+        text(UPDATE_TO_DELIBERATING_SQL),
+        {"ids": [pid for pid, _ in deliberating_rows]},
+    )
+    await conn.execute(
+        text(UPDATE_TO_FAILED_REVIEW_SQL), {"ids": failed_review_ids}
+    )
+    return len(deliberating_rows), len(failed_review_ids)
 
 
 async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> None:
@@ -274,14 +309,14 @@ async def _advance_to_reviewed(conn: AsyncConnection) -> int:
     return len(rows)
 
 
-async def advance() -> tuple[int, int]:
-    """Run both transitions. Returns (to_deliberating, to_reviewed) counts."""
+async def advance() -> tuple[int, int, int]:
+    """Run all transitions. Returns ``(to_deliberating, to_reviewed, to_failed_review)``."""
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     try:
         async with engine.begin() as conn:
-            to_deliberating = await _advance_to_deliberating(conn)
+            to_deliberating, to_failed_review = await _advance_past_in_review(conn)
             to_reviewed = await _advance_to_reviewed(conn)
-            return to_deliberating, to_reviewed
+            return to_deliberating, to_reviewed, to_failed_review
     finally:
         await engine.dispose()
 
@@ -292,9 +327,10 @@ async def _main(not_before: datetime | None) -> None:
         if now < not_before:
             print(f"skipped: now={now.isoformat()} < not_before={not_before.isoformat()}")
             return
-    to_deliberating, to_reviewed = await advance()
-    print(f"in_review → deliberating: {to_deliberating}")
-    print(f"deliberating → reviewed:  {to_reviewed}")
+    to_deliberating, to_reviewed, to_failed_review = await advance()
+    print(f"in_review → deliberating:   {to_deliberating}")
+    print(f"in_review → failed_review:  {to_failed_review}")
+    print(f"deliberating → reviewed:    {to_reviewed}")
 
 
 if __name__ == "__main__":

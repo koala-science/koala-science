@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
+from app.core.quorum import MIN_QUORUM_REVIEWERS
 from scripts.advance_paper_status import _main as advance_main, advance
 
 
@@ -244,13 +245,19 @@ async def _status_of(paper_id: str) -> tuple[str, datetime | None]:
 @pytest.mark.anyio
 async def test_advance_transitions_in_review_past_48h():
     submitter = await _insert_human("lc_advance_a")
+    owner = await _insert_human("lc_advance_a_own")
     now = datetime.now()
     old = await _insert_paper(submitter, status="in_review", created_at=now - timedelta(hours=49))
     fresh = await _insert_paper(submitter, status="in_review", created_at=now - timedelta(hours=1))
 
-    to_deliberating, to_reviewed = await advance()
+    for i in range(MIN_QUORUM_REVIEWERS):
+        a = await _insert_agent(f"lc_advance_a_{i}", owner)
+        await _insert_comment(old, a)
+
+    to_deliberating, to_reviewed, to_failed_review = await advance()
     assert to_deliberating >= 1
     assert to_reviewed >= 0
+    assert to_failed_review == 0
 
     s_old, d_old = await _status_of(old)
     s_fresh, _ = await _status_of(fresh)
@@ -289,10 +296,15 @@ async def test_advance_transitions_deliberating_past_24h():
 @pytest.mark.anyio
 async def test_advance_main_gate_skips_before_threshold():
     submitter = await _insert_human("lc_advance_gate")
+    owner = await _insert_human("lc_advance_gate_own")
     now = datetime.now()
     pid = await _insert_paper(
         submitter, status="in_review", created_at=now - timedelta(hours=49)
     )
+    for i in range(MIN_QUORUM_REVIEWERS):
+        a = await _insert_agent(f"lc_advance_gate_{i}", owner)
+        await _insert_comment(pid, a)
+
     future = datetime.now(timezone.utc) + timedelta(hours=1)
 
     await advance_main(future)  # should no-op
@@ -310,14 +322,19 @@ async def test_advance_main_gate_skips_before_threshold():
 @pytest.mark.anyio
 async def test_advance_is_idempotent():
     submitter = await _insert_human("lc_advance_c")
+    owner = await _insert_human("lc_advance_c_own")
     now = datetime.now()
     pid = await _insert_paper(submitter, status="in_review", created_at=now - timedelta(hours=49))
+    for i in range(MIN_QUORUM_REVIEWERS):
+        a = await _insert_agent(f"lc_advance_c_{i}", owner)
+        await _insert_comment(pid, a)
 
     await advance()
-    second_to_delib, second_to_reviewed = await advance()
+    second_to_delib, second_to_reviewed, second_to_failed = await advance()
 
     assert second_to_delib == 0
     assert second_to_reviewed == 0
+    assert second_to_failed == 0
     s, _ = await _status_of(pid)
     assert s == "deliberating"
 
@@ -333,11 +350,15 @@ async def test_advance_emits_paper_deliberating_notifications():
     )
     agent_a = await _insert_agent("lc_delib_a", owner)
     agent_b = await _insert_agent("lc_delib_b", owner)
+    agent_c = await _insert_agent("lc_delib_c", owner)
+    agent_d = await _insert_agent("lc_delib_d", owner)
     bystander = await _insert_agent("lc_delib_bystander", owner)
 
     await _insert_comment(pid, agent_a)
     await _insert_comment(pid, agent_a)  # second comment — no duplicate notification
     await _insert_comment(pid, agent_b)
+    await _insert_comment(pid, agent_c)
+    await _insert_comment(pid, agent_d)
 
     await advance()
 
@@ -668,20 +689,26 @@ async def test_karma_refund_fires_only_on_reviewed_transition():
     o2 = await _insert_human("kr_trans_o2")
 
     now = datetime.now()
-    # Paper transitioning in_review -> deliberating (48h old)
+    # Paper transitioning in_review -> deliberating (48h old) with quorum
     pid = await _insert_paper(
         submitter, status="in_review", created_at=now - timedelta(hours=49)
     )
     a1 = await _insert_agent("kr_trans_a1", o1)
     a2 = await _insert_agent("kr_trans_a2", o2)
+    a3 = await _insert_agent("kr_trans_a3", o1)
+    a4 = await _insert_agent("kr_trans_a4", o2)
 
     c1 = await _insert_comment(pid, a1)
     await _insert_comment(pid, a2)
+    await _insert_comment(pid, a3)
+    await _insert_comment(pid, a4)
     # Even if a verdict somehow existed, in_review -> deliberating must not apply karma.
     await _insert_verdict(pid, a1, [c1])
 
     k1 = await _fetch_karma(a1)
     k2 = await _fetch_karma(a2)
+    k3 = await _fetch_karma(a3)
+    k4 = await _fetch_karma(a4)
 
     await advance()
 
@@ -689,3 +716,128 @@ async def test_karma_refund_fires_only_on_reviewed_transition():
     assert s == "deliberating"
     assert await _fetch_karma(a1) == pytest.approx(k1)
     assert await _fetch_karma(a2) == pytest.approx(k2)
+    assert await _fetch_karma(a3) == pytest.approx(k3)
+    assert await _fetch_karma(a4) == pytest.approx(k4)
+
+
+@pytest.mark.anyio
+async def test_papers_below_quorum_go_to_failed_review():
+    submitter = await _insert_human("fr_below_sub")
+    owner = await _insert_human("fr_below_own")
+    now = datetime.now()
+
+    pid = await _insert_paper(
+        submitter, status="in_review", created_at=now - timedelta(hours=49)
+    )
+    a1 = await _insert_agent("fr_below_a1", owner)
+    a2 = await _insert_agent("fr_below_a2", owner)
+    a3 = await _insert_agent("fr_below_a3", owner)
+
+    await _insert_comment(pid, a1)
+    await _insert_comment(pid, a2)
+    await _insert_comment(pid, a3)
+
+    await advance()
+
+    s, d = await _status_of(pid)
+    assert s == "failed_review"
+    assert d is None
+
+    a1_rows = await _notifications_for(a1, "PAPER_DELIBERATING", pid)
+    a2_rows = await _notifications_for(a2, "PAPER_DELIBERATING", pid)
+    a3_rows = await _notifications_for(a3, "PAPER_DELIBERATING", pid)
+    assert a1_rows == []
+    assert a2_rows == []
+    assert a3_rows == []
+
+
+@pytest.mark.anyio
+async def test_papers_at_quorum_still_go_to_deliberating():
+    submitter = await _insert_human("fr_quorum_sub")
+    owner = await _insert_human("fr_quorum_own")
+    now = datetime.now()
+
+    pid = await _insert_paper(
+        submitter, status="in_review", created_at=now - timedelta(hours=49)
+    )
+    a1 = await _insert_agent("fr_quorum_a1", owner)
+    a2 = await _insert_agent("fr_quorum_a2", owner)
+    a3 = await _insert_agent("fr_quorum_a3", owner)
+    a4 = await _insert_agent("fr_quorum_a4", owner)
+
+    await _insert_comment(pid, a1)
+    await _insert_comment(pid, a2)
+    await _insert_comment(pid, a3)
+    await _insert_comment(pid, a4)
+
+    await advance()
+
+    s, d = await _status_of(pid)
+    assert s == "deliberating"
+    assert d is not None
+
+    a1_rows = await _notifications_for(a1, "PAPER_DELIBERATING", pid)
+    assert len(a1_rows) == 1
+
+
+@pytest.mark.anyio
+async def test_failed_review_does_not_distribute_karma():
+    submitter = await _insert_human("fr_karma_sub")
+    owner = await _insert_human("fr_karma_own")
+    now = datetime.now()
+
+    pid = await _insert_paper(
+        submitter, status="in_review", created_at=now - timedelta(hours=49)
+    )
+    a1 = await _insert_agent("fr_karma_a1", owner)
+    a2 = await _insert_agent("fr_karma_a2", owner)
+    a3 = await _insert_agent("fr_karma_a3", owner)
+
+    await _insert_comment(pid, a1)
+    await _insert_comment(pid, a2)
+    await _insert_comment(pid, a3)
+
+    k1 = await _fetch_karma(a1)
+    k2 = await _fetch_karma(a2)
+    k3 = await _fetch_karma(a3)
+
+    await advance()
+
+    s, _ = await _status_of(pid)
+    assert s == "failed_review"
+    assert await _fetch_karma(a1) == pytest.approx(k1)
+    assert await _fetch_karma(a2) == pytest.approx(k2)
+    assert await _fetch_karma(a3) == pytest.approx(k3)
+
+
+@pytest.mark.anyio
+async def test_human_comments_do_not_count_toward_quorum():
+    submitter = await _insert_human("fr_human_sub")
+    owner = await _insert_human("fr_human_own")
+    now = datetime.now()
+
+    pid = await _insert_paper(
+        submitter, status="in_review", created_at=now - timedelta(hours=49)
+    )
+    a1 = await _insert_agent("fr_human_a1", owner)
+    a2 = await _insert_agent("fr_human_a2", owner)
+    a3 = await _insert_agent("fr_human_a3", owner)
+    h1 = await _insert_human("fr_human_h1")
+    h2 = await _insert_human("fr_human_h2")
+    h3 = await _insert_human("fr_human_h3")
+    h4 = await _insert_human("fr_human_h4")
+    h5 = await _insert_human("fr_human_h5")
+
+    await _insert_comment(pid, a1)
+    await _insert_comment(pid, a2)
+    await _insert_comment(pid, a3)
+    await _insert_comment(pid, h1)
+    await _insert_comment(pid, h2)
+    await _insert_comment(pid, h3)
+    await _insert_comment(pid, h4)
+    await _insert_comment(pid, h5)
+
+    await advance()
+
+    s, _ = await _status_of(pid)
+    assert s == "failed_review"
