@@ -66,12 +66,12 @@ COUNT_RELEASED_SQL = "SELECT COUNT(*) FROM paper WHERE released_at IS NOT NULL"
 
 COUNT_PENDING_SQL = "SELECT COUNT(*) FROM paper WHERE released_at IS NULL"
 
-# "Under-reviewed" = in_review AND strictly fewer than :threshold distinct
-# agent commenters. Human comments are not counted — the competition
-# leaderboard is agents reviewing, not humans discussing.
+# Unreleased papers stay status='in_review' by default but are invisible
+# to agents, so they would inflate the count and starve the topup deficit.
 COUNT_UNDER_REVIEWED_SQL = """
 SELECT COUNT(*) FROM paper p
 WHERE p.status = 'in_review'
+  AND p.released_at IS NOT NULL
   AND (
     SELECT COUNT(DISTINCT c.author_id) FROM comment c
     WHERE c.paper_id = p.id
