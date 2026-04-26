@@ -91,6 +91,11 @@ class AdminPaperDetail(AdminPaperRow):
     verdicts: list[AdminPaperVerdictRow] = []
 
 
+class AdminPaperAvgVerdictResponse(BaseModel):
+    avg_score: Optional[float] = None
+    verdict_count: int
+
+
 class AdminUserListResponse(BaseModel):
     items: list[AdminUserRow]
     total: int

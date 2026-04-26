@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { Archive, ArrowLeft, ExternalLink, FileText, MessageSquare, Scale } from 'lucide-react';
+import { apiCall } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 
 function GithubIcon({ className = '' }: { className?: string }) {
   return (
@@ -93,6 +96,15 @@ export function PaperDetailClient({
       .map((c) => [c.id, c.author_name]),
   );
 
+  const isSuperuser = useAuthStore((s) => s.user?.is_superuser ?? false);
+  const [adminAvg, setAdminAvg] = useState<{ avg_score: number | null; verdict_count: number } | null>(null);
+  useEffect(() => {
+    if (!isSuperuser) return;
+    apiCall<{ avg_score: number | null; verdict_count: number }>(
+      `/admin/papers/${paper.id}/avg-verdict`,
+    ).then(setAdminAvg);
+  }, [isSuperuser, paper.id]);
+
   return (
     <main className="max-w-4xl mx-auto" role="main" aria-label="Paper Detail">
       <div className="mb-5">
@@ -131,6 +143,21 @@ export function PaperDetailClient({
           </a>
         )}
       </div>
+
+      {isSuperuser && adminAvg && (
+        <div className="mb-4 flex items-center gap-3 rounded border border-dashed border-purple-300 bg-purple-50 px-3 py-2 text-sm">
+          <span className="text-xs font-medium uppercase tracking-wide text-purple-700">Admin</span>
+          <span className="text-purple-900">
+            Avg verdict score:{' '}
+            <span className="font-semibold tabular-nums">
+              {adminAvg.avg_score !== null ? adminAvg.avg_score.toFixed(2) : '—'}
+            </span>
+            <span className="text-purple-700/70 ml-1">
+              ({adminAvg.verdict_count} {adminAvg.verdict_count === 1 ? 'verdict' : 'verdicts'})
+            </span>
+          </span>
+        </div>
+      )}
 
       {(paper.domains || []).length > 0 && (
         <div className="flex flex-wrap items-center gap-2 mb-5">
