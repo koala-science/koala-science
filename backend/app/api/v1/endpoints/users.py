@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
+from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
 from app.models.platform import Paper, Comment, Verdict, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
@@ -23,8 +24,8 @@ async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID, *, public_only
     comments_query = select(func.count()).select_from(Comment).where(Comment.author_id == actor_id)
     verdicts_query = select(func.count()).select_from(Verdict).where(Verdict.author_id == actor_id)
     if public_only:
-        comments_query = comments_query.join(Paper, Comment.paper_id == Paper.id).where(Paper.released_at.isnot(None))
-        verdicts_query = verdicts_query.join(Paper, Verdict.paper_id == Paper.id).where(Paper.released_at.isnot(None))
+        comments_query = comments_query.join(Paper, Comment.paper_id == Paper.id).where(public_paper_clause())
+        verdicts_query = verdicts_query.join(Paper, Verdict.paper_id == Paper.id).where(public_paper_clause())
 
     comments = (await db.execute(comments_query)).scalar() or 0
     verdicts = (await db.execute(verdicts_query)).scalar() or 0
@@ -203,7 +204,7 @@ async def get_public_profile(
     paper_count_result = await db.execute(
         select(func.count())
         .select_from(Paper)
-        .where(Paper.submitter_id == user_id, Paper.released_at.isnot(None))
+        .where(Paper.submitter_id == user_id, public_paper_clause())
     )
     paper_count = paper_count_result.scalar() or 0
 
@@ -260,13 +261,13 @@ async def get_public_profile(
                 select(func.count())
                 .select_from(Comment)
                 .join(Paper, Comment.paper_id == Paper.id)
-                .where(Comment.author_id.in_(owned_agent_ids), Paper.released_at.isnot(None))
+                .where(Comment.author_id.in_(owned_agent_ids), public_paper_clause())
             )).scalar() or 0
             agent_verdicts = (await db.execute(
                 select(func.count())
                 .select_from(Verdict)
                 .join(Paper, Verdict.paper_id == Paper.id)
-                .where(Verdict.author_id.in_(owned_agent_ids), Paper.released_at.isnot(None))
+                .where(Verdict.author_id.in_(owned_agent_ids), public_paper_clause())
             )).scalar() or 0
             actor_stats["comments"] += agent_comments
             actor_stats["verdicts"] += agent_verdicts
@@ -279,7 +280,7 @@ async def get_public_profile(
         .where(
             Comment.author_id.in_(activity_actor_ids),
             Comment.created_at >= recent_cutoff,
-            Paper.released_at.isnot(None),
+            public_paper_clause(),
         )
     )).scalar() or 0
     recent_verdicts = (await db.execute(
@@ -289,7 +290,7 @@ async def get_public_profile(
         .where(
             Verdict.author_id.in_(activity_actor_ids),
             Verdict.created_at >= recent_cutoff,
-            Paper.released_at.isnot(None),
+            public_paper_clause(),
         )
     )).scalar() or 0
     recent_papers = (await db.execute(
@@ -297,7 +298,7 @@ async def get_public_profile(
         .select_from(Paper)
         .where(
             Paper.submitter_id == user_id,
-            Paper.released_at.isnot(None),
+            public_paper_clause(),
             Paper.created_at >= recent_cutoff,
         )
     )).scalar() or 0
@@ -347,7 +348,7 @@ async def get_user_papers(
     """Get papers submitted by a user."""
     result = await db.execute(
         select(Paper)
-        .where(Paper.submitter_id == user_id, Paper.released_at.isnot(None))
+        .where(Paper.submitter_id == user_id, public_paper_clause())
         .order_by(Paper.created_at.desc())
         .offset(skip).limit(limit)
     )
@@ -395,7 +396,7 @@ async def get_user_comments(
         select(Comment, Paper.title, Paper.domains, Actor.name, Actor.actor_type)
         .join(Paper, Comment.paper_id == Paper.id)
         .join(Actor, Comment.author_id == Actor.id)
-        .where(Comment.author_id.in_(actor_ids), Paper.released_at.isnot(None))
+        .where(Comment.author_id.in_(actor_ids), public_paper_clause())
         .order_by(Comment.created_at.desc())
         .offset(skip).limit(limit)
     )

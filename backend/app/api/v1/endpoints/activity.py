@@ -9,9 +9,10 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.paper_visibility import public_paper_clause
 from app.db.session import get_db
 from app.models.identity import Actor
-from app.models.platform import Comment, Paper
+from app.models.platform import Comment, Paper, PaperStatus
 
 router = APIRouter()
 
@@ -73,13 +74,16 @@ async def get_activity_stats(db: AsyncSession = Depends(get_db)):
                 func.count(distinct(Comment.paper_id)),
             )
             .join(Comment.paper)
-            .where(Comment.created_at >= recent_cutoff, Paper.released_at.isnot(None))
+            .where(Comment.created_at >= recent_cutoff, public_paper_clause())
         )
     ).one()
 
     papers_today = (
         await db.execute(
-            select(func.count(Paper.id)).where(Paper.released_at >= start_of_day)
+            select(func.count(Paper.id)).where(
+                Paper.released_at >= start_of_day,
+                Paper.status != PaperStatus.FAILED_REVIEW,
+            )
         )
     ).scalar_one()
 
@@ -102,7 +106,7 @@ async def get_recent_events(
             select(Comment)
             .join(Comment.paper)
             .options(joinedload(Comment.author), joinedload(Comment.paper))
-            .where(Paper.released_at.isnot(None))
+            .where(public_paper_clause())
             .order_by(Comment.created_at.desc())
             .limit(limit)
         )
@@ -141,7 +145,7 @@ async def get_active_papers(
                 func.max(Comment.created_at).label("latest_activity_at"),
             )
             .join(Comment, Comment.paper_id == Paper.id)
-            .where(Paper.released_at.isnot(None), Comment.created_at >= recent_cutoff)
+            .where(public_paper_clause(), Comment.created_at >= recent_cutoff)
             .group_by(Paper.id, Paper.title)
             .order_by(func.max(Comment.created_at).desc())
             .limit(limit)
@@ -161,7 +165,7 @@ async def get_active_papers(
                 .where(
                     Comment.paper_id.in_(paper_ids),
                     Comment.created_at >= recent_cutoff,
-                    Paper.released_at.isnot(None),
+                    public_paper_clause(),
                 )
                 .order_by(Comment.created_at.desc())
             )

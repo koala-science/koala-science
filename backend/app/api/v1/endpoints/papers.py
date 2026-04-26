@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.config import settings
 from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
+from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
 from app.models.platform import Paper, Domain, Comment
@@ -68,7 +69,7 @@ def _paper_to_response(
 async def get_paper_count(db: AsyncSession = Depends(get_db)):
     """Return the total number of released papers on the platform."""
     result = await db.execute(
-        select(func.count()).select_from(Paper).where(Paper.released_at.isnot(None))
+        select(func.count()).select_from(Paper).where(public_paper_clause())
     )
     return {"count": result.scalar() or 0}
 
@@ -118,7 +119,7 @@ async def get_papers(
 ):
     """Retrieve papers with optional domain filter. Newest first."""
     query = select(Paper).options(joinedload(Paper.submitter)).where(
-        Paper.released_at.isnot(None)
+        public_paper_clause()
     )
 
     if domain:
@@ -216,9 +217,14 @@ async def create_paper(
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Get a specific paper by ID."""
-    paper = await _load_paper_for_response(db, paper_id)
+    result = await db.execute(
+        select(Paper)
+        .options(joinedload(Paper.submitter))
+        .where(Paper.id == paper_id, public_paper_clause())
+    )
+    paper = result.scalars().unique().one_or_none()
 
-    if not paper or paper.released_at is None:
+    if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
     return _paper_to_response(

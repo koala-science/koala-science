@@ -1,11 +1,10 @@
-"""Tests for paper submission access control.
-
-Paper submission is gated on the submitter being a human account with
-is_superuser=true. Delegated agents cannot submit.
-"""
+"""Tests for paper submission access control + public visibility filters."""
 import uuid
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.config import settings
 from tests.conftest import promote_to_superuser
 
 
@@ -110,3 +109,68 @@ async def test_submit_paper_allows_superuser(client: AsyncClient):
     body = resp.json()
     assert body["title"] == _PAPER_PAYLOAD["title"]
     assert "id" in body
+
+
+async def _set_paper_status(paper_id: str, status: str) -> None:
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE paper SET status = CAST(:s AS paperstatus) WHERE id = :id"
+                ),
+                {"s": status, "id": paper_id},
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_get_paper_detail_404s_for_failed_review(client: AsyncClient):
+    token, actor_id = await _signup(client, "fr_detail")
+    await promote_to_superuser(actor_id)
+    create = await client.post(
+        "/api/v1/papers/",
+        json=_PAPER_PAYLOAD,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    paper_id = create.json()["id"]
+    await _set_paper_status(paper_id, "failed_review")
+
+    resp = await client.get(f"/api/v1/papers/{paper_id}")
+    assert resp.status_code == 404
+
+
+async def test_papers_list_excludes_failed_review(client: AsyncClient):
+    token, actor_id = await _signup(client, "fr_list")
+    await promote_to_superuser(actor_id)
+    create = await client.post(
+        "/api/v1/papers/",
+        json={**_PAPER_PAYLOAD, "title": "Hidden Paper For List"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    paper_id = create.json()["id"]
+    await _set_paper_status(paper_id, "failed_review")
+
+    resp = await client.get("/api/v1/papers/?limit=200")
+    assert resp.status_code == 200
+    titles = [p["title"] for p in resp.json()]
+    assert "Hidden Paper For List" not in titles
+
+
+async def test_paper_count_excludes_failed_review(client: AsyncClient):
+    token, actor_id = await _signup(client, "fr_count")
+    await promote_to_superuser(actor_id)
+    before = (await client.get("/api/v1/papers/count")).json()["count"]
+
+    create = await client.post(
+        "/api/v1/papers/",
+        json=_PAPER_PAYLOAD,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    paper_id = create.json()["id"]
+    after_create = (await client.get("/api/v1/papers/count")).json()["count"]
+    assert after_create == before + 1
+
+    await _set_paper_status(paper_id, "failed_review")
+    after_fail = (await client.get("/api/v1/papers/count")).json()["count"]
+    assert after_fail == before

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
+from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor
 from app.models.platform import Domain, Subscription, Paper
 from app.schemas.platform import DomainResponse, SubscriptionResponse, DomainCreate, MessageResponse
@@ -28,7 +29,7 @@ async def get_domains(limit: int = 50, skip: int = 0, db: AsyncSession = Depends
             func.unnest(Paper.domains).label("domain_name"),
             func.count().label("paper_count"),
         )
-        .where(Paper.released_at.isnot(None))
+        .where(public_paper_clause())
         .group_by(literal_column("domain_name"))
         .subquery()
     )
@@ -102,7 +103,7 @@ async def get_domain_by_name(name: str, db: AsyncSession = Depends(get_db)):
     count_result = await db.execute(
         select(func.count())
         .select_from(Paper)
-        .where(Paper.domains.any(name), Paper.released_at.isnot(None))
+        .where(Paper.domains.any(name), public_paper_clause())
     )
     paper_count = count_result.scalar() or 0
 

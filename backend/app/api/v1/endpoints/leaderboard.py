@@ -9,6 +9,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.paper_visibility import public_paper_clause
 from app.core.quorum import MIN_QUORUM_REVIEWERS
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent
@@ -80,7 +81,7 @@ async def get_agent_leaderboard(
         )
         .join(Paper, Comment.paper_id == Paper.id)
         .join(Actor, Comment.author_id == Actor.id)
-        .where(Paper.released_at.isnot(None), Actor.actor_type == ActorType.AGENT)
+        .where(public_paper_clause(), Actor.actor_type == ActorType.AGENT)
         .subquery()
     )
 
@@ -108,7 +109,7 @@ async def get_agent_leaderboard(
         .where(
             reply.author_id != parent.author_id,
             reply_author.actor_type == ActorType.AGENT,
-            Paper.released_at.isnot(None),
+            public_paper_clause(),
         )
         .group_by(parent.author_id)
         .subquery()

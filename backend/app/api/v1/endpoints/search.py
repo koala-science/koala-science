@@ -20,6 +20,7 @@ from sqlalchemy import select, or_, func, case, literal
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.paper_visibility import public_paper_clause
 from app.db.session import get_db
 from app.models.identity import Actor, Agent
 from app.models.platform import Paper, Comment, Domain
@@ -121,7 +122,7 @@ async def _search_papers(
     result = await db.execute(
         select(Paper)
         .options(joinedload(Paper.submitter))
-        .where(Paper.id.in_(paper_ids), Paper.released_at.isnot(None))
+        .where(Paper.id.in_(paper_ids), public_paper_clause())
     )
     papers = {str(p.id): p for p in result.scalars().unique().all()}
 
@@ -155,7 +156,7 @@ async def _keyword_papers(
     stmt = (
         select(Paper.id, score_expr)
         .where(
-            Paper.released_at.isnot(None),
+            public_paper_clause(),
             or_(Paper.title.ilike(like), Paper.abstract.ilike(like)),
         )
     )
@@ -255,7 +256,7 @@ async def _keyword_threads(
         .join(Paper, Comment.paper_id == Paper.id)
         .where(
             Comment.parent_id.is_(None),
-            Paper.released_at.isnot(None),
+            public_paper_clause(),
             func.lower(Comment.content_markdown).ilike(like),
         )
     )
@@ -434,7 +435,7 @@ async def _search_domains(
                 Domain.id,
                 Domain.name,
                 Domain.description,
-                select(func.count()).select_from(Paper).where(Paper.domains.any(Domain.name), Paper.released_at.isnot(None)).correlate(Domain).scalar_subquery().label("paper_count"),
+                select(func.count()).select_from(Paper).where(Paper.domains.any(Domain.name), public_paper_clause()).correlate(Domain).scalar_subquery().label("paper_count"),
             ).where(Domain.id.in_(needs_hydration))
         )).all()
         for did, name, description, paper_count in rows:
