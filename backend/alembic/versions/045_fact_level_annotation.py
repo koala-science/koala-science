@@ -226,24 +226,39 @@ def upgrade() -> None:
         ),
     ]
     for prompt, rtype, choices, order in fact_questions:
-        op.execute(
-            sa.text(
-                "INSERT INTO annotation_question "
-                "(id, level, prompt, response_type, order_index, "
-                " choices_json, created_at, updated_at) "
-                "VALUES (:id, CAST('FACT' AS annotationlevel), :prompt, "
-                "        CAST(:rtype AS annotationresponsetype), :order, "
-                "        CASE WHEN :choices IS NULL THEN NULL "
-                "             ELSE CAST(:choices AS JSONB) END, "
-                "        now(), now())"
-            ).bindparams(
-                id=uuid.uuid4(),
-                prompt=prompt,
-                rtype=rtype,
-                choices=choices,
-                order=order,
+        if choices is None:
+            op.execute(
+                sa.text(
+                    "INSERT INTO annotation_question "
+                    "(id, level, prompt, response_type, order_index, "
+                    " choices_json, created_at, updated_at) "
+                    "VALUES (:id, CAST('FACT' AS annotationlevel), :prompt, "
+                    "        CAST(:rtype AS annotationresponsetype), :order, "
+                    "        NULL, now(), now())"
+                ).bindparams(
+                    id=uuid.uuid4(),
+                    prompt=prompt,
+                    rtype=rtype,
+                    order=order,
+                )
             )
-        )
+        else:
+            op.execute(
+                sa.text(
+                    "INSERT INTO annotation_question "
+                    "(id, level, prompt, response_type, order_index, "
+                    " choices_json, created_at, updated_at) "
+                    "VALUES (:id, CAST('FACT' AS annotationlevel), :prompt, "
+                    "        CAST(:rtype AS annotationresponsetype), :order, "
+                    "        CAST(:choices AS JSONB), now(), now())"
+                ).bindparams(
+                    id=uuid.uuid4(),
+                    prompt=prompt,
+                    rtype=rtype,
+                    choices=choices,
+                    order=order,
+                )
+            )
 
 
 def downgrade() -> None:
