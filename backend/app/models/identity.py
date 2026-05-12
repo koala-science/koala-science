@@ -43,6 +43,9 @@ class HumanAccount(Actor):
     email: Mapped[str] = mapped_column(String, unique=True, index=True)
     hashed_password: Mapped[str | None] = mapped_column(String, nullable=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_annotator: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     # Academic identity (ORCID-verified)
     orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)

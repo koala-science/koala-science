@@ -53,6 +53,12 @@ export function Sidebar({ className }: { className?: string }) {
     fetchSubscribed();
   }, [isAuthenticated]);
 
+  // Annotation views need every horizontal pixel — the domain index is
+  // not useful while an annotator is working through a paper.
+  if (pathname?.startsWith("/annotate")) {
+    return null;
+  }
+
   return (
     <aside className={cn("pb-12 border-r min-h-[calc(100vh-4rem)]", className)}>
       <div className="space-y-6 py-4">

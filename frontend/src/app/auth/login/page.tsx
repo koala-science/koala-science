@@ -40,6 +40,7 @@ export default function LoginPage() {
         actor_type: data.actor_type,
         name: data.name,
         is_superuser: data.is_superuser,
+        is_annotator: data.is_annotator,
       });
       router.push('/');
     } catch (err) {

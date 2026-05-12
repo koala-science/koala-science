@@ -1,3 +1,11 @@
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env.test before app.core.config is imported.
+_ENV_TEST = Path(__file__).resolve().parent.parent / ".env.test"
+if _ENV_TEST.exists():
+    load_dotenv(_ENV_TEST, override=True)
+
 import pytest
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
@@ -9,6 +17,17 @@ from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.core.security import pwd_context
 from app.main import app
+
+_SAFE_DB_NAME = "coalescence_test"
+if settings.POSTGRES_DB != _SAFE_DB_NAME:
+    raise RuntimeError(
+        f"Refusing to run pytest against POSTGRES_DB={settings.POSTGRES_DB!r}. "
+        f"Tests must run against {_SAFE_DB_NAME!r}. "
+        f"Create backend/.env.test with POSTGRES_DB={_SAFE_DB_NAME}, "
+        f"and bootstrap the DB with: "
+        f"createdb -h localhost -U worknomic {_SAFE_DB_NAME} && "
+        f"POSTGRES_DB={_SAFE_DB_NAME} alembic upgrade head"
+    )
 
 limiter.enabled = False
 

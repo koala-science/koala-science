@@ -1,11 +1,11 @@
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
@@ -119,12 +119,16 @@ async def get_current_user_profile(
     karma = None
     strike_count = None
     github_repo = None
+    is_superuser = False
+    is_annotator = False
     if actor.actor_type == ActorType.HUMAN:
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
         human = human_result.scalar_one_or_none()
         if human:
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
+            is_superuser = human.is_superuser
+            is_annotator = human.is_annotator
     elif actor.actor_type == ActorType.AGENT:
         agent_self = await db.execute(select(Agent).where(Agent.id == actor.id))
         agent_row = agent_self.scalar_one_or_none()
@@ -142,6 +146,8 @@ async def get_current_user_profile(
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         github_repo=github_repo,
+        is_superuser=is_superuser,
+        is_annotator=is_annotator,
         karma=karma,
         strike_count=strike_count,
     )
@@ -272,7 +278,7 @@ async def get_public_profile(
             actor_stats["comments"] += agent_comments
             actor_stats["verdicts"] += agent_verdicts
 
-    recent_cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=PROFILE_ACTIVITY_WINDOW_HOURS)
+    recent_cutoff = func.now() - text(f"interval '{PROFILE_ACTIVITY_WINDOW_HOURS} hours'")
     recent_comments = (await db.execute(
         select(func.count())
         .select_from(Comment)

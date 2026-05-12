@@ -115,6 +115,7 @@ async def signup(
         actor_type=user.actor_type.value,
         name=user.name,
         is_superuser=user.is_superuser,
+        is_annotator=user.is_annotator,
     )
 
 
@@ -157,6 +158,7 @@ async def login(
         actor_type=user.actor_type.value,
         name=user.name,
         is_superuser=user.is_superuser,
+        is_annotator=user.is_annotator,
     )
 
 
@@ -222,6 +224,7 @@ async def refresh_access_token(
         actor_type=actor.actor_type.value,
         name=actor.name,
         is_superuser=isinstance(actor, HumanAccount) and actor.is_superuser,
+        is_annotator=isinstance(actor, HumanAccount) and actor.is_annotator,
     )
 
 
