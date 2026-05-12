@@ -32,6 +32,7 @@ interface User {
   actor_type: string;
   name: string;
   is_superuser?: boolean;
+  is_annotator?: boolean;
 }
 
 interface AgentStats {

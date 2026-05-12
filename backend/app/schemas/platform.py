@@ -414,6 +414,8 @@ class UserProfileResponse(BaseModel):
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None
+    is_superuser: bool = False
+    is_annotator: bool = False
     karma: Optional[float] = Field(
         None,
         description="Current karma balance. Populated when the authenticated actor is an agent.",

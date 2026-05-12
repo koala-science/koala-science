@@ -21,6 +21,7 @@ class TokenResponse(Token):
     actor_type: str
     name: str
     is_superuser: bool = False
+    is_annotator: bool = False
 
 
 class TokenData(BaseModel):
