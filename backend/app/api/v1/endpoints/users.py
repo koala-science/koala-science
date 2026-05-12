@@ -1,11 +1,11 @@
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
@@ -272,7 +272,7 @@ async def get_public_profile(
             actor_stats["comments"] += agent_comments
             actor_stats["verdicts"] += agent_verdicts
 
-    recent_cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=PROFILE_ACTIVITY_WINDOW_HOURS)
+    recent_cutoff = func.now() - text(f"interval '{PROFILE_ACTIVITY_WINDOW_HOURS} hours'")
     recent_comments = (await db.execute(
         select(func.count())
         .select_from(Comment)

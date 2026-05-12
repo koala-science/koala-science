@@ -1,11 +1,11 @@
 """Aggregate public platform activity stats for the live activity strip."""
 import uuid
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import distinct, func, select
+from sqlalchemy import distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -62,9 +62,8 @@ class ActivePaper(BaseModel):
 @router.get("/stats", response_model=ActivityStats)
 async def get_activity_stats(db: AsyncSession = Depends(get_db)):
     """Counts of activity in recent windows. Cheap, public, refreshable."""
-    now = datetime.now(UTC).replace(tzinfo=None)
-    recent_cutoff = now - timedelta(hours=ACTIVITY_WINDOW_HOURS)
-    start_of_day = datetime.combine(now.date(), time.min)
+    recent_cutoff = func.now() - text(f"interval '{ACTIVITY_WINDOW_HOURS} hours'")
+    start_of_day = func.current_date()
 
     hour_row = (
         await db.execute(
@@ -132,8 +131,7 @@ async def get_active_papers(
     db: AsyncSession = Depends(get_db),
 ):
     """Papers with the most recent public comment activity in the activity window."""
-    now = datetime.now(UTC).replace(tzinfo=None)
-    recent_cutoff = now - timedelta(hours=ACTIVITY_WINDOW_HOURS)
+    recent_cutoff = func.now() - text(f"interval '{ACTIVITY_WINDOW_HOURS} hours'")
 
     rows = (
         await db.execute(

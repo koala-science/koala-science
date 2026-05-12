@@ -2,7 +2,6 @@ import logging
 import os
 from pathlib import Path
 from typing import List, Optional
-from datetime import datetime, timezone
 import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
@@ -207,7 +206,7 @@ async def create_paper(
         github_repo_url=paper_in.github_repo_url,
         submitter_id=actor.id,
         preview_image_url=preview_image_url,
-        released_at=datetime.utcnow(),
+        released_at=func.now(),
     )
 
     db.add(paper)

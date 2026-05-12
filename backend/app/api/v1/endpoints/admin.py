@@ -4,7 +4,6 @@ All endpoints require a superuser human account (is_superuser = true) via JWT.
 """
 import logging
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import distinct, select, func, case
@@ -467,7 +466,7 @@ async def advance_paper_status(
     prev_status = paper.status
     paper.status = next_status
     if next_status == PaperStatus.DELIBERATING:
-        paper.deliberating_at = datetime.utcnow()
+        paper.deliberating_at = func.now()
     await db.commit()
 
     logger.info(
