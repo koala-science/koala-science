@@ -59,6 +59,7 @@ class _AgentOnPaper(BaseModel):
 class _PaperQueueRow(BaseModel):
     paper_id: uuid.UUID
     paper_title: str
+    pdf_url: Optional[str] = None
     agents: list[_AgentOnPaper]
     comments_total: int = 0
     facts_total: int = 0
@@ -290,7 +291,7 @@ async def get_queue(
 
     paper_rows = (
         await db.execute(
-            select(AnnotationBatchPaper, Paper.title)
+            select(AnnotationBatchPaper, Paper.title, Paper.pdf_url)
             .join(Paper, Paper.id == AnnotationBatchPaper.paper_id)
             .join(
                 AnnotationAssignment,
@@ -307,7 +308,7 @@ async def get_queue(
     if not paper_rows:
         return []
 
-    batch_paper_ids = [bp.id for bp, _ in paper_rows]
+    batch_paper_ids = [bp.id for bp, _, _ in paper_rows]
 
     agent_rows = (
         await db.execute(
@@ -337,7 +338,7 @@ async def get_queue(
             (agent_id, name, bins, total)
         )
 
-    paper_ids = [bp.paper_id for bp, _ in paper_rows]
+    paper_ids = [bp.paper_id for bp, _, _ in paper_rows]
     state_rows = (
         await db.execute(
             select(AnnotationPageState).where(
@@ -426,7 +427,7 @@ async def get_queue(
         answered_facts = set(answered_rows)
 
     out: list[_PaperQueueRow] = []
-    for bp, title in paper_rows:
+    for bp, title, pdf_url in paper_rows:
         agents = agents_by_paper.get(bp.id, [])
         facts_total = facts_total_by_bp.get(bp.id, 0)
         facts_for_this = fact_ids_by_bp.get(bp.id, set())
@@ -435,6 +436,7 @@ async def get_queue(
             _PaperQueueRow(
                 paper_id=bp.paper_id,
                 paper_title=title,
+                pdf_url=pdf_url,
                 agents=[
                     _AgentOnPaper(
                         agent_id=agent_id,

@@ -298,36 +298,43 @@ function PaperAnnotationContent() {
           No focal-agent comments to annotate on this paper.
         </div>
       ) : (
-        <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-2 p-2 min-h-0">
-          {/* Top-left: paper title + abstract */}
-          <section className="border rounded bg-white overflow-y-auto p-4 min-h-0">
-            <h1 className="font-heading text-lg font-bold leading-tight mb-2">
-              {payload.paper.title}
-            </h1>
-            <p className="text-sm text-muted-foreground whitespace-pre-line">
-              {payload.paper.abstract}
-            </p>
-          </section>
-
-          {/* Top-right: PDF */}
-          <section className="border rounded bg-white overflow-hidden min-h-0">
-            {payload.paper.pdf_url ? (
-              <iframe
-                src={payload.paper.pdf_url}
-                className="w-full h-full"
-                title="paper PDF"
-              />
-            ) : (
-              <div className="p-4 text-sm text-muted-foreground">
-                No PDF available for this paper.
+        <div className="flex-1 grid grid-cols-2 gap-2 p-2 min-h-0">
+          {/* Left: paper title + links + current comment (full height) */}
+          <section className="border rounded bg-white overflow-y-auto p-4 min-h-0 space-y-3">
+            <div>
+              <h1 className="font-heading text-lg font-bold leading-tight">
+                {payload.paper.title}
+              </h1>
+              <div className="text-xs mt-1 flex items-center gap-3">
+                <Link
+                  href={`/p/${payload.paper.id}`}
+                  target="_blank"
+                  className="text-primary hover:underline"
+                >
+                  Conversation ↗
+                </Link>
+                {payload.paper.pdf_url && (
+                  <a
+                    href={payload.paper.pdf_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    PDF ↗
+                  </a>
+                )}
               </div>
-            )}
-          </section>
-
-          {/* Bottom-left: current comment */}
-          <section className="border rounded bg-white overflow-y-auto p-4 min-h-0">
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  Abstract
+                </summary>
+                <p className="text-sm text-muted-foreground whitespace-pre-line pt-1">
+                  {payload.paper.abstract}
+                </p>
+              </details>
+            </div>
             {currentItem && (
-              <>
+              <div className="border-t pt-3">
                 <header className="flex items-baseline justify-between gap-3 mb-2">
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-semibold">
                     {currentItem.author_name}
@@ -342,11 +349,11 @@ function PaperAnnotationContent() {
                 <div className="text-sm whitespace-pre-line">
                   {currentItem.content_markdown}
                 </div>
-              </>
+              </div>
             )}
           </section>
 
-          {/* Bottom-right: questions for the current step */}
+          {/* Right: questions for the current step (full height) */}
           <section className="border rounded bg-white overflow-y-auto p-4 min-h-0 flex flex-col">
             <div className="flex-1 space-y-3">
               {step?.kind === 'argument' && currentFact && (

@@ -9,6 +9,7 @@ import { apiCall } from '@/lib/api';
 interface PaperRow {
   paper_id: string;
   paper_title: string;
+  pdf_url: string | null;
   comments_total: number;
   facts_total: number;
   facts_answered: number;
@@ -52,23 +53,42 @@ function Queue() {
       ) : (
         <div className="space-y-6">
           {papers.map((paper) => (
-            <Link
+            <div
               key={paper.paper_id}
-              href={`/annotate/${batchId}/paper/${paper.paper_id}`}
-              className="block border rounded bg-white px-4 py-3 hover:bg-stone-50"
+              className="border rounded bg-white px-4 py-3"
             >
-              <div className="font-semibold text-primary">
+              <Link
+                href={`/annotate/${batchId}/paper/${paper.paper_id}`}
+                className="font-semibold text-primary hover:underline"
+              >
                 {paper.paper_title}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1 flex items-center gap-4">
+              </Link>
+              <div className="text-xs text-muted-foreground mt-1 flex items-center gap-4 flex-wrap">
                 <span>
                   {paper.comments_total} comment{paper.comments_total === 1 ? '' : 's'}
                 </span>
                 <span>
                   {paper.facts_answered}/{paper.facts_total} arguments
                 </span>
+                <Link
+                  href={`/p/${paper.paper_id}`}
+                  target="_blank"
+                  className="text-primary hover:underline"
+                >
+                  Conversation ↗
+                </Link>
+                {paper.pdf_url && (
+                  <a
+                    href={paper.pdf_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    PDF ↗
+                  </a>
+                )}
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
