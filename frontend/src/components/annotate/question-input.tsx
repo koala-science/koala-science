@@ -10,7 +10,7 @@ interface Question {
   choices_json: ChoiceDescriptor[] | null;
   order_index: number;
   parent_question_id?: string | null;
-  parent_value_match?: Record<string, unknown> | null;
+  parent_value_match?: Record<string, unknown>[] | null;
 }
 
 interface QuestionInputProps {
@@ -35,9 +35,10 @@ const FACT_CHOICE_LABELS: Record<string, { label: string; tooltip: string }> = {
     tooltip: 'Cannot determine whether the fact is true.',
   },
   // relevance to a review
-  relevant: { label: 'Yes', tooltip: 'Relevant to a review of this paper.' },
-  irrelevant: { label: 'No', tooltip: 'Not relevant to a review of this paper.' },
-  relevance_not_sure: { label: 'Not sure', tooltip: 'Unclear if relevant.' },
+  very_relevant: { label: 'Very relevant', tooltip: 'Clearly relevant to a review of this paper.' },
+  somewhat_relevant: { label: 'Somewhat relevant', tooltip: 'Partially relevant; a reviewer might raise it.' },
+  not_relevant: { label: 'Not relevant', tooltip: 'Would not surface in a review.' },
+  not_sure: { label: 'Not sure', tooltip: 'Unclear whether a reviewer would raise this.' },
   // confidence
   fully_confident: { label: 'Fully confident', tooltip: 'Confident in this assessment.' },
   partially_confident: { label: 'Partially confident', tooltip: 'Somewhat confident.' },

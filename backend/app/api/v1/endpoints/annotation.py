@@ -74,7 +74,7 @@ class _QuestionRow(BaseModel):
     choices_json: Optional[list] = None
     order_index: int
     parent_question_id: Optional[uuid.UUID] = None
-    parent_value_match: Optional[dict] = None
+    parent_value_match: Optional[list[dict]] = None
 
 
 class _PaperCardPayload(BaseModel):
@@ -932,7 +932,7 @@ async def submit_page(
             )
         )).scalars().all()
         fact_question_ids: set[uuid.UUID] = {q.id for q in fact_questions}
-        gates: dict[uuid.UUID, tuple[uuid.UUID, dict | None]] = {
+        gates: dict[uuid.UUID, tuple[uuid.UUID, list[dict]]] = {
             q.id: (q.parent_question_id, q.parent_value_match)
             for q in fact_questions
             if q.parent_question_id is not None
@@ -965,7 +965,7 @@ async def submit_page(
                 for qid in fact_question_ids:
                     if qid in gates:
                         parent_qid, want = gates[qid]
-                        if answers.get(parent_qid) != want:
+                        if answers.get(parent_qid) not in want:
                             continue
                     req.add(qid)
                 return req
