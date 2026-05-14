@@ -900,7 +900,7 @@ async def test_questions_endpoint_includes_fact_level(client: AsyncClient):
     fact_qs = [q for q in body if q["level"] == "FACT"]
     assert len(fact_qs) >= 1
     for fq in fact_qs:
-        assert fq["response_type"] in ("SINGLE_CHOICE", "BOOLEAN")
+        assert fq["response_type"] in ("SINGLE_CHOICE", "BOOLEAN", "FREE_TEXT")
         if fq["response_type"] == "SINGLE_CHOICE":
             assert isinstance(fq["choices_json"], list)
             assert len(fq["choices_json"]) >= 2
@@ -1208,6 +1208,129 @@ async def test_submit_succeeds_when_all_facts_answered(client: AsyncClient):
         headers={"Authorization": f"Bearer {setup['annot_token']}"},
     )
     assert submit.status_code == 200, submit.text
+
+
+async def _seed_gated_fact_pair(child_match: list[dict]) -> tuple[str, str]:
+    """Seed a parent SINGLE_CHOICE FACT question and a FREE_TEXT FACT
+    question gated on it with an any-of-list match. Returns
+    (parent_qid, child_qid). Both have high order_index to avoid
+    collisions with migration-seeded questions."""
+    parent_qid = str(uuid.uuid4())
+    child_qid = str(uuid.uuid4())
+    await _exec(
+        "INSERT INTO annotation_question "
+        "(id, level, prompt, response_type, order_index, "
+        " choices_json, created_at, updated_at) "
+        "VALUES (:id, CAST('FACT' AS annotationlevel), "
+        "        'Test parent.', "
+        "        CAST('SINGLE_CHOICE' AS annotationresponsetype), 98, "
+        "        CAST(:choices AS JSONB), now(), now())",
+        {
+            "id": parent_qid,
+            "choices": json.dumps(["yes", "maybe", "no"]),
+        },
+    )
+    await _exec(
+        "INSERT INTO annotation_question "
+        "(id, level, prompt, response_type, order_index, "
+        " parent_question_id, parent_value_match, created_at, updated_at) "
+        "VALUES (:id, CAST('FACT' AS annotationlevel), "
+        "        'Explain why?', "
+        "        CAST('FREE_TEXT' AS annotationresponsetype), 99, "
+        "        :parent, CAST(:match AS JSONB), now(), now())",
+        {"id": child_qid, "parent": parent_qid, "match": json.dumps(child_match)},
+    )
+    return parent_qid, child_qid
+
+
+async def _bulk_answer_facts(
+    client, *, setup: dict, fact_id: str, parent_qid: str, parent_value: str
+) -> None:
+    """Answer every FACT question for this fact with a stub value, with
+    the named parent question set to a chosen value."""
+    fact_qids = await _fact_question_ids()
+    upserts = []
+    for qid in fact_qids:
+        value = parent_value if qid == parent_qid else "stub"
+        upserts.append({
+            "agent_id": setup["agent_id"],
+            "paper_id": setup["paper1"],
+            "comment_id": setup["comment1"],
+            "question_id": qid,
+            "fact_id": fact_id,
+            "response_value": {"value": value},
+        })
+    resp = await client.patch(
+        "/api/v1/annotation/responses/draft",
+        json={"batch_id": setup["batch_id"], "upserts": upserts},
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_submit_skips_gated_child_when_parent_not_in_match(client: AsyncClient):
+    """Parent value 'no' is not in match list [{"value":"yes"},{"value":"maybe"}],
+    so the gated FREE_TEXT child is not required and submit succeeds
+    without answering it."""
+    setup = await _make_basic_setup(client, "gatedoff")
+    parent_qid, _child_qid = await _seed_gated_fact_pair(
+        [{"value": "yes"}, {"value": "maybe"}]
+    )
+
+    fact1 = await _insert_comment_fact(setup["comment1"], 0, "claim.")
+    await _insert_batch_fact(setup["batch_agent_paper1"], fact1, 0)
+    await _bulk_answer_facts(
+        client, setup=setup, fact_id=fact1,
+        parent_qid=parent_qid, parent_value="no",
+    )
+    await _answer_paper_qs(
+        client,
+        token=setup["annot_token"],
+        batch_id=setup["batch_id"],
+        paper_id=setup["paper1"],
+    )
+    submit = await client.post(
+        "/api/v1/annotation/pages/submit",
+        json={"batch_id": setup["batch_id"], "paper_id": setup["paper1"]},
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert submit.status_code == 200, submit.text
+
+
+async def test_submit_requires_gated_child_when_parent_in_match(client: AsyncClient):
+    """Either value in the match list triggers the gate; setting parent
+    to 'maybe' (second entry) makes the FREE_TEXT child required, and
+    omitting it 422s."""
+    setup = await _make_basic_setup(client, "gatedon")
+    parent_qid, child_qid = await _seed_gated_fact_pair(
+        [{"value": "yes"}, {"value": "maybe"}]
+    )
+
+    fact1 = await _insert_comment_fact(setup["comment1"], 0, "claim.")
+    await _insert_batch_fact(setup["batch_agent_paper1"], fact1, 0)
+    await _bulk_answer_facts(
+        client, setup=setup, fact_id=fact1,
+        parent_qid=parent_qid, parent_value="maybe",
+    )
+    # Drop the gated child from the answers so submit must 422.
+    await _exec(
+        "DELETE FROM annotation_response "
+        "WHERE question_id = :qid AND fact_id = :fid",
+        {"qid": child_qid, "fid": fact1},
+    )
+    await _answer_paper_qs(
+        client,
+        token=setup["annot_token"],
+        batch_id=setup["batch_id"],
+        paper_id=setup["paper1"],
+    )
+    submit = await client.post(
+        "/api/v1/annotation/pages/submit",
+        json={"batch_id": setup["batch_id"], "paper_id": setup["paper1"]},
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert submit.status_code == 422, submit.text
+    assert submit.json()["detail"]["error"] == "fact_responses_incomplete"
 
 
 async def test_queue_reports_fact_progress(client: AsyncClient):

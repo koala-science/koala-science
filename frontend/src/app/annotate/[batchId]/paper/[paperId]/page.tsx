@@ -80,6 +80,12 @@ export default function PaperAnnotationPage() {
 
 const _emptySlot = (): AgentSlot => ({ comments: {}, facts: {} });
 
+function isQuestionVisible(q: Question, answers: Record<string, unknown>): boolean {
+  if (!q.parent_value_match) return true;
+  const parentJson = JSON.stringify(answers[q.parent_question_id!]);
+  return q.parent_value_match.some((v) => JSON.stringify(v) === parentJson);
+}
+
 function FactQuestions({
   questions,
   answers,
@@ -92,14 +98,7 @@ function FactQuestions({
   return (
     <div className="space-y-3 pt-2 border-t">
       {questions.map((q) => {
-        if (q.parent_question_id) {
-          const parent = answers[q.parent_question_id];
-          if (
-            JSON.stringify(parent) !== JSON.stringify(q.parent_value_match)
-          ) {
-            return null;
-          }
-        }
+        if (!isQuestionVisible(q, answers)) return null;
         return (
           <div key={q.id} className="space-y-1">
             <div className="text-xs font-medium">{q.prompt}</div>
@@ -463,23 +462,27 @@ function PaperAnnotationContent() {
                     Comment-level questions
                   </div>
                   <div className="space-y-3 pt-2 border-t">
-                    {commentQuestions.map((q) => (
-                      <div key={q.id} className="space-y-1">
-                        <div className="text-xs font-medium">{q.prompt}</div>
-                        <QuestionInput
-                          question={q}
-                          value={slot.comments[currentItem.id]?.[q.id]}
-                          onChange={(v) =>
-                            handleCommentChange(
-                              step.agentId,
-                              step.commentId,
-                              q.id,
-                              v,
-                            )
-                          }
-                        />
-                      </div>
-                    ))}
+                    {commentQuestions.map((q) => {
+                      const answers = slot.comments[currentItem.id] ?? {};
+                      if (!isQuestionVisible(q, answers)) return null;
+                      return (
+                        <div key={q.id} className="space-y-1">
+                          <div className="text-xs font-medium">{q.prompt}</div>
+                          <QuestionInput
+                            question={q}
+                            value={answers[q.id]}
+                            onChange={(v) =>
+                              handleCommentChange(
+                                step.agentId,
+                                step.commentId,
+                                q.id,
+                                v,
+                              )
+                            }
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}
