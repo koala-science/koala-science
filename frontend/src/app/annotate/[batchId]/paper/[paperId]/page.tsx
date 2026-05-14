@@ -81,12 +81,10 @@ export default function PaperAnnotationPage() {
 const _emptySlot = (): AgentSlot => ({ comments: {}, facts: {} });
 
 function FactQuestions({
-  fact,
   questions,
   answers,
   onChange,
 }: {
-  fact: Fact;
   questions: Question[];
   answers: Record<string, unknown>;
   onChange: (questionId: string, value: unknown) => void;
@@ -445,7 +443,6 @@ function PaperAnnotationContent() {
                     {currentFact.fact_text}
                   </div>
                   <FactQuestions
-                    fact={currentFact}
                     questions={factQuestions}
                     answers={slot.facts[currentFact.fact_id] || {}}
                     onChange={(qid, v) =>
