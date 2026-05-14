@@ -5,15 +5,21 @@ Authentication endpoints:
 - Agent API key → JWT exchange (for computer-use agents in browsers)
 - ORCID OAuth verification (for academic identity, not login)
 """
+import hashlib
+import logging
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from jose import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.db.session import get_db
 from app.core.config import settings
+from app.core.email import EmailSendError, send_email
 from app.core.rate_limit import limiter, AUTH_RATE_LIMIT
 from app.core.security import (
     create_access_token,
@@ -27,33 +33,92 @@ from app.core.security import (
 )
 from app.core.deps import get_current_actor
 from app.core.openreview import OpenReviewUnavailableError, profile_exists
-from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
+from app.models.identity import (
+    Actor,
+    ActorType,
+    HumanAccount,
+    Agent,
+    OpenReviewId,
+    EmailVerificationToken,
+)
 from app.schemas.auth import (
     SignupRequest,
+    SignupResponse,
     LoginRequest,
     AgentKeyLoginRequest,
     AgentCreateRequest,
     AgentCreateResponse,
     AgentListResponse,
     TokenResponse,
+    VerifyEmailRequest,
+    VerifyEmailResponse,
+    ResendVerificationRequest,
+    ResendVerificationResponse,
 )
 from app.schemas.platform import OrcidConnectResponse, OrcidCallbackResponse, ScholarLinkResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+EMAIL_VERIFICATION_TTL = timedelta(hours=24)
+
+
+def _naive_utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _hash_verification_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _verification_email_html(link: str) -> str:
+    return (
+        "<p>Welcome to Koala Science.</p>"
+        f"<p>Please verify your email by clicking the link below:</p>"
+        f'<p><a href="{link}">Verify my email</a></p>'
+        f"<p>Or paste this URL into your browser: {link}</p>"
+        "<p>This link expires in 24 hours.</p>"
+    )
+
+
+async def _issue_verification_email(
+    db: AsyncSession, user: HumanAccount
+) -> None:
+    raw_token = secrets.token_urlsafe(32)
+    token_row = EmailVerificationToken(
+        human_account_id=user.id,
+        token_hash=_hash_verification_token(raw_token),
+        expires_at=_naive_utc_now() + EMAIL_VERIFICATION_TTL,
+    )
+    db.add(token_row)
+
+    link = f"{settings.FRONTEND_URL}/auth/verify?token={raw_token}"
+    try:
+        await send_email(
+            to=user.email,
+            subject="Verify your email",
+            html=_verification_email_html(link),
+        )
+    except EmailSendError as exc:
+        logger.exception("failed to send verification email to %s", user.email)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to send verification email; please try again",
+        ) from exc
 
 
 # --- Email/Password Auth ---
 
 
-@router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit(AUTH_RATE_LIMIT)
 async def signup(
     request: Request,
     payload: SignupRequest,
-    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new human account with email and password."""
+    """Create a new human account; sends an email verification link."""
     if not settings.SIGNUPS_ENABLED:
         raise HTTPException(status_code=403, detail="Signup is disabled")
 
@@ -94,29 +159,75 @@ async def signup(
     db.add(user)
     await db.flush()
     await db.refresh(user)
+
+    await _issue_verification_email(db, user)
     await db.commit()
 
-    access_token = create_access_token(user.id, user.actor_type.value)
-    refresh_token = create_refresh_token(user.id)
+    return SignupResponse(email=user.email)
 
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=False,
-        samesite="lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-    )
 
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        actor_id=user.id,
-        actor_type=user.actor_type.value,
-        name=user.name,
-        is_superuser=user.is_superuser,
-        is_annotator=user.is_annotator,
+@router.post("/verify", response_model=VerifyEmailResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
+async def verify_email(
+    request: Request,
+    payload: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    token_hash = _hash_verification_token(payload.token)
+    result = await db.execute(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.token_hash == token_hash
+        )
     )
+    token_row = result.scalar_one_or_none()
+    now = _naive_utc_now()
+
+    if (
+        token_row is None
+        or token_row.used_at is not None
+        or token_row.expires_at < now
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_OR_EXPIRED_TOKEN", "message": "Invalid or expired verification token"},
+        )
+
+    user_result = await db.execute(
+        select(HumanAccount).where(HumanAccount.id == token_row.human_account_id)
+    )
+    user = user_result.scalar_one()
+    user.email_verified = True
+    token_row.used_at = now
+    await db.commit()
+
+    return VerifyEmailResponse()
+
+
+@router.post("/resend-verification", response_model=ResendVerificationResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
+async def resend_verification(
+    request: Request,
+    payload: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(HumanAccount).where(HumanAccount.email == payload.email)
+    )
+    user = result.scalar_one_or_none()
+
+    if user is not None and not user.email_verified:
+        await db.execute(
+            update(EmailVerificationToken)
+            .where(
+                EmailVerificationToken.human_account_id == user.id,
+                EmailVerificationToken.used_at.is_(None),
+            )
+            .values(used_at=_naive_utc_now())
+        )
+        await _issue_verification_email(db, user)
+        await db.commit()
+
+    return ResendVerificationResponse()
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -138,6 +249,12 @@ async def login(
 
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "EMAIL_NOT_VERIFIED", "message": "Email not verified"},
+        )
 
     access_token = create_access_token(user.id, user.actor_type.value)
     refresh_token = create_refresh_token(user.id)

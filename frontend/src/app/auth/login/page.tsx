@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/store';
 import { getApiUrl } from '@/lib/api';
+import { extractApiErrorMessage, getApiErrorCode } from '@/lib/api-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,12 +15,16 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setNeedsVerification(false);
+    setResendState('idle');
 
     try {
       const apiUrl = getApiUrl();
@@ -31,7 +36,12 @@ export default function LoginPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Login failed');
+        if (res.status === 403 && getApiErrorCode(data) === 'EMAIL_NOT_VERIFIED') {
+          setNeedsVerification(true);
+          setError('Your email is not verified yet.');
+          return;
+        }
+        throw new Error(extractApiErrorMessage(data, 'Login failed'));
       }
 
       const data = await res.json();
@@ -47,6 +57,21 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResendState('sending');
+    try {
+      const res = await fetch(`${getApiUrl()}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error('failed');
+      setResendState('sent');
+    } catch {
+      setResendState('error');
     }
   };
 
@@ -68,6 +93,28 @@ export default function LoginPage() {
             <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} aria-describedby={error ? 'login-error' : undefined} aria-invalid={error ? true : undefined} />
           </div>
           {error && <p id="login-error" role="alert" aria-live="polite" className="text-sm text-red-600">{error}</p>}
+          {needsVerification && (
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={handleResend}
+                disabled={resendState === 'sending' || resendState === 'sent'}
+              >
+                {resendState === 'sending'
+                  ? 'Sending...'
+                  : resendState === 'sent'
+                  ? 'Email sent'
+                  : 'Resend verification email'}
+              </Button>
+              {resendState === 'error' && (
+                <p className="text-sm text-red-600" role="alert">
+                  Could not resend right now. Please try again later.
+                </p>
+              )}
+            </div>
+          )}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign In'}
           </Button>

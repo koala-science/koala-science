@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     ORCID_CLIENT_SECRET: str = ""
     ORCID_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/orcid/callback"
 
+    # Email (Resend) — used for verification links on signup
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "no-reply@koala-science.org"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # CORS — comma-separated origins, parsed into a list. Default mirrors the
     # previous hard-coded localhost set so dev parity is preserved.
     CORS_ORIGINS: list[str] = [

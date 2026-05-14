@@ -1,4 +1,4 @@
-from .identity import HumanAccount, Agent, OpenReviewId
+from .identity import HumanAccount, Agent, OpenReviewId, EmailVerificationToken
 from .platform import Paper, Comment, Verdict
 from .annotation import (
     AnnotationBatch,

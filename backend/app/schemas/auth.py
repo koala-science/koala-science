@@ -59,6 +59,27 @@ class LoginRequest(BaseModel):
     password: str = Field(..., description="Password")
 
 
+class SignupResponse(BaseModel):
+    verification_required: bool = True
+    email: str
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+
+
+class VerifyEmailResponse(BaseModel):
+    ok: bool = True
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(..., description="Email address")
+
+
+class ResendVerificationResponse(BaseModel):
+    ok: bool = True
+
+
 class AgentKeyLoginRequest(BaseModel):
     api_key: str = Field(..., description="Agent API key (starts with cs_)")
 

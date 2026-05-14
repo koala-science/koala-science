@@ -1,6 +1,10 @@
+import hashlib
 import uuid
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.config import settings
 from tests.conftest import promote_to_superuser
 
 
@@ -15,20 +19,44 @@ def _unique_openreview_id(prefix: str = "User") -> str:
     return f"~{prefix}_{suffix}1"
 
 
+async def _mark_verified(email: str) -> str:
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.begin() as conn:
+            res = await conn.execute(
+                text(
+                    "UPDATE human_account SET email_verified = TRUE "
+                    "WHERE email = :email RETURNING id"
+                ),
+                {"email": email},
+            )
+            row = res.one()
+            return str(row[0])
+    finally:
+        await engine.dispose()
+
+
 async def _signup(client: AsyncClient, prefix: str = "user") -> tuple[str, str]:
-    """Sign up a human account, return (access_token, actor_id)."""
+    """Sign up + verify + login a human account; return (access_token, actor_id)."""
+    email = _unique_email(prefix)
+    password = "secure_password_123"
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
             "name": "Test User",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
+            "email": email,
+            "password": password,
             "openreview_ids": [_unique_openreview_id(prefix.capitalize() or "User")],
         },
     )
     assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    actor_id = await _mark_verified(email)
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login.status_code == 200, login.text
+    return login.json()["access_token"], actor_id
 
 
 async def test_health(client: AsyncClient):
@@ -305,7 +333,7 @@ async def test_agent_limit_is_per_user(client: AsyncClient):
 
 
 async def test_signup_and_login(client: AsyncClient):
-    """Signup creates a human account, login returns JWT."""
+    """Signup returns verification_required; login works after verification."""
     email = _unique_email("signup")
 
     signup_resp = await client.post(
@@ -318,7 +346,11 @@ async def test_signup_and_login(client: AsyncClient):
         },
     )
     assert signup_resp.status_code == 201
-    assert "access_token" in signup_resp.json()
+    body = signup_resp.json()
+    assert body == {"verification_required": True, "email": email}
+    assert "access_token" not in body
+
+    await _mark_verified(email)
 
     login_resp = await client.post(
         "/api/v1/auth/login",
@@ -348,9 +380,17 @@ async def test_token_response_exposes_is_superuser(client: AsyncClient):
         },
     )
     assert signup.status_code == 201
-    assert signup.json()["is_superuser"] is False
 
-    await promote_to_superuser(signup.json()["actor_id"])
+    actor_id = await _mark_verified(email)
+
+    login_pre = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login_pre.status_code == 200
+    assert login_pre.json()["is_superuser"] is False
+
+    await promote_to_superuser(actor_id)
 
     login = await client.post(
         "/api/v1/auth/login",
@@ -594,3 +634,323 @@ async def test_create_agent_returns_403_when_signups_disabled(client: AsyncClien
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
+
+
+# --- Email verification ---
+
+
+def _install_email_recorder(monkeypatch):
+    """Replace send_email with a recorder; return the list of (to, subject, html)."""
+    sent: list[tuple[str, str, str]] = []
+
+    async def _record(to: str, subject: str, html: str) -> None:
+        sent.append((to, subject, html))
+
+    import app.api.v1.endpoints.auth as auth_module
+
+    monkeypatch.setattr(auth_module, "send_email", _record)
+    return sent
+
+
+async def _select_one(sql: str, params: dict | None = None):
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            return (await conn.execute(text(sql), params or {})).one_or_none()
+    finally:
+        await engine.dispose()
+
+
+async def _select_all(sql: str, params: dict | None = None):
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            return (await conn.execute(text(sql), params or {})).all()
+    finally:
+        await engine.dispose()
+
+
+def _extract_token_from_email(html: str) -> str:
+    marker = "/auth/verify?token="
+    idx = html.find(marker)
+    assert idx >= 0, html
+    start = idx + len(marker)
+    end = start
+    while end < len(html) and html[end] not in ('"', " ", "<", "&"):
+        end += 1
+    return html[start:end]
+
+
+async def test_signup_sends_verification_email_and_returns_shape(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("verify_signup")
+
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Verify Me",
+            "email": email,
+            "password": "secure_password_123",
+            "openreview_ids": [_unique_openreview_id("VerifySignup")],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body == {"verification_required": True, "email": email}
+    assert "access_token" not in body
+    assert "refresh_token" not in resp.cookies
+
+    assert len(sent) == 1
+    to_addr, subject, html = sent[0]
+    assert to_addr == email
+    assert subject == "Verify your email"
+    raw_token = _extract_token_from_email(html)
+    expected_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+    user_row = await _select_one(
+        "SELECT id, email_verified FROM human_account WHERE email = :e",
+        {"e": email},
+    )
+    assert user_row is not None
+    assert user_row[1] is False
+
+    token_row = await _select_one(
+        "SELECT token_hash FROM email_verification_token "
+        "WHERE human_account_id = :id",
+        {"id": user_row[0]},
+    )
+    assert token_row is not None
+    assert token_row[0] == expected_hash
+
+
+async def test_verify_with_valid_token_flips_verified(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("verify_valid")
+    await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Valid Token",
+            "email": email,
+            "password": "secure_password_123",
+            "openreview_ids": [_unique_openreview_id("VerifyValid")],
+        },
+    )
+    raw_token = _extract_token_from_email(sent[0][2])
+
+    resp = await client.post("/api/v1/auth/verify", json={"token": raw_token})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"ok": True}
+
+    row = await _select_one(
+        "SELECT email_verified FROM human_account WHERE email = :e",
+        {"e": email},
+    )
+    assert row[0] is True
+
+    token_row = await _select_one(
+        "SELECT used_at FROM email_verification_token "
+        "WHERE token_hash = :h",
+        {"h": hashlib.sha256(raw_token.encode()).hexdigest()},
+    )
+    assert token_row[0] is not None
+
+
+async def test_verify_with_already_used_token_returns_400(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("verify_used")
+    await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Used",
+            "email": email,
+            "password": "secure_password_123",
+            "openreview_ids": [_unique_openreview_id("VerifyUsed")],
+        },
+    )
+    raw_token = _extract_token_from_email(sent[0][2])
+
+    first = await client.post("/api/v1/auth/verify", json={"token": raw_token})
+    assert first.status_code == 200
+
+    second = await client.post("/api/v1/auth/verify", json={"token": raw_token})
+    assert second.status_code == 400
+    detail = second.json()["detail"]
+    assert detail["code"] == "INVALID_OR_EXPIRED_TOKEN"
+
+
+async def test_verify_with_expired_token_returns_400(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("verify_expired")
+    await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Expired",
+            "email": email,
+            "password": "secure_password_123",
+            "openreview_ids": [_unique_openreview_id("VerifyExpired")],
+        },
+    )
+    raw_token = _extract_token_from_email(sent[0][2])
+
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE email_verification_token "
+                    "SET expires_at = now() - interval '1 hour' "
+                    "WHERE token_hash = :h"
+                ),
+                {"h": hashlib.sha256(raw_token.encode()).hexdigest()},
+            )
+    finally:
+        await engine.dispose()
+
+    resp = await client.post("/api/v1/auth/verify", json={"token": raw_token})
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "INVALID_OR_EXPIRED_TOKEN"
+
+
+async def test_verify_with_unknown_token_returns_400(client: AsyncClient):
+    resp = await client.post(
+        "/api/v1/auth/verify", json={"token": "definitely-not-a-real-token"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "INVALID_OR_EXPIRED_TOKEN"
+
+
+async def test_login_blocked_when_unverified(client: AsyncClient, monkeypatch):
+    _install_email_recorder(monkeypatch)
+    email = _unique_email("login_unverified")
+    password = "secure_password_123"
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Unverified",
+            "email": email,
+            "password": password,
+            "openreview_ids": [_unique_openreview_id("LoginUnverified")],
+        },
+    )
+    assert resp.status_code == 201
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login.status_code == 403
+    assert login.json()["detail"]["code"] == "EMAIL_NOT_VERIFIED"
+
+
+async def test_login_succeeds_after_verification(client: AsyncClient, monkeypatch):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("login_verified")
+    password = "secure_password_123"
+    await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Verified",
+            "email": email,
+            "password": password,
+            "openreview_ids": [_unique_openreview_id("LoginVerified")],
+        },
+    )
+    raw_token = _extract_token_from_email(sent[0][2])
+    verify = await client.post("/api/v1/auth/verify", json={"token": raw_token})
+    assert verify.status_code == 200
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login.status_code == 200
+    assert "access_token" in login.json()
+
+
+async def test_resend_verification_for_unverified_user(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("resend_unv")
+    password = "secure_password_123"
+    await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Resend",
+            "email": email,
+            "password": password,
+            "openreview_ids": [_unique_openreview_id("ResendUnv")],
+        },
+    )
+    assert len(sent) == 1
+    first_token = _extract_token_from_email(sent[0][2])
+
+    resp = await client.post(
+        "/api/v1/auth/resend-verification", json={"email": email}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert len(sent) == 2
+    new_token = _extract_token_from_email(sent[1][2])
+    assert new_token != first_token
+
+    rows = await _select_all(
+        "SELECT token_hash, used_at FROM email_verification_token evt "
+        "JOIN human_account ha ON ha.id = evt.human_account_id "
+        "WHERE ha.email = :e ORDER BY evt.created_at",
+        {"e": email},
+    )
+    assert len(rows) == 2
+    first_hash = hashlib.sha256(first_token.encode()).hexdigest()
+    new_hash = hashlib.sha256(new_token.encode()).hexdigest()
+    by_hash = {row[0]: row[1] for row in rows}
+    assert by_hash[first_hash] is not None
+    assert by_hash[new_hash] is None
+
+
+async def test_resend_verification_for_unknown_email_returns_200(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    resp = await client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": _unique_email("resend_unknown")},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert sent == []
+
+
+async def test_resend_verification_for_verified_user_returns_200_no_email(
+    client: AsyncClient, monkeypatch
+):
+    sent = _install_email_recorder(monkeypatch)
+    email = _unique_email("resend_verified")
+    password = "secure_password_123"
+    await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "AlreadyVerified",
+            "email": email,
+            "password": password,
+            "openreview_ids": [_unique_openreview_id("ResendVerified")],
+        },
+    )
+    assert len(sent) == 1
+    await _mark_verified(email)
+    sent.clear()
+
+    resp = await client.post(
+        "/api/v1/auth/resend-verification", json={"email": email}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert sent == []

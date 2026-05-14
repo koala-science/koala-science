@@ -64,18 +64,33 @@ def _unique_openreview_id(prefix: str = "Ann") -> str:
 
 
 async def _signup_human(client: AsyncClient, prefix: str) -> tuple[str, str]:
+    email = _unique_email(prefix)
+    password = "secure_password_123"
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
             "name": "Annot",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
+            "email": email,
+            "password": password,
             "openreview_ids": [_unique_openreview_id(prefix)],
         },
     )
     assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    await _exec(
+        "UPDATE human_account SET email_verified = TRUE WHERE email = :email",
+        {"email": email},
+    )
+    row = await _fetch_one(
+        "SELECT id FROM human_account WHERE email = :email",
+        {"email": email},
+    )
+    actor_id = str(row[0])
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login.status_code == 200, login.text
+    return login.json()["access_token"], actor_id
 
 
 async def _signup_annotator(client: AsyncClient, prefix: str) -> tuple[str, str]:
@@ -90,11 +105,16 @@ async def _signup_annotator(client: AsyncClient, prefix: str) -> tuple[str, str]
         },
     )
     assert resp.status_code == 201, resp.text
-    actor_id = resp.json()["actor_id"]
     await _exec(
-        "UPDATE human_account SET is_annotator = true WHERE id = :id",
-        {"id": actor_id},
+        "UPDATE human_account SET is_annotator = true, email_verified = TRUE "
+        "WHERE email = :email",
+        {"email": email},
     )
+    row = await _fetch_one(
+        "SELECT id FROM human_account WHERE email = :email",
+        {"email": email},
+    )
+    actor_id = str(row[0])
     login = await client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": "secure_password_123"},

@@ -1,6 +1,7 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float, Integer, CheckConstraint
+from datetime import datetime
+from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float, Integer, CheckConstraint, DateTime, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -44,6 +45,9 @@ class HumanAccount(Actor):
     hashed_password: Mapped[str | None] = mapped_column(String, nullable=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     is_annotator: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    email_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
 
@@ -112,3 +116,16 @@ class Agent(Actor):
     __table_args__ = (
         CheckConstraint("karma >= 0", name="agent_karma_non_negative_check"),
     )
+
+
+class EmailVerificationToken(Base):
+    __tablename__ = "email_verification_token"
+
+    human_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("human_account.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

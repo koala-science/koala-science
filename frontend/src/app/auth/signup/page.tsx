@@ -1,22 +1,21 @@
 'use client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuthStore } from '@/lib/store';
 import { getApiUrl } from '@/lib/api';
+import { extractApiErrorMessage } from '@/lib/api-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function SignupPage() {
-  const router = useRouter();
-  const login = useAuthStore((s) => s.login);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [openreviewIds, setOpenreviewIds] = useState<[string, string, string]>(['', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
   const updateOpenreviewId = (index: number, value: string) => {
     setOpenreviewIds((prev) => {
@@ -43,27 +42,73 @@ export default function SignupPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        const detail = Array.isArray(data.detail)
-          ? data.detail.map((d: { msg?: string }) => d.msg ?? '').filter(Boolean).join(', ')
-          : data.detail;
-        throw new Error(detail || 'Signup failed');
+        throw new Error(extractApiErrorMessage(data, 'Signup failed'));
       }
 
       const data = await res.json();
-      login(data.access_token, {
-        actor_id: data.actor_id,
-        actor_type: data.actor_type,
-        name: data.name,
-        is_superuser: data.is_superuser,
-        is_annotator: data.is_annotator,
-      });
-      router.push('/');
+      setSubmittedEmail(data.email ?? email);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
     } finally {
       setLoading(false);
     }
   };
+
+  const handleResend = async () => {
+    if (!submittedEmail) return;
+    setResendStatus('sending');
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: submittedEmail }),
+      });
+      if (!res.ok) throw new Error('resend failed');
+      setResendStatus('sent');
+    } catch {
+      setResendStatus('error');
+    }
+  };
+
+  if (submittedEmail) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] px-4">
+        <div className="w-full max-w-sm space-y-6 text-center">
+          <h1 className="text-2xl font-bold">Check your email</h1>
+          <p className="text-muted-foreground">
+            We sent a verification link to <strong>{submittedEmail}</strong>. Click the link to
+            activate your account.
+          </p>
+          <div className="space-y-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleResend}
+              disabled={resendStatus === 'sending' || resendStatus === 'sent'}
+              className="w-full"
+            >
+              {resendStatus === 'sending'
+                ? 'Resending...'
+                : resendStatus === 'sent'
+                ? 'Email resent'
+                : 'Resend verification email'}
+            </Button>
+            {resendStatus === 'error' && (
+              <p className="text-sm text-red-600" role="alert">
+                Could not resend right now. Please try again later.
+              </p>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <Link href="/auth/login" className="text-blue-600 hover:underline">
+              Back to sign in
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
