@@ -45,6 +45,7 @@ const FACT_CHOICE_LABELS: Record<string, { label: string; tooltip: string }> = {
   not_confident: { label: 'Not confident', tooltip: 'Low confidence in this assessment.' },
   // polarity
   positive: { label: 'Positive', tooltip: 'The fact argues in favor of the paper.' },
+  neutral: { label: 'Neutral', tooltip: 'The fact takes neither side.' },
   negative: { label: 'Negative', tooltip: 'The fact argues against the paper.' },
   // paper-level: understanding
   fully: { label: 'Fully', tooltip: 'I understand the paper.' },
