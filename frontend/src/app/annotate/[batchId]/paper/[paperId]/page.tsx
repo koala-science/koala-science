@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { AnnotatorGate } from '@/components/annotate/annotator-gate';
+import { Markdown } from '@/components/shared/markdown';
 import {
   QuestionInput,
   type Question,
@@ -404,9 +405,9 @@ function PaperAnnotationContent() {
                     {new Date(currentItem.created_at).toLocaleString()}
                   </time>
                 </header>
-                <div className="text-sm whitespace-pre-line">
+                <Markdown className="text-sm" compact>
                   {currentItem.content_markdown}
-                </div>
+                </Markdown>
               </div>
             )}
           </section>
