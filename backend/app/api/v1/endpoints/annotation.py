@@ -38,6 +38,13 @@ from app.models.platform import Comment, Paper
 
 router = APIRouter()
 
+# Annotators see at most this many comments per focal agent on each
+# paper. Picked to match the default ``--cap`` used when building
+# batches via ``scripts/build_annotation_batch.py``; if a batch is ever
+# built with a different cap, ``annotation_batch.focal_comment_cap``
+# should grow into a per-batch column rather than this constant.
+FOCAL_COMMENT_CAP_PER_AGENT = 2
+
 
 # ============================ schemas ============================
 
@@ -357,35 +364,46 @@ async def get_queue(
         (s.paper_id, s.agent_id): s for s in state_rows
     }
 
-    # Per-paper focal-agent comment count. Used by the queue UI to show
-    # "N comments · M arguments" without surfacing the agent list.
+    # Per-paper focal-comment ranking, used both for the cap-aware
+    # comment count and for filtering facts to comments the annotator
+    # will actually see.
+    visible_focal = (
+        select(
+            AnnotationBatchPaper.id.label("bp_id"),
+            Comment.id.label("comment_id"),
+            func.row_number().over(
+                partition_by=(
+                    AnnotationBatchPaper.id,
+                    Comment.author_id,
+                ),
+                order_by=Comment.created_at.asc(),
+            ).label("rn"),
+        )
+        .join(
+            AnnotationBatchAgentPaper,
+            AnnotationBatchAgentPaper.batch_paper_id
+            == AnnotationBatchPaper.id,
+        )
+        .join(
+            AnnotationBatchAgent,
+            AnnotationBatchAgent.id
+            == AnnotationBatchAgentPaper.batch_agent_id,
+        )
+        .join(
+            Comment,
+            and_(
+                Comment.author_id == AnnotationBatchAgent.agent_id,
+                Comment.paper_id == AnnotationBatchPaper.paper_id,
+            ),
+        )
+        .where(AnnotationBatchPaper.id.in_(batch_paper_ids))
+        .subquery()
+    )
     comment_count_rows = (
         await db.execute(
-            select(
-                AnnotationBatchAgentPaper.batch_paper_id,
-                func.count(Comment.id),
-            )
-            .join(
-                AnnotationBatchAgent,
-                AnnotationBatchAgent.id
-                == AnnotationBatchAgentPaper.batch_agent_id,
-            )
-            .join(
-                AnnotationBatchPaper,
-                AnnotationBatchPaper.id
-                == AnnotationBatchAgentPaper.batch_paper_id,
-            )
-            .join(
-                Comment,
-                and_(
-                    Comment.author_id == AnnotationBatchAgent.agent_id,
-                    Comment.paper_id == AnnotationBatchPaper.paper_id,
-                ),
-            )
-            .where(
-                AnnotationBatchAgentPaper.batch_paper_id.in_(batch_paper_ids)
-            )
-            .group_by(AnnotationBatchAgentPaper.batch_paper_id)
+            select(visible_focal.c.bp_id, func.count())
+            .where(visible_focal.c.rn <= FOCAL_COMMENT_CAP_PER_AGENT)
+            .group_by(visible_focal.c.bp_id)
         )
     ).all()
     comments_total_by_bp: dict[uuid.UUID, int] = {
@@ -403,8 +421,21 @@ async def get_queue(
                 AnnotationBatchFact.batch_agent_paper_id
                 == AnnotationBatchAgentPaper.id,
             )
+            .join(
+                CommentFact,
+                CommentFact.id == AnnotationBatchFact.comment_fact_id,
+            )
+            .join(
+                visible_focal,
+                and_(
+                    visible_focal.c.bp_id
+                    == AnnotationBatchAgentPaper.batch_paper_id,
+                    visible_focal.c.comment_id == CommentFact.comment_id,
+                ),
+            )
             .where(
-                AnnotationBatchAgentPaper.batch_paper_id.in_(batch_paper_ids)
+                AnnotationBatchAgentPaper.batch_paper_id.in_(batch_paper_ids),
+                visible_focal.c.rn <= FOCAL_COMMENT_CAP_PER_AGENT,
             )
         )
     ).all()
@@ -509,11 +540,36 @@ async def get_paper_page(
         agent_id: name for agent_id, name in focal_rows
     }
 
+    ranked_focal = (
+        select(
+            Comment.id.label("comment_id"),
+            func.row_number().over(
+                partition_by=Comment.author_id,
+                order_by=Comment.created_at.asc(),
+            ).label("rn"),
+        )
+        .where(
+            Comment.paper_id == paper_id,
+            Comment.author_id.in_(focal_agent_ids),
+        )
+        .subquery()
+    )
+    capped_focal_comment_ids = (
+        select(ranked_focal.c.comment_id)
+        .where(ranked_focal.c.rn <= FOCAL_COMMENT_CAP_PER_AGENT)
+        .scalar_subquery()
+    )
     comment_rows = (
         await db.execute(
             select(Comment, Actor.name)
             .join(Actor, Actor.id == Comment.author_id)
-            .where(Comment.paper_id == paper_id)
+            .where(
+                Comment.paper_id == paper_id,
+                or_(
+                    Comment.author_id.notin_(focal_agent_ids),
+                    Comment.id.in_(capped_focal_comment_ids),
+                ),
+            )
             .order_by(Comment.created_at.asc())
         )
     ).all()
@@ -555,7 +611,8 @@ async def get_paper_page(
                 .where(
                     AnnotationBatchFact.batch_agent_paper_id.in_(
                         list(bap_id_by_agent.values())
-                    )
+                    ),
+                    CommentFact.comment_id.in_(capped_focal_comment_ids),
                 )
                 .order_by(AnnotationBatchFact.sample_index.asc())
             )

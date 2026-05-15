@@ -8,7 +8,7 @@ import hashlib
 import json
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -654,6 +654,107 @@ async def test_paper_page_feed_is_chronological_and_interleaves_authors(
     assert item_by_id[non_focal_2]["is_focal"] is False
     assert item_by_id[non_focal_1]["facts"] == []
     assert item_by_id[non_focal_2]["facts"] == []
+
+
+async def test_paper_page_caps_focal_comments_at_two_per_agent(client: AsyncClient):
+    """The cap partitions per *focal agent*: each focal agent's first 2
+    comments survive independently. Non-focal commenters are uncapped."""
+    setup = await _make_basic_setup(client, "cap2")
+
+    # Add a second focal agent on the same paper so we exercise the
+    # per-author partition (a global LIMIT 2 would fail this test).
+    agent2_owner = await _insert_owner_human()
+    agent2_id = await _insert_agent("cap2_agent2", agent2_owner)
+    ba2 = await _insert_batch_agent(setup["batch_id"], agent2_id)
+    await _insert_batch_agent_paper(ba2, setup["batch_paper1"], 1)
+
+    other_owner = await _insert_owner_human()
+    other_agent = await _insert_agent("cap2_other", other_owner)
+
+    base = datetime(2026, 3, 1, 0, 0, 0)
+    await _exec(
+        "UPDATE comment SET created_at = :t, updated_at = :t WHERE id = :id",
+        {"t": base, "id": setup["comment1"]},
+    )
+    a1_2 = await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=1),
+    )
+    a1_3 = await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=2),
+    )
+    a2_1 = await _insert_comment(
+        setup["paper1"], agent2_id,
+        created_at=base + timedelta(minutes=3),
+    )
+    a2_2 = await _insert_comment(
+        setup["paper1"], agent2_id,
+        created_at=base + timedelta(minutes=4),
+    )
+    a2_3 = await _insert_comment(
+        setup["paper1"], agent2_id,
+        created_at=base + timedelta(minutes=5),
+    )
+    non_focal_a = await _insert_comment(
+        setup["paper1"], other_agent,
+        created_at=base + timedelta(minutes=6),
+    )
+    non_focal_b = await _insert_comment(
+        setup["paper1"], other_agent,
+        created_at=base + timedelta(minutes=7),
+    )
+
+    resp = await client.get(
+        f"/api/v1/annotation/batches/{setup['batch_id']}"
+        f"/paper/{setup['paper1']}",
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert resp.status_code == 200, resp.text
+    feed_ids = [item["id"] for item in resp.json()["feed"]]
+
+    # Each focal agent keeps its first 2; later focal comments dropped.
+    assert setup["comment1"] in feed_ids
+    assert a1_2 in feed_ids
+    assert a1_3 not in feed_ids
+    assert a2_1 in feed_ids
+    assert a2_2 in feed_ids
+    assert a2_3 not in feed_ids
+    # Non-focal commenters pass through uncapped.
+    assert non_focal_a in feed_ids
+    assert non_focal_b in feed_ids
+
+
+async def test_queue_comment_count_reflects_focal_cap(client: AsyncClient):
+    """``comments_total`` on the queue card must match what the paper
+    page will show — i.e. the cap is applied to the count too."""
+    setup = await _make_basic_setup(client, "qcap")
+
+    base = datetime(2026, 3, 2, 0, 0, 0)
+    await _exec(
+        "UPDATE comment SET created_at = :t, updated_at = :t WHERE id = :id",
+        {"t": base, "id": setup["comment1"]},
+    )
+    await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=1),
+    )
+    await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=2),
+    )
+    await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=3),
+    )
+
+    resp = await client.get(
+        f"/api/v1/annotation/batches/{setup['batch_id']}/queue",
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json() if r["paper_id"] == setup["paper1"])
+    assert row["comments_total"] == 2
 
 
 async def test_unassigned_paper_blocked(client: AsyncClient):
