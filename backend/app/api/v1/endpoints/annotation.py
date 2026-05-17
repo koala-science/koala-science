@@ -968,6 +968,33 @@ async def submit_page(
                 },
             )
 
+    # Only the comments the annotator can actually see contribute to the
+    # FACT-completeness gate. Without this filter the gate would require
+    # answers for facts on comments hidden by FOCAL_COMMENT_CAP_PER_AGENT
+    # (see ``get_paper_page``), making submit impossible.
+    ranked_focal_for_submit = (
+        select(
+            Comment.id.label("comment_id"),
+            func.row_number().over(
+                partition_by=Comment.author_id,
+                order_by=Comment.created_at.asc(),
+            ).label("rn"),
+        )
+        .join(
+            AnnotationBatchAgent,
+            AnnotationBatchAgent.agent_id == Comment.author_id,
+        )
+        .where(
+            AnnotationBatchAgent.batch_id == body.batch_id,
+            Comment.paper_id == body.paper_id,
+        )
+        .subquery()
+    )
+    visible_comment_ids = (
+        select(ranked_focal_for_submit.c.comment_id)
+        .where(ranked_focal_for_submit.c.rn <= FOCAL_COMMENT_CAP_PER_AGENT)
+        .scalar_subquery()
+    )
     sampled_fact_rows = (
         await db.execute(
             select(AnnotationBatchFact.comment_fact_id)
@@ -976,7 +1003,14 @@ async def submit_page(
                 AnnotationBatchAgentPaper.id
                 == AnnotationBatchFact.batch_agent_paper_id,
             )
-            .where(AnnotationBatchAgentPaper.batch_paper_id == bp.id)
+            .join(
+                CommentFact,
+                CommentFact.id == AnnotationBatchFact.comment_fact_id,
+            )
+            .where(
+                AnnotationBatchAgentPaper.batch_paper_id == bp.id,
+                CommentFact.comment_id.in_(visible_comment_ids),
+            )
         )
     ).scalars().all()
     sampled_fact_ids: set[uuid.UUID] = set(sampled_fact_rows)

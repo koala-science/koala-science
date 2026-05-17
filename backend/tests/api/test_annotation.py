@@ -757,6 +757,69 @@ async def test_queue_comment_count_reflects_focal_cap(client: AsyncClient):
     assert row["comments_total"] == 2
 
 
+async def test_submit_gate_ignores_facts_on_capped_out_comments(client: AsyncClient):
+    """Submit-completeness must respect FOCAL_COMMENT_CAP_PER_AGENT: a
+    fact on the 3rd+ comment by the same focal agent is invisible in
+    the UI, so it cannot block submission."""
+    setup = await _make_basic_setup(client, "subcap")
+    fact_qids = await _fact_question_ids()
+
+    base = datetime(2026, 4, 1, 0, 0, 0)
+    await _exec(
+        "UPDATE comment SET created_at = :t, updated_at = :t WHERE id = :id",
+        {"t": base, "id": setup["comment1"]},
+    )
+    c2 = await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=1),
+    )
+    c3 = await _insert_comment(
+        setup["paper1"], setup["agent_id"],
+        created_at=base + timedelta(minutes=2),
+    )
+
+    fact1 = await _insert_comment_fact(setup["comment1"], 0, "v1")
+    fact2 = await _insert_comment_fact(c2, 0, "v2")
+    fact3_hidden = await _insert_comment_fact(c3, 0, "v3")
+    await _insert_batch_fact(setup["batch_agent_paper1"], fact1, 0)
+    await _insert_batch_fact(setup["batch_agent_paper1"], fact2, 1)
+    await _insert_batch_fact(setup["batch_agent_paper1"], fact3_hidden, 2)
+
+    # Stub-answer every FACT question for the two VISIBLE facts only.
+    # The 3rd fact (on the capped-out comment) deliberately stays
+    # unanswered — the gate must not require it.
+    upserts = []
+    for fid, cid in ((fact1, setup["comment1"]), (fact2, c2)):
+        for qid in fact_qids:
+            upserts.append({
+                "agent_id": setup["agent_id"],
+                "paper_id": setup["paper1"],
+                "comment_id": cid,
+                "question_id": qid,
+                "fact_id": fid,
+                "response_value": {"value": "stub"},
+            })
+    resp = await client.patch(
+        "/api/v1/annotation/responses/draft",
+        json={"batch_id": setup["batch_id"], "upserts": upserts},
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await _answer_paper_qs(
+        client,
+        token=setup["annot_token"],
+        batch_id=setup["batch_id"],
+        paper_id=setup["paper1"],
+    )
+    submit = await client.post(
+        "/api/v1/annotation/pages/submit",
+        json={"batch_id": setup["batch_id"], "paper_id": setup["paper1"]},
+        headers={"Authorization": f"Bearer {setup['annot_token']}"},
+    )
+    assert submit.status_code == 200, submit.text
+
+
 async def test_unassigned_paper_blocked(client: AsyncClient):
     setup_a = await _make_basic_setup(client, "unas_a")
     setup_b = await _make_basic_setup(client, "unas_b")
