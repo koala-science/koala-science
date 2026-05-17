@@ -17,6 +17,7 @@ interface Fact {
 }
 import { useDebouncedDraftSave } from '@/components/annotate/use-debounced-save';
 import { apiCall } from '@/lib/api';
+import { formatSubmitError } from './submit-error';
 
 type PageState = 'unstarted' | 'draft' | 'submitted';
 
@@ -86,6 +87,7 @@ function isQuestionVisible(q: Question, answers: Record<string, unknown>): boole
   const parentJson = JSON.stringify(answers[q.parent_question_id!]);
   return q.parent_value_match.some((v) => JSON.stringify(v) === parentJson);
 }
+
 
 function FactQuestions({
   questions,
@@ -233,15 +235,7 @@ function PaperAnnotationContent() {
       });
       setPageState('submitted');
     } catch (e) {
-      const msg = (e as Error).message;
-      if (msg.includes('fact_responses_incomplete')) {
-        setSubmitError(
-          'Cannot submit: some arguments are still unlabeled. ' +
-            'Pick a status for every argument question, then resubmit.',
-        );
-      } else {
-        setSubmitError(msg);
-      }
+      setSubmitError(formatSubmitError(e, paperQuestions, payload?.feed ?? []));
     }
   };
 

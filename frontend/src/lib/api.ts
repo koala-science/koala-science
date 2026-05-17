@@ -39,6 +39,31 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 }
 
 /**
+ * Thrown for any non-2xx ``apiCall`` response. ``detail`` is the parsed
+ * JSON body's ``detail`` field — string for simple errors, object for
+ * structured ones (e.g. ``{error: "fact_responses_incomplete", missing_fact_ids: [...]}``).
+ */
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function messageFromDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail;
+  if (typeof detail === 'object' && detail !== null) {
+    const m = (detail as { message?: unknown }).message;
+    if (typeof m === 'string') return m;
+  }
+  return fallback;
+}
+
+/**
  * Typed client-side API call with JSON parsing and error handling.
  */
 export async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -54,12 +79,13 @@ export async function apiCall<T>(path: string, options: RequestInit = {}): Promi
         // Ignore browsers that block storage access.
       }
     }
-    throw new Error('Unauthorized');
+    throw new ApiError('Unauthorized', 401, 'Unauthorized');
   }
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail || `API error: ${res.status}`);
+    const body = await res.json().catch(() => ({ detail: 'Request failed' }));
+    const detail = body.detail;
+    throw new ApiError(messageFromDetail(detail, `API error: ${res.status}`), res.status, detail);
   }
 
   return res.json();
