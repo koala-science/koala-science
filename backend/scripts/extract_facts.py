@@ -1,25 +1,32 @@
-"""Extract atomic factual claims from focal-agent comments in a batch.
+"""Extract atomic factual claims from every agent comment in the DB.
 
-Pure offline backfill. Reads the focal-agent comments associated with an
-``annotation_batch`` (i.e. comments by each batch agent on each of that
-agent's sampled papers) and writes one extraction run row plus zero or
-more fact rows per comment.
+Pure offline backfill. Reads every comment whose author is an agent
+(human comments are excluded by joining through the ``agent`` table)
+and writes one extraction-run row plus zero or more fact rows per
+comment.
 
 Usage::
 
     python -m scripts.extract_facts \\
-        --batch-name v1-local \\
         [--model gemini-2.5-pro] \\
         [--concurrency 5] \\
         [--force] \\
         [--dry-run] \\
-        [--limit N]
+        [--extract-n-comments N] \\
+        [--sample-seed S]
 
-See ``.claude/specs/fact-extraction.md`` for design notes. The script
-is idempotent on ``(comment_id, prompt_version, extractor_model)``
+See ``.claude/specs/extract-facts-full-db.md`` for design notes. The
+script is idempotent on ``(comment_id, prompt_version, extractor_model)``
 without ``--force``; rerunning the same invocation produces zero new
 rows. ``--force`` deletes prior facts for the (comment, prompt, model)
 combo and re-extracts.
+
+``--extract-n-comments N`` (alias ``-n``) randomly samples N comments
+from the eligible pool — applied **after** the skip-filter (or to all
+comments under ``--force``) so a test run never burns money
+re-extracting an already-done comment unless ``--force`` is set. The
+default seed is a fresh 64-bit int echoed at startup; pin it via
+``--sample-seed S`` to reproduce a draw.
 
 Errors are recorded as ``status='error'`` rows so a failed comment
 does NOT halt the run; the next comment continues.
@@ -27,6 +34,7 @@ does NOT halt the run; the next comment continues.
 import argparse
 import asyncio
 import dataclasses
+import random
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Optional
@@ -43,28 +51,19 @@ from scripts.fact_extraction_prompt import (
 )
 
 
-# --- pricing (USD per million tokens) for gemini-2.5-flash, May 2026 ----
-# Used only to print a cost estimate during --dry-run and the final
-# summary; not load-bearing for correctness.
-_FLASH_PRICE_PER_M_INPUT = 0.30
-_FLASH_PRICE_PER_M_OUTPUT = 2.50
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-pro": (1.25, 10.00),
+}
+_FALLBACK_PRICING_MODEL = "gemini-2.5-flash"
 
-# Cost-estimate heuristics — also dry-run-only.
 _AVG_INPUT_TOKENS_PER_COMMENT = 1070
 _AVG_OUTPUT_TOKENS_PER_COMMENT = 350
 
-# Backoff (seconds) between retries on a Gemini error: 1, 2, 4.
 _RETRY_DELAYS = (1.0, 2.0, 4.0)
 
 
-SELECT_BATCH_BY_NAME_SQL = """
-SELECT id FROM annotation_batch WHERE name = :name
-"""
-
-
-# Focal comments: every comment authored by each batch agent on each of
-# that agent's sampled papers. Includes both root comments and replies.
-SELECT_FOCAL_COMMENTS_SQL = """
+SELECT_AGENT_COMMENTS_SQL = """
 SELECT
     c.id           AS comment_id,
     c.author_id    AS agent_id,
@@ -72,16 +71,10 @@ SELECT
     p.id           AS paper_id,
     p.title        AS paper_title,
     c.content_markdown
-FROM annotation_batch ab
-JOIN annotation_batch_agent aba ON aba.batch_id = ab.id
-JOIN annotation_batch_agent_paper abap ON abap.batch_agent_id = aba.id
-JOIN annotation_batch_paper abp ON abp.id = abap.batch_paper_id
-JOIN comment c
-    ON c.author_id = aba.agent_id
-   AND c.paper_id  = abp.paper_id
-JOIN paper p   ON p.id    = abp.paper_id
-JOIN actor     ON actor.id = aba.agent_id
-WHERE ab.name = :name
+FROM comment c
+JOIN agent a   ON a.id = c.author_id
+JOIN actor     ON actor.id = a.id
+JOIN paper p   ON p.id = c.paper_id
 ORDER BY c.id ASC
 """
 
@@ -126,7 +119,7 @@ VALUES
 
 
 @dataclasses.dataclass
-class FocalComment:
+class Comment:
     comment_id: uuid.UUID
     agent_id: uuid.UUID
     agent_name: str
@@ -145,14 +138,13 @@ class ExtractionResult:
     output_tokens: Optional[int]
 
 
-# Type alias for the extractor callable so tests can swap in a mock.
-ExtractorFn = Callable[[FocalComment, str], Awaitable[ExtractionResult]]
+ExtractorFn = Callable[[Comment, str], Awaitable[ExtractionResult]]
 
 
 # ----------------------------- Gemini call -----------------------------
 
 
-async def _call_gemini(comment: FocalComment, model: str) -> ExtractionResult:
+async def _call_gemini(comment: Comment, model: str) -> ExtractionResult:
     """Call Gemini once and return the parsed result.
 
     Raises any exception from the SDK back to the caller — the retry
@@ -202,7 +194,7 @@ async def _call_gemini(comment: FocalComment, model: str) -> ExtractionResult:
 
 
 async def extract_one(
-    comment: FocalComment,
+    comment: Comment,
     *,
     model: str,
     extractor: ExtractorFn,
@@ -293,25 +285,10 @@ async def _delete_prior_run(
 # --------------------------- fetch comments ---------------------------
 
 
-async def _resolve_batch_id(conn: AsyncConnection, name: str) -> uuid.UUID:
-    row = (
-        await conn.execute(text(SELECT_BATCH_BY_NAME_SQL), {"name": name})
-    ).one_or_none()
-    if row is None:
-        raise RuntimeError(f"batch {name!r} not found")
-    return row[0]
-
-
-async def _fetch_focal_comments(
-    conn: AsyncConnection, batch_name: str
-) -> list[FocalComment]:
-    rows = (
-        await conn.execute(
-            text(SELECT_FOCAL_COMMENTS_SQL), {"name": batch_name}
-        )
-    ).all()
+async def _fetch_agent_comments(conn: AsyncConnection) -> list[Comment]:
+    rows = (await conn.execute(text(SELECT_AGENT_COMMENTS_SQL))).all()
     return [
-        FocalComment(
+        Comment(
             comment_id=r[0],
             agent_id=r[1],
             agent_name=r[2],
@@ -335,42 +312,66 @@ async def _fetch_already_extracted(
     return {r[0] for r in rows}
 
 
+# ----------------------------- pricing ------------------------------
+
+
+def _resolve_pricing(model: str) -> tuple[float, float]:
+    """Return ``(input_per_m, output_per_m)`` for ``model``.
+
+    Unknown models fall back to ``gemini-2.5-flash`` pricing. Callers
+    should print the fallback warning once via ``_warn_if_unknown_model``.
+    """
+    return _MODEL_PRICING.get(model, _MODEL_PRICING[_FALLBACK_PRICING_MODEL])
+
+
+def _warn_if_unknown_model(model: str) -> None:
+    if model not in _MODEL_PRICING:
+        print(
+            f"warning: no pricing known for model {model!r}; "
+            f"falling back to {_FALLBACK_PRICING_MODEL} rates"
+        )
+
+
+def _cost_usd(input_tokens: int, output_tokens: int, model: str) -> float:
+    in_rate, out_rate = _resolve_pricing(model)
+    return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
+
+
 # ----------------------------- planning -----------------------------
-
-
-def _estimate_cost_usd(n_comments: int) -> tuple[int, int, float]:
-    """Return (input_tokens, output_tokens, cost_usd) for n comments."""
-    in_tok = n_comments * _AVG_INPUT_TOKENS_PER_COMMENT
-    out_tok = n_comments * _AVG_OUTPUT_TOKENS_PER_COMMENT
-    cost = (
-        in_tok * _FLASH_PRICE_PER_M_INPUT
-        + out_tok * _FLASH_PRICE_PER_M_OUTPUT
-    ) / 1_000_000
-    return in_tok, out_tok, cost
 
 
 def _print_dry_run_plan(
     *,
-    batch_name: str,
     model: str,
     prompt_version: str,
-    n_comments: int,
+    total_agent_comments: int,
     n_skip: int,
+    n_to_extract: int,
     force: bool,
+    sample_size: Optional[int],
+    sample_seed: Optional[int],
 ) -> None:
-    in_tok, out_tok, cost = _estimate_cost_usd(n_comments)
-    print(f"batch:               {batch_name}")
-    print(f"model:               {model}")
-    print(f"prompt_version:      {prompt_version}")
-    print(f"focal comments:      {n_comments}")
-    if not force and n_skip:
-        print(f"already extracted:   {n_skip} (will skip without --force)")
-    print(f"est. input tokens:   {in_tok:,}")
-    print(f"est. output tokens:  {out_tok:,}")
+    in_tok = n_to_extract * _AVG_INPUT_TOKENS_PER_COMMENT
+    out_tok = n_to_extract * _AVG_OUTPUT_TOKENS_PER_COMMENT
+    cost = _cost_usd(in_tok, out_tok, model)
+    in_rate, out_rate = _resolve_pricing(model)
+
+    print(f"model:                    {model}")
+    print(f"prompt_version:           {prompt_version}")
+    print(f"total agent comments:     {total_agent_comments}")
+    if not force:
+        print(f"already extracted:        {n_skip}")
+    print(f"to extract:               {n_to_extract}")
+    if sample_size is not None:
+        print(
+            f"sample size:              {sample_size} "
+            f"(seed={sample_seed})"
+        )
+    print(f"est. input tokens:        {in_tok:,}")
+    print(f"est. output tokens:       {out_tok:,}")
     print(
-        f"est. cost (USD):     ${cost:.4f}  "
-        f"(rates: ${_FLASH_PRICE_PER_M_INPUT}/M in, "
-        f"${_FLASH_PRICE_PER_M_OUTPUT}/M out)"
+        f"est. cost (USD):          ${cost:.4f}  "
+        f"(rates: ${in_rate}/M in, ${out_rate}/M out)"
     )
     print("(dry-run: no API calls, no DB writes)")
 
@@ -380,7 +381,7 @@ def _print_dry_run_plan(
 
 async def _process_comment(
     engine,
-    comment: FocalComment,
+    comment: Comment,
     *,
     model: str,
     prompt_version: str,
@@ -446,25 +447,34 @@ async def _process_comment(
         }
 
 
+def _fresh_seed() -> int:
+    """Return a fresh 64-bit seed sourced from the OS RNG."""
+    return random.SystemRandom().getrandbits(64)
+
+
 async def run(
     *,
-    batch_name: str,
     model: str,
     concurrency: int,
     force: bool,
     dry_run: bool,
-    limit: Optional[int],
+    extract_n_comments: Optional[int] = None,
+    sample_seed: Optional[int] = None,
     extractor: Optional[ExtractorFn] = None,
     retry_delays: tuple[float, ...] = _RETRY_DELAYS,
 ) -> dict[str, Any]:
-    """Run the extraction over ``batch_name``.
+    """Run the extraction over every agent comment in the DB.
 
     Returns a summary dict; also used by tests to inspect the run.
     """
     if concurrency < 1:
         raise RuntimeError("--concurrency must be >= 1")
+    if extract_n_comments is not None and extract_n_comments < 1:
+        raise RuntimeError("--extract-n-comments must be >= 1")
     if extractor is None:
         extractor = _call_gemini
+
+    _warn_if_unknown_model(model)
 
     prompt_version = PROMPT_VERSION
     engine = create_async_engine(
@@ -472,8 +482,7 @@ async def run(
     )
     try:
         async with engine.connect() as conn:
-            await _resolve_batch_id(conn, batch_name)
-            focal = await _fetch_focal_comments(conn, batch_name)
+            all_comments = await _fetch_agent_comments(conn)
             existing = (
                 set()
                 if force
@@ -482,26 +491,52 @@ async def run(
                 )
             )
 
-        to_extract = (
-            focal
+        eligible = (
+            all_comments
             if force
-            else [c for c in focal if c.comment_id not in existing]
+            else [c for c in all_comments if c.comment_id not in existing]
         )
-        if limit is not None:
-            to_extract = to_extract[:limit]
+
+        n_skip = len(all_comments) - len(eligible)
+
+        resolved_seed: Optional[int] = None
+        sample_size: Optional[int] = None
+        if extract_n_comments is not None:
+            resolved_seed = (
+                sample_seed if sample_seed is not None else _fresh_seed()
+            )
+            print(f"sample_seed: {resolved_seed}")
+            if len(eligible) < extract_n_comments:
+                print(
+                    f"warning: only {len(eligible)} eligible comments, "
+                    f"less than --extract-n-comments={extract_n_comments}; "
+                    f"sampling all of them"
+                )
+                to_extract = list(eligible)
+            else:
+                rng = random.Random(resolved_seed)
+                to_extract = rng.sample(eligible, extract_n_comments)
+            sample_size = len(to_extract)
+        else:
+            to_extract = eligible
 
         if dry_run:
             _print_dry_run_plan(
-                batch_name=batch_name,
                 model=model,
                 prompt_version=prompt_version,
-                n_comments=len(to_extract),
-                n_skip=len(focal) - len(to_extract) if not force else 0,
+                total_agent_comments=len(all_comments),
+                n_skip=n_skip,
+                n_to_extract=len(to_extract),
                 force=force,
+                sample_size=sample_size,
+                sample_seed=resolved_seed,
             )
             return {
                 "n_comments": len(to_extract),
-                "n_skipped_existing": len(focal) - len(to_extract),
+                "n_total": len(all_comments),
+                "n_skipped_existing": n_skip,
+                "sample_size": sample_size,
+                "sample_seed": resolved_seed,
                 "dry_run": True,
             }
 
@@ -523,7 +558,7 @@ async def run(
         completed = 0
         start = time.monotonic()
 
-        async def worker(idx: int, c: FocalComment):
+        async def worker(idx: int, c: Comment):
             nonlocal completed
             async with sem:
                 metrics = await _process_comment(
@@ -541,10 +576,9 @@ async def run(
             totals["output_tokens"] += metrics["output_tokens"]
             completed += 1
             if completed % 25 == 0:
-                cost_so_far = (
-                    totals["input_tokens"] * _FLASH_PRICE_PER_M_INPUT
-                    + totals["output_tokens"] * _FLASH_PRICE_PER_M_OUTPUT
-                ) / 1_000_000
+                cost_so_far = _cost_usd(
+                    totals["input_tokens"], totals["output_tokens"], model
+                )
                 print(
                     f"[{completed}/{len(to_extract)}] "
                     f"extracted {metrics['fact_count']} facts "
@@ -557,10 +591,10 @@ async def run(
         )
 
         elapsed = time.monotonic() - start
-        final_cost = (
-            totals["input_tokens"] * _FLASH_PRICE_PER_M_INPUT
-            + totals["output_tokens"] * _FLASH_PRICE_PER_M_OUTPUT
-        ) / 1_000_000
+        final_cost = _cost_usd(
+            totals["input_tokens"], totals["output_tokens"], model
+        )
+        in_rate, out_rate = _resolve_pricing(model)
 
         print("---")
         print(f"comments processed: {len(to_extract)}")
@@ -572,11 +606,18 @@ async def run(
             f"tokens:             "
             f"{totals['input_tokens']:,} in / {totals['output_tokens']:,} out"
         )
-        print(f"estimated cost:     ${final_cost:.4f}")
+        print(
+            f"estimated cost:     ${final_cost:.4f}  "
+            f"(rates: ${in_rate}/M in, ${out_rate}/M out)"
+        )
         print(f"elapsed:            {elapsed:.1f}s")
 
         return {
             "n_comments": len(to_extract),
+            "n_total": len(all_comments),
+            "n_skipped_existing": n_skip,
+            "sample_size": sample_size,
+            "sample_seed": resolved_seed,
             "totals": totals,
             "estimated_cost_usd": final_cost,
             "elapsed_seconds": elapsed,
@@ -594,16 +635,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--batch-name",
-        required=True,
-        help="name of the annotation_batch to extract from",
-    )
-    p.add_argument(
         "--model",
-        default=None,
+        default="gemini-2.5-pro",
         help=(
-            "Gemini model to use; defaults to "
-            "settings.GEMINI_FACT_EXTRACTION_MODEL"
+            "Gemini model to use (default: gemini-2.5-pro — the "
+            "intended model for the DB-wide fact-extraction backfill)"
         ),
     )
     p.add_argument(
@@ -626,31 +662,44 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="print plan and exit without API calls or DB writes",
     )
     p.add_argument(
-        "--limit",
+        "-n",
+        "--extract-n-comments",
         type=int,
         default=None,
-        help="extract from at most N comments (for smoke-testing)",
+        help=(
+            "randomly sample N comments from the eligible pool. "
+            "Applied after the skip-filter (or to all comments under "
+            "--force) so a test run never burns money re-extracting "
+            "already-done comments unless --force is set."
+        ),
+    )
+    p.add_argument(
+        "--sample-seed",
+        type=int,
+        default=None,
+        help=(
+            "seed for the random sample (only used with "
+            "--extract-n-comments). Defaults to a fresh 64-bit int."
+        ),
     )
     return p
 
 
 def main() -> None:
     args = _build_argparser().parse_args()
-    model = args.model or settings.GEMINI_FACT_EXTRACTION_MODEL
+    model = args.model
     try:
         asyncio.run(
             run(
-                batch_name=args.batch_name,
                 model=model,
                 concurrency=args.concurrency,
                 force=args.force,
                 dry_run=args.dry_run,
-                limit=args.limit,
+                extract_n_comments=args.extract_n_comments,
+                sample_seed=args.sample_seed,
             )
         )
     except RuntimeError as exc:
-        # Hard-fail (e.g. unknown batch name) — non-zero exit with a
-        # clear message.
         print(f"error: {exc}")
         raise SystemExit(1)
 
