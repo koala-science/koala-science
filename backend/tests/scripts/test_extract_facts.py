@@ -1,26 +1,24 @@
 """Tests for ``scripts.extract_facts``.
 
-Sets up a minimal annotation batch directly in the DB (agent + paper +
-focal comment + batch tuples), then runs ``extract_facts.run()`` with a
-mocked extractor so the test never hits Gemini.
+Seeds agent comments (plus the occasional human comment for the
+agent-only-filter test), then runs ``extract_facts.run()`` with a mocked
+extractor so the test never hits Gemini.
 
-Asserts:
+Covers:
 
-- dry-run prints plan and writes nothing
-- happy path inserts run + facts in one transaction
-- ``[NO FACTS]`` produces ``status='no_facts'`` and zero fact rows
-- API errors are caught: ``status='error'``, error_message populated,
-  next comment still runs
-- idempotency: rerun without ``--force`` is a no-op
-- ``--force`` deletes prior facts and re-inserts
-- two distinct prompt versions on the same comment coexist
-- two distinct models on the same comment coexist
-- ``--limit N`` halts after N comments
-- concurrency cap is honored
-- unknown batch name raises a RuntimeError
+- agent-only DB-wide selection (humans excluded)
+- skip-filter for already-extracted (comment, model, prompt) tuples
+- random ``--extract-n-comments`` sampling, applied after the skip-filter
+- default sample-seed is fresh per invocation
+- model-aware pricing in dry-run output
+- ``--force`` re-extracts (deletes prior, writes new)
+- per-comment persistence (one run-row + N fact-rows per comment)
+- happy path, ``[NO FACTS]``, error retry-and-continue, concurrency cap
+- prompt-version and model coexistence on the same comment
 """
 import asyncio
 import hashlib
+import re
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -32,8 +30,41 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
 from scripts import extract_facts
-from scripts.extract_facts import ExtractionResult, FocalComment, run
+from scripts.extract_facts import Comment, ExtractionResult, run
 from scripts.fact_extraction_prompt import PROMPT_VERSION
+
+
+_WIPE_SQL = [
+    "DELETE FROM annotation_batch_fact WHERE comment_fact_id IN "
+    "(SELECT id FROM comment_fact)",
+    "DELETE FROM comment_fact",
+    "DELETE FROM comment_fact_extraction_run",
+    "DELETE FROM annotation_response WHERE comment_id IN "
+    "(SELECT id FROM comment WHERE author_id IN (SELECT id FROM agent))",
+    "DELETE FROM notification WHERE comment_id IN "
+    "(SELECT id FROM comment WHERE author_id IN (SELECT id FROM agent))",
+    "DELETE FROM comment WHERE author_id IN (SELECT id FROM agent)",
+]
+
+
+async def _wipe_agent_comments() -> None:
+    engine = create_async_engine(
+        str(settings.DATABASE_URL), pool_pre_ping=True
+    )
+    try:
+        async with engine.begin() as conn:
+            for sql in _WIPE_SQL:
+                await conn.execute(text(sql))
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_agent_comments():
+    """Wipe agent comments and their downstream rows around each test."""
+    await _wipe_agent_comments()
+    yield
+    await _wipe_agent_comments()
 
 
 # ---------------------------- DB helpers ----------------------------
@@ -182,99 +213,68 @@ async def _insert_comment(
     return comment_id
 
 
+async def _insert_run_row(
+    comment_id: uuid.UUID, *, model: str, prompt_version: str
+) -> None:
+    """Pre-seed a comment_fact_extraction_run row so the skip-filter
+    treats this comment as already-extracted."""
+    await _exec(
+        "INSERT INTO comment_fact_extraction_run "
+        "(id, comment_id, extractor_model, prompt_version, status, "
+        " fact_count, created_at, updated_at, extracted_at) "
+        "VALUES (:id, :c, :m, :pv, 'success', 0, now(), now(), now())",
+        {
+            "id": str(uuid.uuid4()),
+            "c": str(comment_id),
+            "m": model,
+            "pv": prompt_version,
+        },
+    )
+
+
 @dataclass
-class BatchFixture:
-    batch_name: str
-    batch_id: uuid.UUID
+class Fixture:
+    owner_id: uuid.UUID
     agent_id: uuid.UUID
+    submitter_id: uuid.UUID
     paper_id: uuid.UUID
     comment_ids: list[uuid.UUID]
+    human_comment_ids: list[uuid.UUID]
 
 
-async def _setup_batch_with_comments(n_comments: int = 1) -> BatchFixture:
-    """Create a minimal annotation_batch with one agent, one paper, and
-    ``n_comments`` focal comments by the agent on that paper."""
+async def _setup_comments(
+    n_agent_comments: int = 1, n_human_comments: int = 0
+) -> Fixture:
+    """Create one agent + one paper + N agent comments (optionally plus
+    M human comments by the paper submitter)."""
     owner = await _insert_human("ef_owner")
     agent_id = await _insert_agent("ef_agent", owner)
     submitter = await _insert_human("ef_sub")
     paper_id = await _insert_paper(submitter)
 
     comment_ids: list[uuid.UUID] = []
-    for i in range(n_comments):
+    for i in range(n_agent_comments):
         cid = await _insert_comment(paper_id, agent_id, f"body {i}")
         comment_ids.append(cid)
 
-    batch_name = f"facts-{uuid.uuid4().hex[:8]}"
-    batch_id = uuid.uuid4()
-    batch_agent_id = uuid.uuid4()
-    batch_paper_id = uuid.uuid4()
-    engine = await _engine()
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO annotation_batch "
-                    "(id, name, random_seed, min_papers_threshold, sample_size, "
-                    " created_at, updated_at) "
-                    "VALUES (:id, :n, 1, 1, 1, now(), now())"
-                ),
-                {"id": str(batch_id), "n": batch_name},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO annotation_batch_agent "
-                    "(id, batch_id, agent_id, score_histogram_json, "
-                    " total_verdicts, created_at, updated_at) "
-                    "VALUES (:id, :b, :a, CAST('[]' AS JSONB), 0, "
-                    "        now(), now())"
-                ),
-                {
-                    "id": str(batch_agent_id),
-                    "b": str(batch_id),
-                    "a": str(agent_id),
-                },
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO annotation_batch_paper "
-                    "(id, batch_id, paper_id, pool_index, "
-                    " created_at, updated_at) "
-                    "VALUES (:id, :b, :p, 0, now(), now())"
-                ),
-                {
-                    "id": str(batch_paper_id),
-                    "b": str(batch_id),
-                    "p": str(paper_id),
-                },
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO annotation_batch_agent_paper "
-                    "(id, batch_agent_id, batch_paper_id, sample_index, "
-                    " created_at, updated_at) "
-                    "VALUES (:id, :ba, :bp, 0, now(), now())"
-                ),
-                {
-                    "id": str(uuid.uuid4()),
-                    "ba": str(batch_agent_id),
-                    "bp": str(batch_paper_id),
-                },
-            )
-    finally:
-        await engine.dispose()
+    human_comment_ids: list[uuid.UUID] = []
+    for i in range(n_human_comments):
+        cid = await _insert_comment(paper_id, submitter, f"human body {i}")
+        human_comment_ids.append(cid)
 
-    return BatchFixture(
-        batch_name=batch_name,
-        batch_id=batch_id,
+    return Fixture(
+        owner_id=owner,
         agent_id=agent_id,
+        submitter_id=submitter,
         paper_id=paper_id,
         comment_ids=comment_ids,
+        human_comment_ids=human_comment_ids,
     )
 
 
-async def _cleanup_batch(b: BatchFixture) -> None:
-    # Delete extraction rows first (no FK from batch, but tied to comment).
-    for cid in b.comment_ids:
+async def _cleanup(f: Fixture) -> None:
+    all_cids = f.comment_ids + f.human_comment_ids
+    for cid in all_cids:
         await _exec(
             "DELETE FROM comment_fact WHERE comment_id = :c",
             {"c": str(cid)},
@@ -283,9 +283,32 @@ async def _cleanup_batch(b: BatchFixture) -> None:
             "DELETE FROM comment_fact_extraction_run WHERE comment_id = :c",
             {"c": str(cid)},
         )
+        await _exec(
+            "DELETE FROM comment WHERE id = :c",
+            {"c": str(cid)},
+        )
     await _exec(
-        "DELETE FROM annotation_batch WHERE id = :id",
-        {"id": str(b.batch_id)},
+        "DELETE FROM paper WHERE id = :id", {"id": str(f.paper_id)}
+    )
+    await _exec(
+        "DELETE FROM agent WHERE id = :id", {"id": str(f.agent_id)}
+    )
+    await _exec(
+        "DELETE FROM actor WHERE id = :id", {"id": str(f.agent_id)}
+    )
+    await _exec(
+        "DELETE FROM human_account WHERE id = :id",
+        {"id": str(f.submitter_id)},
+    )
+    await _exec(
+        "DELETE FROM actor WHERE id = :id", {"id": str(f.submitter_id)}
+    )
+    await _exec(
+        "DELETE FROM human_account WHERE id = :id",
+        {"id": str(f.owner_id)},
+    )
+    await _exec(
+        "DELETE FROM actor WHERE id = :id", {"id": str(f.owner_id)}
     )
 
 
@@ -296,7 +319,7 @@ def _make_extractor_returning(
     facts_by_comment: dict[uuid.UUID, list[str]],
 ) -> Callable:
     async def extractor(
-        comment: FocalComment, model: str
+        comment: Comment, model: str
     ) -> ExtractionResult:
         facts = facts_by_comment.get(comment.comment_id, [])
         raw = (
@@ -310,15 +333,6 @@ def _make_extractor_returning(
             input_tokens=100,
             output_tokens=50,
         )
-
-    return extractor
-
-
-def _make_failing_extractor(exc: Exception) -> Callable:
-    async def extractor(
-        comment: FocalComment, model: str
-    ) -> ExtractionResult:
-        raise exc
 
     return extractor
 
@@ -347,48 +361,416 @@ async def _count_runs(comment_id: uuid.UUID, *, model: str) -> int:
 # --------------------------- tests ---------------------------
 
 
-async def test_dry_run_writes_nothing(capsys):
-    b = await _setup_batch_with_comments(1)
+async def test_selects_all_agent_comments_excludes_humans():
+    f = await _setup_comments(n_agent_comments=5, n_human_comments=1)
     try:
-        extractor = _make_extractor_returning({})
+        seen: list[uuid.UUID] = []
+
+        async def extractor(comment: Comment, model: str):
+            seen.append(comment.comment_id)
+            return ExtractionResult(
+                facts=["x."],
+                raw_response="[FACT]: x.",
+                input_tokens=1,
+                output_tokens=1,
+            )
+
         result = await run(
-            batch_name=b.batch_name,
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=False,
+            dry_run=False,
+            extractor=extractor,
+        )
+        assert result["n_comments"] == 5
+        assert set(seen) == set(f.comment_ids)
+        for hcid in f.human_comment_ids:
+            assert hcid not in seen
+            assert await _count_runs(hcid, model="gemini-2.5-flash") == 0
+    finally:
+        await _cleanup(f)
+
+
+async def test_skips_already_extracted():
+    f = await _setup_comments(n_agent_comments=5)
+    try:
+        already = f.comment_ids[:2]
+        for cid in already:
+            await _insert_run_row(
+                cid, model="gemini-2.5-pro", prompt_version="v3"
+            )
+
+        seen: list[uuid.UUID] = []
+
+        async def extractor(comment: Comment, model: str):
+            seen.append(comment.comment_id)
+            return ExtractionResult(
+                facts=["x."],
+                raw_response="[FACT]: x.",
+                input_tokens=1,
+                output_tokens=1,
+            )
+
+        result = await run(
+            model="gemini-2.5-pro",
+            concurrency=1,
+            force=False,
+            dry_run=False,
+            extractor=extractor,
+        )
+        assert result["n_comments"] == 3
+        assert set(seen) == set(f.comment_ids[2:])
+    finally:
+        await _cleanup(f)
+
+
+async def _reset_extracted_runs(
+    comment_ids, *, model: str, prompt_version: str
+) -> None:
+    for cid in comment_ids:
+        await _exec(
+            "DELETE FROM comment_fact WHERE comment_id = :c "
+            "AND extractor_model = :m AND prompt_version = :p",
+            {"c": str(cid), "m": model, "p": prompt_version},
+        )
+        await _exec(
+            "DELETE FROM comment_fact_extraction_run WHERE comment_id = :c "
+            "AND extractor_model = :m AND prompt_version = :p",
+            {"c": str(cid), "m": model, "p": prompt_version},
+        )
+
+
+async def _setup_skip_4_of_10():
+    f = await _setup_comments(n_agent_comments=10)
+    for cid in f.comment_ids[:4]:
+        await _insert_run_row(
+            cid, model="gemini-2.5-pro", prompt_version="v3"
+        )
+    return f, set(f.comment_ids[4:])
+
+
+def _capturing_extractor():
+    seen: list[uuid.UUID] = []
+
+    async def ex(comment, model):
+        seen.append(comment.comment_id)
+        return ExtractionResult(
+            facts=["x."], raw_response="[FACT]: x.",
+            input_tokens=1, output_tokens=1,
+        )
+
+    return seen, ex
+
+
+async def test_extract_n_comments_dry_run_echoes_seed(capsys):
+    f, _eligible = await _setup_skip_4_of_10()
+    try:
+        await run(
+            model="gemini-2.5-pro",
+            concurrency=1,
+            force=False,
+            dry_run=True,
+            extract_n_comments=3,
+            sample_seed=42,
+        )
+        assert "sample_seed: 42" in capsys.readouterr().out
+    finally:
+        await _cleanup(f)
+
+
+async def test_extract_n_comments_samples_within_eligible():
+    f, eligible = await _setup_skip_4_of_10()
+    try:
+        seen, ex = _capturing_extractor()
+        result = await run(
+            model="gemini-2.5-pro",
+            concurrency=1,
+            force=False,
+            dry_run=False,
+            extract_n_comments=3,
+            sample_seed=42,
+            extractor=ex,
+        )
+        assert result["n_comments"] == 3
+        assert result["sample_seed"] == 42
+        assert result["sample_size"] == 3
+        assert set(seen).issubset(eligible)
+        assert len(set(seen)) == 3
+    finally:
+        await _cleanup(f)
+
+
+async def test_same_seed_picks_same_sample():
+    f, _eligible = await _setup_skip_4_of_10()
+    try:
+        seen_a, ex_a = _capturing_extractor()
+        await run(
+            model="gemini-2.5-pro",
+            concurrency=1, force=False, dry_run=False,
+            extract_n_comments=3, sample_seed=42, extractor=ex_a,
+        )
+        await _reset_extracted_runs(
+            seen_a, model="gemini-2.5-pro", prompt_version="v3"
+        )
+        seen_b, ex_b = _capturing_extractor()
+        await run(
+            model="gemini-2.5-pro",
+            concurrency=1, force=False, dry_run=False,
+            extract_n_comments=3, sample_seed=42, extractor=ex_b,
+        )
+        assert set(seen_a) == set(seen_b)
+    finally:
+        await _cleanup(f)
+
+
+async def test_different_seed_picks_different_sample():
+    f, _eligible = await _setup_skip_4_of_10()
+    try:
+        seen_a, ex_a = _capturing_extractor()
+        await run(
+            model="gemini-2.5-pro",
+            concurrency=1, force=False, dry_run=False,
+            extract_n_comments=3, sample_seed=42, extractor=ex_a,
+        )
+        await _reset_extracted_runs(
+            seen_a, model="gemini-2.5-pro", prompt_version="v3"
+        )
+        seen_b, ex_b = _capturing_extractor()
+        await run(
+            model="gemini-2.5-pro",
+            concurrency=1, force=False, dry_run=False,
+            extract_n_comments=3, sample_seed=999, extractor=ex_b,
+        )
+        assert set(seen_a) != set(seen_b)
+    finally:
+        await _cleanup(f)
+
+
+async def test_extract_n_comments_caps_at_eligible(capsys):
+    f = await _setup_comments(n_agent_comments=5)
+    try:
+        for cid in f.comment_ids:
+            await _insert_run_row(
+                cid, model="gemini-2.5-pro", prompt_version="v3"
+            )
+
+        called: list[uuid.UUID] = []
+
+        async def extractor(comment, model):
+            called.append(comment.comment_id)
+            return ExtractionResult(
+                facts=["x."],
+                raw_response="[FACT]: x.",
+                input_tokens=1,
+                output_tokens=1,
+            )
+
+        result = await run(
+            model="gemini-2.5-pro",
+            concurrency=1,
+            force=False,
+            dry_run=False,
+            extract_n_comments=100,
+            sample_seed=7,
+            extractor=extractor,
+        )
+        assert result["n_comments"] == 0
+        assert called == []
+        out = capsys.readouterr().out
+        assert "warning" in out.lower()
+        assert "only 0 eligible" in out
+    finally:
+        await _cleanup(f)
+
+
+async def test_default_seed_is_fresh_each_run(capsys):
+    f = await _setup_comments(n_agent_comments=5)
+    try:
+        async def extractor(comment, model):
+            return ExtractionResult(
+                facts=[], raw_response="[NO FACTS]",
+                input_tokens=1, output_tokens=1,
+            )
+
+        await run(
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=True,
-            limit=None,
+            extract_n_comments=3,
+            extractor=extractor,
+        )
+        out1 = capsys.readouterr().out
+        seed1 = _parse_seed(out1)
+
+        await run(
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=False,
+            dry_run=True,
+            extract_n_comments=3,
+            extractor=extractor,
+        )
+        out2 = capsys.readouterr().out
+        seed2 = _parse_seed(out2)
+
+        assert seed1 != seed2
+        assert seed1 > 0 and seed2 > 0
+    finally:
+        await _cleanup(f)
+
+
+def _parse_seed(stdout: str) -> int:
+    m = re.search(r"sample_seed:\s*(\d+)", stdout)
+    assert m, f"sample_seed not found in:\n{stdout}"
+    return int(m.group(1))
+
+
+async def test_model_aware_pricing_dry_run(capsys):
+    f = await _setup_comments(n_agent_comments=1)
+    try:
+        async def extractor(comment, model):
+            return ExtractionResult(
+                facts=[], raw_response="[NO FACTS]",
+                input_tokens=1, output_tokens=1,
+            )
+
+        await run(
+            model="gemini-2.5-pro",
+            concurrency=1,
+            force=False,
+            dry_run=True,
+            extractor=extractor,
+        )
+        out_pro = capsys.readouterr().out
+        assert "$1.25/M in" in out_pro
+        assert "$10.0/M out" in out_pro
+
+        await run(
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=False,
+            dry_run=True,
+            extractor=extractor,
+        )
+        out_flash = capsys.readouterr().out
+        assert "$0.3/M in" in out_flash
+        assert "$2.5/M out" in out_flash
+
+        await run(
+            model="gemini-99-unknown",
+            concurrency=1,
+            force=False,
+            dry_run=True,
+            extractor=extractor,
+        )
+        out_unknown = capsys.readouterr().out
+        assert "warning" in out_unknown.lower()
+        assert "no pricing known" in out_unknown
+        assert "$0.3/M in" in out_unknown
+        assert "$2.5/M out" in out_unknown
+    finally:
+        await _cleanup(f)
+
+
+async def test_force_reextracts():
+    f = await _setup_comments(n_agent_comments=3)
+    try:
+        first = _make_extractor_returning(
+            {cid: ["one."] for cid in f.comment_ids}
+        )
+        await run(
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=False,
+            dry_run=False,
+            extractor=first,
+        )
+
+        for cid in f.comment_ids:
+            assert await _count_facts(cid, model="gemini-2.5-flash") == 1
+            assert await _count_runs(cid, model="gemini-2.5-flash") == 1
+
+        second = _make_extractor_returning(
+            {cid: ["replaced.", "second."] for cid in f.comment_ids}
+        )
+        result = await run(
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=True,
+            dry_run=False,
+            extractor=second,
+        )
+        assert result["n_comments"] == 3
+        for cid in f.comment_ids:
+            facts = await _fetch_all(
+                "SELECT fact_text FROM comment_fact "
+                "WHERE comment_id = :c AND extractor_model = :m "
+                "ORDER BY fact_index",
+                {"c": str(cid), "m": "gemini-2.5-flash"},
+            )
+            assert [r[0] for r in facts] == ["replaced.", "second."]
+            assert await _count_runs(cid, model="gemini-2.5-flash") == 1
+    finally:
+        await _cleanup(f)
+
+
+async def test_persistence_per_comment():
+    f = await _setup_comments(n_agent_comments=3)
+    try:
+        extractor = _make_extractor_returning(
+            {cid: ["a.", "b."] for cid in f.comment_ids}
+        )
+        await run(
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=False,
+            dry_run=False,
+            extractor=extractor,
+        )
+        for cid in f.comment_ids:
+            assert await _count_facts(cid, model="gemini-2.5-flash") == 2
+            assert await _count_runs(cid, model="gemini-2.5-flash") == 1
+    finally:
+        await _cleanup(f)
+
+
+async def test_dry_run_writes_nothing(capsys):
+    f = await _setup_comments(n_agent_comments=1)
+    try:
+        extractor = _make_extractor_returning({})
+        result = await run(
+            model="gemini-2.5-flash",
+            concurrency=1,
+            force=False,
+            dry_run=True,
             extractor=extractor,
         )
 
         captured = capsys.readouterr().out
         assert "dry-run" in captured.lower()
-        assert b.batch_name in captured
         assert result["dry_run"] is True
         assert result["n_comments"] == 1
 
-        # No API call, no DB writes.
-        assert await _count_runs(b.comment_ids[0], model="gemini-2.5-flash") == 0
-        assert await _count_facts(b.comment_ids[0], model="gemini-2.5-flash") == 0
+        assert await _count_runs(f.comment_ids[0], model="gemini-2.5-flash") == 0
+        assert await _count_facts(f.comment_ids[0], model="gemini-2.5-flash") == 0
     finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_happy_path_inserts_run_and_facts():
-    b = await _setup_batch_with_comments(1)
+    f = await _setup_comments(n_agent_comments=1)
     try:
-        cid = b.comment_ids[0]
+        cid = f.comment_ids[0]
         extractor = _make_extractor_returning(
             {cid: ["fact one.", "fact two.", "fact three."]}
         )
 
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=extractor,
         )
 
@@ -416,22 +798,20 @@ async def test_happy_path_inserts_run_and_facts():
         assert [f[0] for f in facts] == ["fact one.", "fact two.", "fact three."]
         assert [f[1] for f in facts] == [0, 1, 2]
     finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_no_facts_status_recorded_zero_facts():
-    b = await _setup_batch_with_comments(1)
+    f = await _setup_comments(n_agent_comments=1)
     try:
-        cid = b.comment_ids[0]
+        cid = f.comment_ids[0]
         extractor = _make_extractor_returning({cid: []})
 
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=extractor,
         )
 
@@ -448,13 +828,13 @@ async def test_no_facts_status_recorded_zero_facts():
 
         assert await _count_facts(cid, model="gemini-2.5-flash") == 0
     finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_api_error_recorded_run_continues():
-    b = await _setup_batch_with_comments(2)
+    f = await _setup_comments(n_agent_comments=2)
     try:
-        good_cid, bad_cid = b.comment_ids[0], b.comment_ids[1]
+        good_cid, bad_cid = f.comment_ids[0], f.comment_ids[1]
 
         async def extractor(comment, model):
             if comment.comment_id == bad_cid:
@@ -466,14 +846,11 @@ async def test_api_error_recorded_run_continues():
                 output_tokens=5,
             )
 
-        # Disable retries for speed.
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=extractor,
             retry_delays=(),
         )
@@ -496,25 +873,22 @@ async def test_api_error_recorded_run_continues():
         assert fact_count == 0
         assert "gemini exploded" in err
 
-        # No fact rows for the failed comment.
         assert await _count_facts(bad_cid, model="gemini-2.5-flash") == 0
     finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_rerun_without_force_is_noop():
-    b = await _setup_batch_with_comments(1)
+    f = await _setup_comments(n_agent_comments=1)
     try:
-        cid = b.comment_ids[0]
+        cid = f.comment_ids[0]
         first = _make_extractor_returning({cid: ["one.", "two."]})
 
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=first,
         )
 
@@ -530,90 +904,46 @@ async def test_rerun_without_force_is_noop():
             )
 
         result = await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=second_extractor,
         )
 
-        assert second_calls == []  # extractor was never invoked
+        assert second_calls == []
         assert result["n_comments"] == 0
 
-        # Facts unchanged.
         facts = await _fetch_all(
             "SELECT fact_text FROM comment_fact WHERE comment_id = :c "
             "ORDER BY fact_index",
             {"c": str(cid)},
         )
-        assert [f[0] for f in facts] == ["one.", "two."]
+        assert [r[0] for r in facts] == ["one.", "two."]
         assert await _count_runs(cid, model="gemini-2.5-flash") == 1
     finally:
-        await _cleanup_batch(b)
-
-
-async def test_force_replaces_prior_facts():
-    b = await _setup_batch_with_comments(1)
-    try:
-        cid = b.comment_ids[0]
-        first = _make_extractor_returning({cid: ["one.", "two."]})
-        await run(
-            batch_name=b.batch_name,
-            model="gemini-2.5-flash",
-            concurrency=1,
-            force=False,
-            dry_run=False,
-            limit=None,
-            extractor=first,
-        )
-
-        second = _make_extractor_returning({cid: ["replaced."]})
-        await run(
-            batch_name=b.batch_name,
-            model="gemini-2.5-flash",
-            concurrency=1,
-            force=True,
-            dry_run=False,
-            limit=None,
-            extractor=second,
-        )
-
-        facts = await _fetch_all(
-            "SELECT fact_text FROM comment_fact WHERE comment_id = :c "
-            "ORDER BY fact_index",
-            {"c": str(cid)},
-        )
-        assert [f[0] for f in facts] == ["replaced."]
-        assert await _count_runs(cid, model="gemini-2.5-flash") == 1
-    finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_distinct_models_coexist():
-    b = await _setup_batch_with_comments(1)
+    f = await _setup_comments(n_agent_comments=1)
     try:
-        cid = b.comment_ids[0]
+        cid = f.comment_ids[0]
         ex_flash = _make_extractor_returning({cid: ["flash one."]})
         ex_pro = _make_extractor_returning({cid: ["pro one.", "pro two."]})
 
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=ex_flash,
         )
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-pro",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=ex_pro,
         )
 
@@ -622,39 +952,33 @@ async def test_distinct_models_coexist():
         assert await _count_runs(cid, model="gemini-2.5-flash") == 1
         assert await _count_runs(cid, model="gemini-2.5-pro") == 1
     finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_distinct_prompt_versions_coexist(monkeypatch):
     """Two prompt versions for the same (comment, model) should produce
     two separate sets of rows."""
-    b = await _setup_batch_with_comments(1)
+    f = await _setup_comments(n_agent_comments=1)
     try:
-        cid = b.comment_ids[0]
+        cid = f.comment_ids[0]
 
-        # First run at a synthetic "test-a" version.
         monkeypatch.setattr(extract_facts, "PROMPT_VERSION", "test-a")
         ex_a = _make_extractor_returning({cid: ["a fact."]})
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=ex_a,
         )
 
-        # Second run at a synthetic "test-b" version — coexists, doesn't trample.
         monkeypatch.setattr(extract_facts, "PROMPT_VERSION", "test-b")
         ex_b = _make_extractor_returning({cid: ["b fact one.", "b fact two."]})
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=ex_b,
         )
 
@@ -679,48 +1003,11 @@ async def test_distinct_prompt_versions_coexist(monkeypatch):
             ("test-b", "b fact two."),
         ]
     finally:
-        await _cleanup_batch(b)
-
-
-async def test_limit_halts_at_n():
-    b = await _setup_batch_with_comments(5)
-    try:
-        seen: list[uuid.UUID] = []
-
-        async def extractor(comment, model):
-            seen.append(comment.comment_id)
-            return ExtractionResult(
-                facts=["x."],
-                raw_response="[FACT]: x.",
-                input_tokens=1,
-                output_tokens=1,
-            )
-
-        result = await run(
-            batch_name=b.batch_name,
-            model="gemini-2.5-flash",
-            concurrency=1,
-            force=False,
-            dry_run=False,
-            limit=3,
-            extractor=extractor,
-        )
-
-        assert len(seen) == 3
-        assert result["n_comments"] == 3
-        rows = await _fetch_all(
-            "SELECT comment_id FROM comment_fact_extraction_run "
-            "WHERE extractor_model = 'gemini-2.5-flash'"
-        )
-        run_cids = {r[0] for r in rows}
-        in_batch = [c for c in b.comment_ids if c in run_cids]
-        assert len(in_batch) == 3
-    finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
 
 
 async def test_concurrency_cap_honored():
-    b = await _setup_batch_with_comments(10)
+    f = await _setup_comments(n_agent_comments=10)
     try:
         in_flight = 0
         max_in_flight = 0
@@ -742,39 +1029,23 @@ async def test_concurrency_cap_honored():
             )
 
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=3,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=extractor,
         )
 
         assert max_in_flight <= 3
-        assert max_in_flight >= 2  # ensure parallelism actually happened
+        assert max_in_flight >= 2
     finally:
-        await _cleanup_batch(b)
-
-
-async def test_unknown_batch_raises():
-    extractor = _make_extractor_returning({})
-    with pytest.raises(RuntimeError, match="not found"):
-        await run(
-            batch_name=f"does-not-exist-{uuid.uuid4().hex[:6]}",
-            model="gemini-2.5-flash",
-            concurrency=1,
-            force=False,
-            dry_run=False,
-            limit=None,
-            extractor=extractor,
-        )
+        await _cleanup(f)
 
 
 async def test_retries_then_succeeds():
-    b = await _setup_batch_with_comments(1)
+    f = await _setup_comments(n_agent_comments=1)
     try:
-        cid = b.comment_ids[0]
+        cid = f.comment_ids[0]
         attempts = {"n": 0}
 
         async def flaky(comment, model):
@@ -789,12 +1060,10 @@ async def test_retries_then_succeeds():
             )
 
         await run(
-            batch_name=b.batch_name,
             model="gemini-2.5-flash",
             concurrency=1,
             force=False,
             dry_run=False,
-            limit=None,
             extractor=flaky,
             retry_delays=(0.0, 0.0, 0.0),
         )
@@ -807,4 +1076,4 @@ async def test_retries_then_succeeds():
         )
         assert runs == [("success", 1)]
     finally:
-        await _cleanup_batch(b)
+        await _cleanup(f)
