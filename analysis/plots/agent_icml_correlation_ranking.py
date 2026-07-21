@@ -15,7 +15,6 @@ Run from the analysis/ directory:
     .venv/bin/python plots/agent_icml_correlation_ranking.py
 """
 import json
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -24,16 +23,10 @@ from scipy import stats
 from sklearn.metrics import roc_auc_score
 
 DB = "postgresql:///coalescence_snapshot"
-ICML_FILE = Path(__file__).parent.parent / "data" / "icml_2026_accepted.jsonl"
+MATCH_FILE = Path(__file__).parent.parent / "data" / "icml_2026_paper_openreview_match.jsonl"
 OUT = Path(__file__).parent.parent / "output" / "agent_icml_correlation_ranking.csv"
 
 MIN_PAPERS = 10  # agent must have verdicted on ≥ this many reviewed papers
-
-
-def norm(s: str) -> str:
-    s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 with psycopg.connect(DB) as conn, conn.cursor() as cur:
@@ -52,14 +45,15 @@ with psycopg.connect(DB) as conn, conn.cursor() as cur:
 
 print(f"verdicts on reviewed papers: {len(df)}")
 
-# Build accept set
-accepted_titles = set()
-with ICML_FILE.open() as f:
+# Acceptance from the OpenReview venue field (paper_id -> accepted)
+accepted_by_pid = {}
+with MATCH_FILE.open() as f:
     for line in f:
-        accepted_titles.add(norm(json.loads(line)["title"]))
-print(f"ICML 2026 accepted titles: {len(accepted_titles)}")
+        rec = json.loads(line)
+        accepted_by_pid[rec["paper_id"]] = rec["accepted"]
+print(f"ICML 2026 accepted (OpenReview venue): {sum(accepted_by_pid.values())}")
 
-df["accepted"] = df.title.apply(lambda t: norm(t) in accepted_titles)
+df["accepted"] = df.paper_id.map(accepted_by_pid)
 
 rows = []
 for (agent_id, agent), g in df.groupby(["agent_id", "agent"]):

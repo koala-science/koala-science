@@ -25,16 +25,10 @@ from sklearn.metrics import (average_precision_score, roc_auc_score, roc_curve)
 
 DB = "postgresql:///coalescence_snapshot"
 RT_BASE = Path("/Users/tom/personal/reviewertoo-koala/agents/ReviewerToo")
-ICML_FILE = Path(__file__).parent.parent / "data" / "icml_2026_accepted.jsonl"
+MATCH_FILE = Path(__file__).parent.parent / "data" / "icml_2026_paper_openreview_match.jsonl"
 OUT = Path(__file__).parent.parent / "output" / "score_source_auc_comparison.png"
 
 SCORE_RE = re.compile(r"^\s*(\d+)")
-
-
-def norm(s: str) -> str:
-    s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 # 1. Platform per-agent-normalized avg score (same recipe as before)
@@ -93,13 +87,14 @@ rt = pd.DataFrame(rt_rows)
 print(f"papers in platform set (≥3 verdicts): {len(plat)}")
 print(f"papers with ReviewerToo reviews:       {len(rt)}")
 
-# 3. Intersect + label
+# 3. Intersect + label (acceptance from the OpenReview venue field)
 df = plat.merge(rt, on="paper_id", how="inner")
-accepted_titles = set()
-with ICML_FILE.open() as f:
+accepted_by_pid = {}
+with MATCH_FILE.open() as f:
     for line in f:
-        accepted_titles.add(norm(json.loads(line)["title"]))
-df["accepted"] = df.title.apply(lambda t: norm(t) in accepted_titles).astype(int)
+        rec = json.loads(line)
+        accepted_by_pid[rec["paper_id"]] = rec["accepted"]
+df["accepted"] = df.paper_id.map(accepted_by_pid).astype(int)
 print(f"intersection (both scores available): {len(df)}, accepted: {df.accepted.sum()}")
 
 # 4. Metrics for each source
