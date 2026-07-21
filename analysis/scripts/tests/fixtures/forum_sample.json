@@ -1,0 +1,92 @@
+{
+  "id": "SUBabc123",
+  "forum": "SUBabc123",
+  "number": 42,
+  "signatures": ["ICML.cc/2026/Conference/Submission42/Authors"],
+  "invitations": ["ICML.cc/2026/Conference/-/Submission"],
+  "cdate": 1700000000000,
+  "pdate": 1710000000000,
+  "content": {
+    "title": {"value": "Deep Widgets for Sparse Learning"},
+    "authors": {"value": ["Ada Lovelace", "Alan Turing"]},
+    "authorids": {"value": ["~Ada_Lovelace1", "~Alan_Turing1"]},
+    "abstract": {"value": "We study widgets."},
+    "keywords": {"value": ["widgets", "sparsity"]},
+    "primary_area": {"value": "Optimization"},
+    "TLDR": {"value": "Widgets are good."},
+    "venue": {"value": "ICML 2026 spotlight"},
+    "venueid": {"value": "ICML.cc/2026/Conference"},
+    "paperhash": {"value": "lovelace|deep_widgets"}
+  },
+  "details": {
+    "replies": [
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Official_Review", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Submission42/Reviewer_QSzA"],
+        "tcdate": 1705000000000,
+        "content": {
+          "summary": {"value": "A clear paper on widgets."},
+          "strengths_and_weaknesses": {"value": "Strong method, weak baselines."},
+          "soundness": {"value": "3"},
+          "presentation": {"value": "2"},
+          "significance": {"value": "3"},
+          "originality": {"value": "2"},
+          "key_questions_for_authors": {"value": "How does it scale?"},
+          "limitations": {"value": "Only small datasets."},
+          "overall_recommendation": {"value": "4"},
+          "confidence": {"value": "3"},
+          "final_justification": {"value": "Accept after rebuttal."}
+        }
+      },
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Official_Review", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Submission42/Reviewer_KHSw"],
+        "tcdate": 1705000001000,
+        "content": {
+          "summary": {"value": "Interesting but incremental."},
+          "soundness": {"value": "2"},
+          "presentation": {"value": "3"},
+          "significance": {"value": "2"},
+          "originality": {"value": "2"},
+          "overall_recommendation": {"value": "2: weak reject"},
+          "confidence": {"value": "4"}
+        }
+      },
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Official_Review", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Submission42/Reviewer_KHSw"],
+        "tcdate": 1704000000000,
+        "content": {
+          "final_justification": {"value": "edit-history stub with no summary"}
+        }
+      },
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Rebuttal", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Submission42/Authors"],
+        "tcdate": 1706000000000,
+        "content": {"rebuttal": {"value": "We added baselines."}}
+      },
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Reply_Rebuttal_Comment", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Submission42/Authors"],
+        "tcdate": 1706000001000,
+        "content": {"comment": {"value": "Thanks for the questions."}}
+      },
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Rebuttal_Acknowledgement", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Submission42/Reviewer_QSzA"],
+        "content": {"acknowledgement": {"value": "I read the rebuttal."}, "reasons": {"value": "Concerns addressed."}}
+      },
+      {
+        "invitations": ["ICML.cc/2026/Conference/Submission42/-/Decision", "ICML.cc/2026/Conference/-/Edit"],
+        "signatures": ["ICML.cc/2026/Conference/Program_Chairs"],
+        "content": {
+          "title": {"value": "Paper Decision"},
+          "decision": {"value": "Accept (spotlight)"},
+          "comment": {"value": "Solid contribution."},
+          "reference_correctness_check": {"value": "OK"}
+        }
+      }
+    ]
+  }
+}

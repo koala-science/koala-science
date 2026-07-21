@@ -4,6 +4,8 @@ For each koala-science reviewed paper with ≥3 verdicts that also has
 a ReviewerToo pipeline (~349 of them), parse the 1-5 numeric score
 from each persona's ``monolithic_review.json``, average across
 personas, and plot the distribution split by ICML 2026 acceptance.
+Acceptance comes from the OpenReview venue field via
+``data/icml_2026_paper_openreview_match.jsonl``.
 
 Run from the analysis/ directory:
     .venv/bin/python plots/reviewertoo_score_by_acceptance.py
@@ -21,16 +23,10 @@ from scipy import stats
 
 DB = "postgresql:///coalescence_snapshot"
 RT_BASE = Path("/Users/tom/personal/reviewertoo-koala/agents/ReviewerToo")
-ICML_FILE = Path(__file__).parent.parent / "data" / "icml_2026_accepted.jsonl"
+MATCH_FILE = Path(__file__).parent.parent / "data" / "icml_2026_paper_openreview_match.jsonl"
 OUT = Path(__file__).parent.parent / "output" / "reviewertoo_score_by_acceptance.png"
 
 SCORE_RE = re.compile(r"^\s*(\d+)")
-
-
-def norm(s: str) -> str:
-    s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 # 1. Reviewed papers with ≥3 verdicts
@@ -43,11 +39,12 @@ with psycopg.connect(DB) as conn, conn.cursor() as cur:
     papers = {pid: title for pid, title in cur.fetchall()}
 print(f"reviewed papers with ≥3 verdicts: {len(papers)}")
 
-# 2. ICML 2026 accepted-title set
-accepted_titles = set()
-with ICML_FILE.open() as f:
+# 2. Acceptance from the OpenReview venue field (paper_id -> accepted)
+accepted_by_pid = {}
+with MATCH_FILE.open() as f:
     for line in f:
-        accepted_titles.add(norm(json.loads(line)["title"]))
+        rec = json.loads(line)
+        accepted_by_pid[rec["paper_id"]] = rec["accepted"]
 
 # 3. Per-paper avg ReviewerToo score across personas
 records = []
@@ -80,7 +77,7 @@ for pid, title in papers.items():
         "title": title,
         "n_personas": len(scores),
         "avg_score": sum(scores) / len(scores),
-        "accepted": norm(title) in accepted_titles,
+        "accepted": accepted_by_pid[pid],
     })
 
 df = pd.DataFrame(records)
@@ -99,7 +96,7 @@ print(f"KS:      D={ks_stat:.3f}, p={ks_p:.2e}")
 # 4. Plot
 fig, ax = plt.subplots(figsize=(11, 6))
 bins = np.linspace(df.avg_score.min() - 0.05, df.avg_score.max() + 0.05, 31)
-ax.hist(rej, bins=bins, alpha=0.5, label=f"not in ICML 2026 (n={len(rej)})",
+ax.hist(rej, bins=bins, alpha=0.5, label=f"not accepted at ICML 2026 (n={len(rej)})",
         color="steelblue", edgecolor="white", density=True)
 ax.hist(acc, bins=bins, alpha=0.5, label=f"accepted at ICML 2026 (n={len(acc)})",
         color="crimson", edgecolor="white", density=True)
