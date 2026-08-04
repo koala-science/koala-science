@@ -1,0 +1,25 @@
+paper_id,n_verdicts,title
+0a999571-ff7a-472e-ae33-5144f680ff3f,5,Distribution-Aware Reward Estimation for Test-Time Reinforcement Learning
+13e78e6f-b4c8-4b1b-9c59-902ca02f39dc,3,HyLRA: Hybrid Layer Reuse Attention for Efficient Long-Context Inference
+2f23edaf-c0ad-4410-b479-d7fd8b272b9c,4,Tabula RASA: Exposing and Breaking the Relational Bottleneck in Transformers
+3795f7a8-5793-469c-8b8a-dc3f97f1dfca,3,"Canzona: A Unified, Asynchronous, and Load-Balanced Framework for Distributed Matrix-based Optimizers"
+37cd49c6-9a29-4503-9755-394cb0cf0872,3,E-Globe: Scalable $ε$-Global Verification of Neural Networks via Tight Upper Bounds and Pattern-Aware Branching
+3f11e43e-80cb-4a0f-ac25-9b1c140025ee,3,UniG2U-Bench: Do Unified Models Advance Multimodal Understanding?
+567b8d05-3fa2-47b8-bd33-c63f847b2032,3,Rethinking Deep Research from the Perspective of Web Content Distribution Matching
+590bfca7-0a76-407f-9ad0-cc5e44d70124,4,GPSBench: Do Large Language Models Understand GPS Coordinates?
+5b4fcb9f-21ad-4679-96c5-a6487fdea0c4,5,Soft Forward-Backward Representations for Zero-shot Reinforcement Learning with General Utilities
+68bbe721-c92f-4095-ab59-10831ad5fc2b,3,AgentScore: Autoformulation of Deployable Clinical Scoring Systems
+69636a52-447b-44f5-bcb4-a0e5100b2a17,4,A Reduction Algorithm for Markovian Contextual Linear Bandits
+69c54f43-b014-48d2-9510-14044b7423fe,3,Sparsely Supervised Diffusion
+6e607765-b3d5-4907-9ecb-e1658d70d473,3,FlowConsist: Make Your Flow Consistent with Real Trajectory
+6ed0ec40-c2cf-4721-8ba8-e8fa6516ac36,4,Inference-time Alignment via Sparse Junction Steering
+73875354-19c7-4a2b-9ac7-0124cd7854e8,3,GauS: Differentiable Scheduling Optimization via Gaussian Reparameterization
+799a7f7c-91be-4026-bc8b-1745160736e6,6,f-GRPO and Beyond: Divergence-Based Reinforcement Learning Algorithms for General LLM Alignment
+7c60129b-646f-45b1-9bef-4c18efcc5002,4,AI Empathy Erodes Cognitive Autonomy in Younger Users
+8deb4cb9-734b-4270-8b9b-19ca13031734,7,ART for Diffusion Sampling: A Reinforcement Learning Approach to Timestep Schedule
+99b6c26f-1538-4420-8637-396d4819b731,3,Who Deserves the Reward? SHARP: Shapley Credit-based Optimization for Multi-Agent System
+a00312ed-7a00-43c8-b801-ac4eead07ae6,4,Unsupervised Decomposition and Recombination with Discriminator-Driven Diffusion Models
+a12ef0d0-7d31-4dab-9179-e3b98a98bc84,4,Learning to Share: Selective Memory for Efficient Parallel Agentic Systems
+a155cec9-f2a1-4372-a814-fd1aca4b38a3,7,Towards Efficient Large Language Reasoning Models via Extreme-Ratio Chain-of-Thought Compression
+ada84052-5ecf-4238-a7bb-e53b1be76728,5,VRIQ: Benchmarking and Analyzing Visual-Reasoning IQ of VLMs
+edca0013-77ab-4266-90e1-582c2d1f12cb,3,SAME: Stabilized Mixture-of-Experts for Multimodal Continual Instruction Tuning
