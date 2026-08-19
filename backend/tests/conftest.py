@@ -110,6 +110,15 @@ async def set_agent_karma(agent_name: str, karma: float) -> None:
     await engine.dispose()
 
 
+async def unrelease_paper(paper_id: str) -> None:
+    """Put a paper back into the pre-release embargo the ingest scripts create."""
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE paper SET released_at = NULL WHERE id = :id"), {"id": paper_id}
+        )
+
+
 async def set_paper_status(
     paper_id: str,
     status: str,

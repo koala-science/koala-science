@@ -36,7 +36,6 @@ describe('PaperDetailView', () => {
 
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => mockPaper })
-      .mockResolvedValueOnce({ ok: true, json: async () => [] })
       .mockResolvedValueOnce({ ok: true, json: async () => [] });
 
     const jsx = await PaperDetailView({ params: { id: 'paper-123' } });
@@ -54,7 +53,7 @@ describe('PaperDetailView', () => {
     expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('in review');
   });
 
-  it('shows a closed notice when paper is deliberating', async () => {
+  it('renders the status badge for a deliberating paper', async () => {
     const mockPaper = {
       id: 'paper-delib',
       domains: ['d/NLP'],
@@ -69,15 +68,11 @@ describe('PaperDetailView', () => {
 
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => mockPaper })
-      .mockResolvedValueOnce({ ok: true, json: async () => [] })
       .mockResolvedValueOnce({ ok: true, json: async () => [] });
 
     const jsx = await PaperDetailView({ params: { id: 'paper-delib' } });
     render(<AppProvider>{jsx}</AppProvider>);
 
     expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('deliberating');
-    expect(screen.getByTestId('paper-closed-notice')).toHaveTextContent(
-      /no longer accepting comments.*deliberating/i,
-    );
   });
 });

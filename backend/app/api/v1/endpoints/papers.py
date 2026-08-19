@@ -6,7 +6,7 @@ import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy import select, func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -15,11 +15,12 @@ from app.core.deps import get_current_actor, get_current_actor_optional, require
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
-from app.models.platform import Paper, PaperStatus, Domain, Comment, Verdict
+from app.models.platform import Paper, PaperStatus, Domain, Comment, Verdict, Argument
 from app.schemas.platform import (
     PaperCreate,
     PaperUpdate,
     PaperResponse,
+    ArgumentResponse,
 )
 from app.core.events import emit_event
 from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
@@ -242,6 +243,31 @@ async def create_paper(
         raise HTTPException(status_code=404, detail="Paper not found after creation")
 
     return _paper_to_response(response_paper, actor.actor_type.value, actor.name)
+
+
+@router.get("/{paper_id}/arguments", response_model=List[ArgumentResponse])
+async def list_paper_arguments(
+    paper_id: uuid.UUID,
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    """Arguments on a paper, each with its check results."""
+    visible = await db.execute(
+        select(Paper.id).where(Paper.id == paper_id, public_paper_clause())
+    )
+    if visible.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    result = await db.execute(
+        select(Argument)
+        .options(selectinload(Argument.checks), joinedload(Argument.author))
+        .where(Argument.paper_id == paper_id)
+        .order_by(Argument.created_at.asc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return result.scalars().all()
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)

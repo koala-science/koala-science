@@ -1,10 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { Archive, ArrowLeft, ExternalLink, FileText, MessageSquare, Scale } from 'lucide-react';
-import { apiCall } from '@/lib/api';
-import { useAuthStore } from '@/lib/store';
+import { Archive, ArrowLeft, ExternalLink, FileText, MessageSquare } from 'lucide-react';
 
 function GithubIcon({ className = '' }: { className?: string }) {
   return (
@@ -19,9 +16,8 @@ function GithubIcon({ className = '' }: { className?: string }) {
   );
 }
 
-import { PaperThread } from '@/components/paper/paper-thread';
 import { ShareButton } from '@/components/paper/share-button';
-import { VerdictSection } from '@/components/paper/verdict-section';
+import { ArgumentSection, type ArgumentRecord } from '@/components/paper/argument-section';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { LaTeX } from '@/components/shared/latex';
 import { buttonVariants } from '@/components/ui/button';
@@ -80,30 +76,13 @@ function githubSlug(url: string): string {
 
 export function PaperDetailClient({
   paper,
-  comments,
-  verdicts,
+  arguments: argumentList,
 }: {
   paper: PaperRecord;
-  comments: any[];
-  verdicts: any[];
+  arguments: ArgumentRecord[];
 }) {
-  const commentCount = comments.length;
   const pdfUrl = resolvePdfUrl(paper.pdf_url);
   const tarballUrl = resolvePdfUrl(paper.tarball_url);
-  const commentAuthors: Record<string, string> = Object.fromEntries(
-    comments
-      .filter((c) => c.id && c.author_name)
-      .map((c) => [c.id, c.author_name]),
-  );
-
-  const isSuperuser = useAuthStore((s) => s.user?.is_superuser ?? false);
-  const [adminAvg, setAdminAvg] = useState<{ avg_score: number | null; verdict_count: number } | null>(null);
-  useEffect(() => {
-    if (!isSuperuser) return;
-    apiCall<{ avg_score: number | null; verdict_count: number }>(
-      `/admin/papers/${paper.id}/avg-verdict`,
-    ).then(setAdminAvg);
-  }, [isSuperuser, paper.id]);
 
   return (
     <main className="max-w-4xl mx-auto" role="main" aria-label="Paper Detail">
@@ -143,21 +122,6 @@ export function PaperDetailClient({
           </a>
         )}
       </div>
-
-      {isSuperuser && adminAvg && (
-        <div className="mb-4 flex items-center gap-3 rounded border border-dashed border-purple-300 bg-purple-50 px-3 py-2 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-purple-700">Admin</span>
-          <span className="text-purple-900">
-            Avg verdict score:{' '}
-            <span className="font-semibold tabular-nums">
-              {adminAvg.avg_score !== null ? adminAvg.avg_score.toFixed(2) : '—'}
-            </span>
-            <span className="text-purple-700/70 ml-1">
-              ({adminAvg.verdict_count} {adminAvg.verdict_count === 1 ? 'verdict' : 'verdicts'})
-            </span>
-          </span>
-        </div>
-      )}
 
       {(paper.domains || []).length > 0 && (
         <div className="flex flex-wrap items-center gap-2 mb-5">
@@ -252,27 +216,16 @@ export function PaperDetailClient({
       )}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-6 border-y py-2 mb-4 text-sm text-muted-foreground">
-        <a href="#thread" className="inline-flex items-center gap-1.5 hover:text-foreground">
+        <a href="#arguments" className="inline-flex items-center gap-1.5 hover:text-foreground">
           <MessageSquare className="h-4 w-4" />
-          <span>{commentCount} comments</span>
+          <span>{argumentList.length} argument{argumentList.length !== 1 ? 's' : ''}</span>
         </a>
-
-        {verdicts.length > 0 && (
-          <a href="#verdicts" className="inline-flex items-center gap-1.5 hover:text-foreground">
-            <Scale className="h-4 w-4" />
-            <span>{verdicts.length} verdict{verdicts.length !== 1 ? 's' : ''}</span>
-          </a>
-        )}
 
         <ShareButton />
       </div>
 
-      <div id="verdicts">
-        <VerdictSection verdicts={verdicts} paperStatus={paper.status} commentAuthors={commentAuthors} />
-      </div>
-
-      <div id="thread">
-        <PaperThread paperId={paper.id} comments={comments} paperStatus={paper.status} commentAuthors={commentAuthors} />
+      <div id="arguments">
+        <ArgumentSection arguments={argumentList} />
       </div>
     </main>
   );
