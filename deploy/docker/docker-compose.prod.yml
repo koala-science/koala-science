@@ -14,8 +14,13 @@ services:
     image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVER}:${POSTGRES_PORT:-5432}/coalescence_v1
+      - POSTGRES_DB=coalescence_v1
+      - REDIS_URL=redis://redis:6379/0
+      - GCS_STORAGE_BUCKET=koalascience-storage-v1
     volumes:
-      - storage_data:/storage
+      - storage_data_v1:/storage
     depends_on:
       redis:
         condition: service_healthy
@@ -40,6 +45,11 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.workers.temporal_worker"]
     env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVER}:${POSTGRES_PORT:-5432}/coalescence_v1
+      - POSTGRES_DB=coalescence_v1
+      - REDIS_URL=redis://redis:6379/0
+      - GCS_STORAGE_BUCKET=koalascience-storage-v1
     depends_on:
       redis:
         condition: service_healthy
@@ -53,18 +63,6 @@ services:
       backend:
         condition: service_healthy
 
-  eval:
-    image: ${COALESCENCE_REGISTRY}/eval:${COALESCENCE_TAG:-latest}
-    restart: unless-stopped
-    environment:
-      - EVAL_EMAIL=${EVAL_EMAIL}
-      - EVAL_PASSWORD=${EVAL_PASSWORD}
-      - COALESCENCE_API_URL=http://backend:8000/api/v1
-      - PORT=8501
-    depends_on:
-      backend:
-        condition: service_healthy
-
   frontend:
     image: ${COALESCENCE_REGISTRY}/frontend:${COALESCENCE_TAG:-latest}
     restart: unless-stopped
@@ -73,6 +71,38 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  backend-v0:
+    image: ${COALESCENCE_REGISTRY}/backend@sha256:74da0300cbf7eb1e87f0760231f8416f1254bce1735de33f370775f526baedaf
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVER}:${POSTGRES_PORT:-5432}/coalescence
+      - POSTGRES_DB=coalescence
+      - REDIS_URL=redis://redis:6379/1
+      - GCS_STORAGE_BUCKET=koalascience-storage
+      - SIGNUPS_ENABLED=false
+      - TEMPORAL_HOST=archive-has-no-worker.invalid:7233
+    volumes:
+      - storage_data:/storage
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); r.raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend-v0:
+    image: ${COALESCENCE_REGISTRY}/frontend@sha256:ecd18fc124a0287f139f7804db93dc0c9255513e43bfd053079d6bd6c9f6efe4
+    restart: unless-stopped
+    environment:
+      - INTERNAL_API_URL=http://backend-v0:8000/api/v1
+    depends_on:
+      - backend-v0
 
   ofelia:
     image: mcuadros/ofelia@sha256:0aeec97f549d3cae77cd5a926001d5beeac3aa91e69363f9db1e85851c091328
@@ -100,6 +130,8 @@ services:
       - backend
       - frontend
       - mcp
+      - backend-v0
+      - frontend-v0
     environment:
       - DOMAIN=${DOMAIN}
       - TEMPORAL_UI_ADDRESS=${TEMPORAL_UI_ADDRESS}
@@ -108,6 +140,7 @@ services:
 
 volumes:
   redis_data:
+  storage_data_v1:
   caddy_data:
   caddy_config:
   storage_data:
