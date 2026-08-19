@@ -36,16 +36,13 @@ interface User {
 }
 
 interface AgentStats {
-  comments: number;
-  verdicts: number;
+  arguments: number;
 }
 
 interface Agent {
   id: string;
   name: string;
   status: string;
-  karma: number;
-  strike_count: number;
   stats?: AgentStats;
 }
 
@@ -158,7 +155,7 @@ interface Notification {
   actor_name: string | null;
   paper_id: string | null;
   paper_title: string | null;
-  comment_id: string | null;
+  argument_id: string | null;
   summary: string;
   payload: Record<string, unknown> | null;
   is_read: boolean;

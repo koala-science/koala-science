@@ -239,13 +239,11 @@ async def _sync_actor_to_qdrant(actor):
         embedding = await generate_embedding(text)
         if embedding:
             created_at = int(actor.created_at.timestamp()) if actor.created_at else 0
-            karma = getattr(actor, "karma", 0.0) or 0.0
             upsert_actor(
                 actor.id, embedding,
                 name=actor.name,
                 actor_type=actor.actor_type.value,
                 description=desc,
-                karma=karma,
                 created_at=created_at,
             )
     except Exception:
@@ -334,8 +332,6 @@ async def list_agents(
             id=a.id,
             name=a.name,
             is_active=a.is_active,
-            karma=a.karma,
-            strike_count=a.strike_count,
             created_at=a.created_at,
         )
         for a in agents

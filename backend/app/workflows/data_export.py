@@ -1,7 +1,7 @@
 """
 Data export workflows:
   - IncrementalEventExport: every 15 min, exports new events since last run
-  - FullDataDumpWorkflow: on-demand or daily, exports papers, comments, events, actors
+  - FullDataDumpWorkflow: on-demand or daily, exports papers, arguments, events, actors
 """
 import json
 import tempfile
@@ -21,12 +21,12 @@ class IncrementalExportResult:
 @dataclass
 class FullDumpResult:
     papers_path: str
-    comments_path: str
+    arguments_path: str
     events_path: str
     actors_path: str
     domains_path: str
     papers_count: int
-    comments_count: int
+    arguments_count: int
     events_count: int
     actors_count: int
     domains_count: int
@@ -144,39 +144,45 @@ class DataExportActivities:
         return {"file_path": url, "count": count}
 
     @activity.defn
-    async def export_full_comments(self, dump_id: str) -> dict:
-        """Export all comments with thread embeddings."""
-        activity.logger.info(f"Exporting comments for dump {dump_id}")
+    async def export_full_arguments(self, dump_id: str) -> dict:
+        """Export all arguments with their check results."""
+        activity.logger.info(f"Exporting arguments for dump {dump_id}")
 
         from sqlalchemy import select
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
         from app.db.session import AsyncSessionLocal
-        from app.models.platform import Comment
+        from app.models.platform import Argument
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(Comment)
-                .options(joinedload(Comment.author), joinedload(Comment.paper))
+                select(Argument)
+                .options(
+                    joinedload(Argument.author),
+                    joinedload(Argument.paper),
+                    selectinload(Argument.checks),
+                )
             )
-            comments = result.scalars().unique().all()
+            arguments = result.scalars().unique().all()
 
             records = [{
-                "id": str(c.id),
-                "paper_id": str(c.paper_id),
-                "paper_domains": c.paper.domains if c.paper else None,
-                "parent_id": str(c.parent_id) if c.parent_id else None,
-                "is_root": c.parent_id is None,
-                "author_id": str(c.author_id),
-                "author_type": c.author.actor_type.value if c.author else None,
-                "author_name": c.author.name if c.author else None,
-                "content_markdown": c.content_markdown,
-                "content_length": len(c.content_markdown),
-                "created_at": c.created_at,
-                "updated_at": c.updated_at,
-            } for c in comments]
+                "id": str(a.id),
+                "paper_id": str(a.paper_id),
+                "paper_domains": a.paper.domains,
+                "author_id": str(a.author_id),
+                "author_name": a.author.name,
+                "claim": a.claim,
+                "position": a.position.value,
+                "evidence": a.evidence,
+                "checks": [
+                    {"name": c.name, "version": c.version,
+                     "status": c.status.value, "detail": c.detail}
+                    for c in a.checks
+                ],
+                "created_at": a.created_at,
+            } for a in arguments]
 
-        url, count = await _write_and_upload(f"exports/{dump_id}/comments.jsonl", records)
-        activity.logger.info(f"Comments dump: {count}")
+        url, count = await _write_and_upload(f"exports/{dump_id}/arguments.jsonl", records)
+        activity.logger.info(f"Arguments dump: {count}")
         return {"file_path": url, "count": count}
 
     @activity.defn
@@ -230,13 +236,11 @@ class DataExportActivities:
 
             records = []
             for actor in actors:
-                karma = getattr(actor, "karma", None)
                 records.append({
                     "id": str(actor.id),
                     "name": actor.name,
                     "actor_type": actor.actor_type.value,
                     "is_active": actor.is_active,
-                    "karma": karma,
                     "created_at": actor.created_at,
                 })
 
@@ -328,8 +332,8 @@ class FullDataDumpWorkflow:
             dump_id,
             start_to_close_timeout=timedelta(minutes=10),
         )
-        comments = await workflow.execute_activity_method(
-            DataExportActivities.export_full_comments,
+        arguments = await workflow.execute_activity_method(
+            DataExportActivities.export_full_arguments,
             dump_id,
             start_to_close_timeout=timedelta(minutes=10),
         )
@@ -352,12 +356,12 @@ class FullDataDumpWorkflow:
 
         return FullDumpResult(
             papers_path=papers["file_path"],
-            comments_path=comments["file_path"],
+            arguments_path=arguments["file_path"],
             events_path=events["file_path"],
             actors_path=actors["file_path"],
             domains_path=domains["file_path"],
             papers_count=papers["count"],
-            comments_count=comments["count"],
+            arguments_count=arguments["count"],
             events_count=events["count"],
             actors_count=actors["count"],
             domains_count=domains["count"],

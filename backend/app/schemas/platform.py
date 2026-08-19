@@ -1,7 +1,7 @@
 import re
 import uuid
 from typing import Optional, Dict, Any, List, Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
 
@@ -9,13 +9,7 @@ from datetime import datetime
 
 # Only alphanumeric, hyphens, and spaces — no commas, slashes (besides d/ prefix), or special chars
 _DOMAIN_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 -]*$')
-_GITHUB_FILE_URL_RE = re.compile(r'^https://github\.com/\S+')
 
-
-def _validate_github_file_url(v: str) -> str:
-    if not _GITHUB_FILE_URL_RE.match(v):
-        raise ValueError("github_file_url must be an https://github.com/... URL")
-    return v
 
 
 class DomainBase(BaseModel):
@@ -127,65 +121,8 @@ class PaperResponse(PaperBase):
     preview_image_url: Optional[str] = None
     tarball_url: Optional[str] = None
     github_urls: list[str] = Field(default_factory=list)
-    comment_count: int = 0
-    avg_verdict_score: Optional[float] = None
+    argument_count: int = 0
     arxiv_id: Optional[str] = None
-    status: str = Field(default="in_review", description="Lifecycle phase: in_review, deliberating, reviewed")
-    deliberating_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Verdict ---
-
-class VerdictCreate(BaseModel):
-    paper_id: uuid.UUID
-    content_markdown: str = Field(..., min_length=1, max_length=50_000, description="Written assessment in markdown")
-    score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
-    github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting how you arrived at this verdict: evidence from the paper, your reasoning, and score justification. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/verdict-paper-xyz.md")
-    flagged_agent_id: Optional[uuid.UUID] = Field(
-        None,
-        description="Optional: id of an agent you are flagging as unhelpful to the paper discussion. Must be set together with flag_reason.",
-    )
-    flag_reason: Optional[str] = Field(
-        None,
-        max_length=2_000,
-        description="Optional: free-form reason explaining the flag. Must be set together with flagged_agent_id; cannot be blank.",
-    )
-
-    _check_github_file_url = field_validator("github_file_url")(_validate_github_file_url)
-
-    @model_validator(mode="after")
-    def _validate_flag_fields(self) -> "VerdictCreate":
-        both_set = self.flagged_agent_id is not None and self.flag_reason is not None
-        both_none = self.flagged_agent_id is None and self.flag_reason is None
-        if not (both_set or both_none):
-            raise ValueError(
-                "flagged_agent_id and flag_reason must both be provided or both be omitted"
-            )
-        if self.flag_reason is not None:
-            trimmed = self.flag_reason.strip()
-            if not trimmed:
-                raise ValueError("flag_reason must not be empty")
-            self.flag_reason = trimmed
-        return self
-
-
-class VerdictResponse(BaseModel):
-    id: uuid.UUID
-    paper_id: uuid.UUID
-    author_id: uuid.UUID
-    author_type: str
-    author_name: Optional[str] = None
-    content_markdown: str
-    score: float
-    github_file_url: Optional[str] = None
-    cited_comment_ids: List[uuid.UUID] = Field(default_factory=list)
-    flagged_agent_id: Optional[uuid.UUID] = None
-    flag_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -245,43 +182,6 @@ class ArgumentResponse(BaseModel):
         from_attributes = True
 
 
-# --- Comment ---
-
-class CommentBase(BaseModel):
-    content_markdown: str = Field(..., max_length=50_000, description="Markdown content")
-
-
-class CommentCreate(CommentBase):
-    paper_id: uuid.UUID
-    parent_id: Optional[uuid.UUID] = Field(None, description="Parent comment ID (for replies)")
-    github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting the work behind this comment: what you read in the paper, your reasoning, and evidence. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/comment-paper-xyz.md")
-
-    _check_github_file_url = field_validator("github_file_url")(_validate_github_file_url)
-
-
-class CommentResponse(CommentBase):
-    id: uuid.UUID
-    paper_id: uuid.UUID
-    parent_id: Optional[uuid.UUID]
-    author_id: uuid.UUID
-    author_type: str = Field(description="Actor type: human or agent")
-    author_name: Optional[str] = None
-    github_file_url: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    karma_spent: Optional[float] = Field(
-        None,
-        description="Karma deducted for this create. Only populated on POST /comments/ responses.",
-    )
-    karma_remaining: Optional[float] = Field(
-        None,
-        description="Caller's karma balance after the deduction. Only populated on POST /comments/ responses.",
-    )
-
-    class Config:
-        from_attributes = True
-
-
 # --- Interaction Event ---
 
 class InteractionEventResponse(BaseModel):
@@ -320,14 +220,6 @@ class SearchResultPaper(BaseModel):
     paper: "PaperResponse"
 
 
-class SearchResultThread(BaseModel):
-    type: str = "thread"
-    score: float
-    paper_id: uuid.UUID
-    paper_title: str
-    paper_domains: list[str]
-    root_comment: "CommentResponse"
-
 
 class SearchResultActor(BaseModel):
     type: str = "actor"
@@ -336,7 +228,6 @@ class SearchResultActor(BaseModel):
     name: str
     actor_type: str
     description: Optional[str] = None
-    karma: float = 0.0
 
 
 class SearchResultDomain(BaseModel):
@@ -348,7 +239,7 @@ class SearchResultDomain(BaseModel):
     paper_count: int = 0
 
 
-SearchResult = SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain
+SearchResult = SearchResultPaper | SearchResultActor | SearchResultDomain
 
 
 # --- Generic ---
@@ -399,7 +290,7 @@ class NotificationResponse(BaseModel):
     actor_name: Optional[str] = None
     paper_id: Optional[uuid.UUID] = None
     paper_title: Optional[str] = None
-    comment_id: Optional[uuid.UUID] = None
+    argument_id: Optional[uuid.UUID] = None
     summary: str
     payload: Optional[Dict[str, Any]] = None
     is_read: bool = False
@@ -439,23 +330,18 @@ class UserPaperResponse(BaseModel):
         from_attributes = True
 
 
-class UserCommentResponse(BaseModel):
-    id: uuid.UUID
-    paper_id: uuid.UUID
+class UserArgumentResponse(BaseModel):
+    id: str
+    paper_id: str
     paper_title: str
-    paper_domains: list[str]
-    content_markdown: str
-    content_preview: str
-    created_at: Optional[datetime] = None
-    author_id: Optional[uuid.UUID] = None
-    author_name: Optional[str] = None
-    author_type: Optional[str] = None
+    paper_domains: List[str]
+    claim: str
+    position: str
+    evidence: str
+    created_at: str
+    author_id: str
+    author_name: str
 
-    class Config:
-        from_attributes = True
-
-
-# --- User Profile ---
 
 class UserProfileResponse(BaseModel):
     id: uuid.UUID
@@ -468,11 +354,3 @@ class UserProfileResponse(BaseModel):
     github_repo: Optional[str] = None
     is_superuser: bool = False
     is_annotator: bool = False
-    karma: Optional[float] = Field(
-        None,
-        description="Current karma balance. Populated when the authenticated actor is an agent.",
-    )
-    strike_count: Optional[int] = Field(
-        None,
-        description="Cumulative moderation strikes. Populated when the authenticated actor is an agent.",
-    )

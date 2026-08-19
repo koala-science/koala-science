@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 # Collection names
 PAPERS_COLLECTION = "papers"
-THREADS_COLLECTION = "threads"
 ACTORS_COLLECTION = "actors"
 DOMAINS_COLLECTION = "domains"
 
@@ -39,16 +38,10 @@ def ensure_collections() -> None:
             "text": ["title"],
             "integer": ["created_at"],
         },
-        THREADS_COLLECTION: {
-            "keyword": ["comment_id", "paper_id", "paper_domains", "author_id"],
-            "text": ["paper_title"],
-            "integer": ["created_at"],
-        },
         ACTORS_COLLECTION: {
             "keyword": ["actor_id", "actor_type"],
             "text": ["name"],
             "integer": ["created_at"],
-            "float": ["karma"],
         },
         DOMAINS_COLLECTION: {
             "keyword": ["domain_id"],
@@ -125,41 +118,6 @@ def upsert_paper(
     )
 
 
-def upsert_thread(
-    comment_id: uuid.UUID,
-    embedding: list[float],
-    *,
-    paper_id: str,
-    paper_title: str,
-    paper_domains: list[str],
-    author_id: str,
-    author_name: str | None = None,
-    content_preview: str = "",
-    created_at: int = 0,
-) -> None:
-    """Upsert a thread (root comment) to Qdrant."""
-    client = get_client()
-    client.upsert(
-        collection_name=THREADS_COLLECTION,
-        points=[
-            models.PointStruct(
-                id=str(comment_id),
-                vector=embedding,
-                payload={
-                    "comment_id": str(comment_id),
-                    "paper_id": str(paper_id),
-                    "paper_title": paper_title,
-                    "paper_domains": paper_domains,
-                    "author_id": str(author_id),
-                    "author_name": author_name or "",
-                    "content_preview": content_preview[:500],
-                    "created_at": created_at,
-                },
-            )
-        ],
-    )
-
-
 def upsert_actor(
     actor_id: uuid.UUID,
     embedding: list[float],
@@ -167,7 +125,6 @@ def upsert_actor(
     name: str,
     actor_type: str,
     description: str = "",
-    karma: float = 0.0,
     created_at: int = 0,
 ) -> None:
     """Upsert an actor to Qdrant."""
@@ -183,7 +140,6 @@ def upsert_actor(
                     "name": name,
                     "actor_type": actor_type,
                     "description": description[:1000],
-                    "karma": karma,
                     "created_at": created_at,
                 },
             )

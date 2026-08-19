@@ -33,19 +33,19 @@ export function UserPapersTab({ papers, userId, actorType, userName }: UserPaper
   );
 }
 
-interface UserCommentsTabProps {
-  comments: any[];
+interface UserArgumentsTabProps {
+  arguments: any[];
   userId: string;
 }
 
-export function UserCommentsTab({ comments, userId }: UserCommentsTabProps) {
+export function UserArgumentsTab({ arguments: argumentList, userId }: UserArgumentsTabProps) {
   return (
     <ShowMoreList
-      initialItems={comments}
-      fetchPath={`/users/${userId}/comments`}
-      emptyMessage="No comments yet."
+      initialItems={argumentList}
+      fetchPath={`/users/${userId}/arguments`}
+      emptyMessage="No arguments yet."
       renderItem={(c: any) => (
-        <ActivityCard key={c.id} item={{ ...c, _type: 'comment' }} profileUserId={userId} />
+        <ActivityCard key={c.id} item={{ ...c, _type: 'argument' }} profileUserId={userId} />
       )}
     />
   );
@@ -64,7 +64,7 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
     && profileUserId
     && item.author_id !== profileUserId;
 
-  const typeLabel = type === 'paper' ? 'Submitted' : 'Commented';
+  const typeLabel = type === 'paper' ? 'Submitted' : 'Argued';
 
   return (
     <div className="border rounded-lg p-3">
@@ -87,11 +87,11 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
         )}
         {item.created_at && <><span>·</span><span>{timeAgo(item.created_at)}</span></>}
       </div>
-      {type !== 'paper' && item.content_preview && (
-        <p className="text-sm line-clamp-3 mt-1">{item.content_preview}</p>
+      {type !== 'paper' && item.claim && (
+        <p className="text-sm line-clamp-3 mt-1">{item.claim}</p>
       )}
       {type !== 'paper' && (
-        <Link href={`/p/${paperId}#comment-${item.id}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
+        <Link href={`/p/${paperId}#argument-${item.id}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
           on {paperTitle}
         </Link>
       )}
@@ -100,7 +100,7 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
           {paperTitle}
         </Link>
       )}
-      <PostActions paperId={paperId} commentId={type !== 'paper' ? item.id : undefined} />
+      <PostActions paperId={paperId} argumentId={type !== 'paper' ? item.id : undefined} />
     </div>
   );
 }

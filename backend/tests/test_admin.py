@@ -1,11 +1,7 @@
 """Tests for the superuser admin endpoints: listing, detail, and gating."""
 import uuid
-import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.core.config import settings
 from tests.conftest import promote_to_superuser
 
 
@@ -229,8 +225,6 @@ async def test_admin_agents_list(client: AsyncClient):
     sample = body["items"][0]
     assert "owner_id" in sample
     assert "owner_email" in sample
-    assert "karma" in sample
-    assert "strike_count" in sample
     assert "github_repo" in sample
 
 
@@ -246,10 +240,8 @@ async def test_admin_agent_detail(client: AsyncClient):
     assert resp.status_code == 200
     body = resp.json()
     assert body["id"] == agent_id
-    assert "recent_comments" in body
-    assert "recent_verdicts" in body
-    assert isinstance(body["recent_comments"], list)
-    assert isinstance(body["recent_verdicts"], list)
+    assert "recent_arguments" in body
+    assert isinstance(body["recent_arguments"], list)
 
 
 async def test_admin_agent_detail_404(client: AsyncClient):
@@ -277,40 +269,10 @@ async def test_admin_papers_list(client: AsyncClient):
     assert body["total"] >= 1
     sample = body["items"][0]
     assert "title" in sample
-    assert "status" in sample
     assert "submitter_id" in sample
     assert "submitter_name" in sample
-    assert "comment_count" in sample
-    assert "verdict_count" in sample
-    assert "avg_verdict_score" in sample
-
-
-async def test_admin_papers_list_avg_verdict_score(client: AsyncClient):
-    super_token, _ = await _make_superuser(client, "plavg")
-    owner_token, _ = await _signup(client, "plavg_owner")
-    _, a1 = await _make_agent(client, owner_token, "plavg_a1")
-    _, a2 = await _make_agent(client, owner_token, "plavg_a2")
-
-    no_verdicts = await _submit_paper(client, super_token, "PL No Verdicts")
-    with_verdicts = await _submit_paper(client, super_token, "PL With Verdicts")
-
-    await _insert_verdict_directly(with_verdicts, a1, 6.0)
-    await _insert_verdict_directly(with_verdicts, a2, 8.0)
-
-    resp = await client.get(
-        "/api/v1/admin/papers/?limit=200",
-        headers={"Authorization": f"Bearer {super_token}"},
-    )
-    assert resp.status_code == 200
-    items = resp.json()["items"]
-
-    no_v = next(p for p in items if p["id"] == no_verdicts)
-    assert no_v["avg_verdict_score"] is None
-    assert no_v["verdict_count"] == 0
-
-    has_v = next(p for p in items if p["id"] == with_verdicts)
-    assert has_v["avg_verdict_score"] == pytest.approx(7.0)
-    assert has_v["verdict_count"] == 2
+    assert "argument_count" in sample
+    assert "reviewer_count" in sample
 
 
 async def test_admin_paper_detail(client: AsyncClient):
@@ -326,8 +288,6 @@ async def test_admin_paper_detail(client: AsyncClient):
     assert body["id"] == paper_id
     assert body["title"] == "Admin Detail Paper"
     assert "domains" in body
-    assert "verdicts" in body
-    assert isinstance(body["verdicts"], list)
 
 
 async def test_admin_paper_detail_404(client: AsyncClient):
@@ -339,85 +299,3 @@ async def test_admin_paper_detail_404(client: AsyncClient):
     assert resp.status_code == 404
 
 
-# --- Paper avg-verdict score (admin only) ---
-
-
-async def _insert_verdict_directly(paper_id: str, author_id: str, score: float) -> None:
-    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO verdict (id, paper_id, author_id, content_markdown, "
-                    "score, github_file_url, created_at, updated_at) VALUES "
-                    "(:id, :pid, :aid, 'v', :score, "
-                    "'https://github.com/test/agent/blob/main/logs/v.md', now(), now())"
-                ),
-                {
-                    "id": str(uuid.uuid4()),
-                    "pid": paper_id,
-                    "aid": author_id,
-                    "score": score,
-                },
-            )
-    finally:
-        await engine.dispose()
-
-
-async def test_admin_avg_verdict_requires_superuser(client: AsyncClient):
-    super_token, _ = await _make_superuser(client, "avg_super")
-    paper_id = await _submit_paper(client, super_token, "Avg Verdict Paper")
-
-    anon = await client.get(f"/api/v1/admin/papers/{paper_id}/avg-verdict")
-    assert anon.status_code == 401
-
-    regular_token, _ = await _signup(client, "avg_regular")
-    forbidden = await client.get(
-        f"/api/v1/admin/papers/{paper_id}/avg-verdict",
-        headers={"Authorization": f"Bearer {regular_token}"},
-    )
-    assert forbidden.status_code == 403
-
-
-async def test_admin_avg_verdict_no_verdicts(client: AsyncClient):
-    super_token, _ = await _make_superuser(client, "avg_zero")
-    paper_id = await _submit_paper(client, super_token, "No Verdict Paper")
-
-    resp = await client.get(
-        f"/api/v1/admin/papers/{paper_id}/avg-verdict",
-        headers={"Authorization": f"Bearer {super_token}"},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body == {"avg_score": None, "verdict_count": 0}
-
-
-async def test_admin_avg_verdict_computes_average(client: AsyncClient):
-    super_token, _ = await _make_superuser(client, "avg_calc")
-    owner_token, _ = await _signup(client, "avg_owner")
-    _, a1 = await _make_agent(client, owner_token, "avg_a1")
-    _, a2 = await _make_agent(client, owner_token, "avg_a2")
-    _, a3 = await _make_agent(client, owner_token, "avg_a3")
-    paper_id = await _submit_paper(client, super_token, "Has Verdicts")
-
-    await _insert_verdict_directly(paper_id, a1, 6.0)
-    await _insert_verdict_directly(paper_id, a2, 7.5)
-    await _insert_verdict_directly(paper_id, a3, 9.0)
-
-    resp = await client.get(
-        f"/api/v1/admin/papers/{paper_id}/avg-verdict",
-        headers={"Authorization": f"Bearer {super_token}"},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["verdict_count"] == 3
-    assert body["avg_score"] == pytest.approx(7.5)
-
-
-async def test_admin_avg_verdict_404_for_unknown_paper(client: AsyncClient):
-    super_token, _ = await _make_superuser(client, "avg_404")
-    resp = await client.get(
-        f"/api/v1/admin/papers/{uuid.uuid4()}/avg-verdict",
-        headers={"Authorization": f"Bearer {super_token}"},
-    )
-    assert resp.status_code == 404

@@ -1,6 +1,6 @@
 """
 Hybrid search endpoint: keyword (ILIKE over pg_trgm GIN) + semantic (Qdrant)
-across papers, threads, actors, and domains.
+across papers, actors, and domains.
 
 For each result type we run the keyword and vector paths in parallel,
 merge by id, and take ``max(keyword_score, vector_score)``. Keyword
@@ -9,7 +9,7 @@ semantic ones — and search keeps returning useful results when the
 embedding provider is unavailable (semantic path silently yields zero
 hits in that case).
 
-Filters: type (paper|thread|actor|domain|all), domain, after/before (unix epoch)
+Filters: type (paper|actor|domain|all), domain, after/before (unix epoch)
 """
 import uuid
 from datetime import datetime
@@ -23,10 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.paper_visibility import public_paper_clause
 from app.db.session import get_db
 from app.models.identity import Actor, Agent
-from app.models.platform import Paper, Comment, Domain
+from app.models.platform import Paper, Domain
 from app.schemas.platform import (
-    PaperResponse, CommentResponse,
-    SearchResultPaper, SearchResultThread, SearchResultActor, SearchResultDomain,
+    PaperResponse,
+    SearchResultPaper, SearchResultActor, SearchResultDomain,
 )
 
 router = APIRouter()
@@ -40,10 +40,10 @@ _CONTAINS = 0.85       # substring match on a primary field
 _CONTAINS_SECONDARY = 0.75  # substring match on a long body field
 
 
-@router.get("/", response_model=list[SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain])
+@router.get("/", response_model=list[SearchResultPaper | SearchResultActor | SearchResultDomain])
 async def search(
     q: str = Query(..., min_length=1, description="Search query"),
-    type: Optional[str] = Query(None, description="paper, thread, actor, domain, or all (default)"),
+    type: Optional[str] = Query(None, description="paper, actor, domain, or all (default)"),
     domain: Optional[str] = Query(None, description="Filter by domain"),
     after: Optional[int] = Query(None, description="Unix epoch — only results created after"),
     before: Optional[int] = Query(None, description="Unix epoch — only results created before"),
@@ -66,9 +66,6 @@ async def search(
 
     if search_type in ("all", "paper"):
         results.extend(await _search_papers(db, q, query_embedding, domain, after, before, fetch_limit))
-
-    if search_type in ("all", "thread"):
-        results.extend(await _search_threads(db, q, query_embedding, domain, after, before, fetch_limit))
 
     if search_type in ("all", "actor"):
         results.extend(await _search_actors(db, q, query_embedding, fetch_limit))
@@ -192,105 +189,6 @@ def _vector_papers(
     return [(h["payload"]["paper_id"], float(h["score"])) for h in hits]
 
 
-# ---- Threads ----
-
-
-async def _search_threads(
-    db: AsyncSession,
-    q: str,
-    embedding: list[float] | None,
-    domain_val,
-    after,
-    before,
-    limit: int,
-) -> list[dict]:
-    by_id: dict[str, tuple[float, dict]] = {}
-
-    for cid, score in await _keyword_threads(db, q, domain_val, after, before, limit):
-        _merge(by_id, str(cid), score, {})
-
-    try:
-        for cid, score, payload in _vector_threads(embedding, domain_val, after, before, limit):
-            _merge(by_id, cid, score, payload)
-    except Exception:
-        pass
-
-    if not by_id:
-        return []
-
-    comment_ids = [uuid.UUID(cid) for cid in by_id]
-    result = await db.execute(
-        select(Comment)
-        .options(joinedload(Comment.author), joinedload(Comment.paper))
-        .where(Comment.id.in_(comment_ids))
-    )
-    comments = {str(c.id): c for c in result.scalars().unique().all()}
-
-    out: list[dict] = []
-    for cid, (score, payload) in by_id.items():
-        c = comments.get(cid)
-        if not c:
-            continue
-        paper_id = payload.get("paper_id") or (str(c.paper_id) if c.paper_id else None)
-        paper_title = payload.get("paper_title") or (c.paper.title if c.paper else "")
-        paper_domains = payload.get("paper_domains") or (c.paper.domains if c.paper else [])
-        out.append(
-            SearchResultThread(
-                score=score,
-                paper_id=uuid.UUID(paper_id) if paper_id else c.paper_id,
-                paper_title=paper_title,
-                paper_domains=paper_domains,
-                root_comment=_comment_response(c),
-            ).model_dump()
-        )
-    return out
-
-
-async def _keyword_threads(
-    db: AsyncSession, q: str, domain_val, after, before, limit: int
-) -> list[tuple[uuid.UUID, float]]:
-    like = f"%{q.strip().lower()}%"
-    # Root comments only — matches the vector path, which indexes roots.
-    stmt = (
-        select(Comment.id)
-        .join(Paper, Comment.paper_id == Paper.id)
-        .where(
-            Comment.parent_id.is_(None),
-            public_paper_clause(),
-            func.lower(Comment.content_markdown).ilike(like),
-        )
-    )
-    if domain_val:
-        stmt = stmt.where(Paper.domains.any(domain_val))
-    if after:
-        stmt = stmt.where(Comment.created_at >= datetime.utcfromtimestamp(after))
-    if before:
-        stmt = stmt.where(Comment.created_at <= datetime.utcfromtimestamp(before))
-    stmt = stmt.limit(limit)
-    rows = (await db.execute(stmt)).all()
-    return [(r[0], _CONTAINS_SECONDARY) for r in rows]
-
-
-def _vector_threads(
-    embedding: list[float] | None, domain_val, after, before, limit: int
-) -> list[tuple[str, float, dict]]:
-    if not embedding:
-        return []
-    from app.core.qdrant import (
-        search_collection, THREADS_COLLECTION,
-        paper_domains_filter, after_filter, before_filter,
-    )
-    filters = []
-    if domain_val:
-        filters.append(paper_domains_filter(domain_val))
-    if after:
-        filters.append(after_filter("created_at", after))
-    if before:
-        filters.append(before_filter("created_at", before))
-    hits = search_collection(THREADS_COLLECTION, embedding, filters=filters or None, limit=limit)
-    return [(h["payload"]["comment_id"], float(h["score"]), h["payload"]) for h in hits]
-
-
 # ---- Actors (humans + agents) ----
 
 
@@ -304,7 +202,7 @@ async def _search_actors(
     # a keyword hit and need to hydrate from Postgres.
     by_id: dict[str, tuple[float, dict]] = {}
 
-    # Vector path: supplies karma + description directly from the Qdrant
+    # Vector path: supplies description directly from the Qdrant
     # payload so we can skip the Postgres round-trip for those rows.
     try:
         for aid, score, payload in _vector_actors(embedding, limit):
@@ -330,17 +228,16 @@ async def _search_actors(
     if needs_hydration:
         agent_t = Agent.__table__
         rows = (await db.execute(
-            select(Actor.id, Actor.name, Actor.actor_type, agent_t.c.description, agent_t.c.karma)
+            select(Actor.id, Actor.name, Actor.actor_type, agent_t.c.description)
             .join(agent_t, agent_t.c.id == Actor.id, isouter=True)
             .where(Actor.id.in_(needs_hydration), Actor.is_active.is_(True))
         )).all()
-        for aid, name, actor_type, description, karma in rows:
+        for aid, name, actor_type, description in rows:
             hydrated[str(aid)] = {
                 "actor_id": str(aid),
                 "name": name,
                 "actor_type": actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 "description": description,
-                "karma": float(karma) if karma is not None else 0.0,
             }
 
     out: list[dict] = []
@@ -355,7 +252,6 @@ async def _search_actors(
                 name=p.get("name", ""),
                 actor_type=p.get("actor_type", ""),
                 description=p.get("description"),
-                karma=p.get("karma", 0.0),
             ).model_dump()
         )
     return out
@@ -514,22 +410,8 @@ def _paper_response(paper: Paper) -> PaperResponse:
         submitter_name=paper.submitter.name if paper.submitter else None,
         preview_image_url=paper.preview_image_url,
         arxiv_id=paper.arxiv_id,
-        status=paper.status.value,
-        deliberating_at=paper.deliberating_at,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )
 
 
-def _comment_response(comment: Comment) -> CommentResponse:
-    return CommentResponse(
-        id=comment.id,
-        paper_id=comment.paper_id,
-        parent_id=comment.parent_id,
-        author_id=comment.author_id,
-        author_type=comment.author.actor_type.value if comment.author else "unknown",
-        author_name=comment.author.name if comment.author else None,
-        content_markdown=comment.content_markdown,
-        created_at=comment.created_at,
-        updated_at=comment.updated_at,
-    )

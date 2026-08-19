@@ -1,4 +1,4 @@
-"""Tests for the bulk /export/comments and /export/actors endpoints."""
+"""Tests for the bulk /export/arguments and /export/actors endpoints."""
 
 import uuid
 from httpx import AsyncClient
@@ -62,15 +62,16 @@ async def _create_agent_key(client: AsyncClient, token: str, name: str) -> str:
     return resp.json()["api_key"]
 
 
-async def _post_comment(
-    client: AsyncClient, api_key: str, paper_id: str, text: str
+async def _post_argument(
+    client: AsyncClient, api_key: str, paper_id: str, claim: str
 ) -> str:
     resp = await client.post(
-        "/api/v1/comments/",
+        "/api/v1/arguments/",
         json={
             "paper_id": paper_id,
-            "content_markdown": text,
-            "github_file_url": "https://github.com/example/agent/blob/main/logs/c.md",
+            "claim": claim,
+            "position": "negative",
+            "evidence": "Some evidence.",
         },
         headers={"Authorization": f"Bearer {api_key}"},
     )
@@ -78,8 +79,8 @@ async def _post_comment(
     return resp.json()["id"]
 
 
-async def test_export_comments_requires_auth(client: AsyncClient):
-    resp = await client.get("/api/v1/export/comments")
+async def test_export_arguments_requires_auth(client: AsyncClient):
+    resp = await client.get("/api/v1/export/arguments")
     assert resp.status_code == 401
 
 
@@ -88,16 +89,16 @@ async def test_export_actors_requires_auth(client: AsyncClient):
     assert resp.status_code == 401
 
 
-async def test_export_comments_returns_posted_comments(client: AsyncClient):
-    """Posted comments appear in /export/comments with author joined."""
+async def test_export_arguments_returns_posted_arguments(client: AsyncClient):
+    """Posted arguments appear in /export/arguments with author joined."""
     token, actor_id = await _signup_and_token(client, "exp_commenter")
     paper_id = await _submit_paper(client, token, actor_id)
     agent_key = await _create_agent_key(client, token, "exp_commenter_agent")
-    c1 = await _post_comment(client, agent_key, paper_id, "First comment.")
-    c2 = await _post_comment(client, agent_key, paper_id, "Second comment.")
+    c1 = await _post_argument(client, agent_key, paper_id, "First claim.")
+    c2 = await _post_argument(client, agent_key, paper_id, "Second claim.")
 
     resp = await client.get(
-        "/api/v1/export/comments",
+        "/api/v1/export/arguments",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
@@ -108,25 +109,24 @@ async def test_export_comments_returns_posted_comments(client: AsyncClient):
 
     by_id = {r["id"]: r for r in rows}
     assert by_id[c1]["paper_id"] == paper_id
-    assert by_id[c1]["author_type"] == "agent"
     assert by_id[c1]["author_name"] is not None
-    assert "content_markdown" in by_id[c1]
+    assert "claim" in by_id[c1]
 
 
-async def test_export_comments_pagination(client: AsyncClient):
+async def test_export_arguments_pagination(client: AsyncClient):
     """limit + offset slice the result and ordering is stable."""
     token, actor_id = await _signup_and_token(client, "exp_pager")
     paper_id = await _submit_paper(client, token, actor_id)
     agent_key = await _create_agent_key(client, token, "exp_pager_agent")
     for i in range(3):
-        await _post_comment(client, agent_key, paper_id, f"Comment {i}")
+        await _post_argument(client, agent_key, paper_id, f"Claim {i}")
 
     page1 = await client.get(
-        "/api/v1/export/comments?limit=1&offset=0",
+        "/api/v1/export/arguments?limit=1&offset=0",
         headers={"Authorization": f"Bearer {token}"},
     )
     page2 = await client.get(
-        "/api/v1/export/comments?limit=1&offset=1",
+        "/api/v1/export/arguments?limit=1&offset=1",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert page1.status_code == 200

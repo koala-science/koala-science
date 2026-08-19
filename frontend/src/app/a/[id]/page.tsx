@@ -3,7 +3,7 @@ import { getApiUrl } from '@/lib/api';
 import { timeAgo, cn } from '@/lib/utils';
 import { PostActions } from '@/components/shared/post-actions';
 import { MessageSquare, FileText, ExternalLink, Activity } from 'lucide-react';
-import { UserPapersTab, UserCommentsTab } from './user-tabs';
+import { UserPapersTab, UserArgumentsTab } from './user-tabs';
 
 const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
 
@@ -18,7 +18,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
 
   let profile: any = null;
   let papers: any[] = [];
-  let comments: any[] = [];
+  let argumentList: any[] = [];
   let forbidden = false;
 
   try {
@@ -28,12 +28,12 @@ export default async function UserProfilePage({ params, searchParams }: { params
       forbidden = true;
     } else if (profileRes.ok) {
       profile = await profileRes.json();
-      const [papersRes, commentsRes] = await Promise.all([
+      const [papersRes, argumentsRes] = await Promise.all([
         fetch(`${apiUrl}/users/${id}/papers`, { cache: 'no-store' }),
-        fetch(`${apiUrl}/users/${id}/comments`, { cache: 'no-store' }),
+        fetch(`${apiUrl}/users/${id}/arguments`, { cache: 'no-store' }),
       ]);
       if (papersRes.ok) papers = await papersRes.json();
-      if (commentsRes.ok) comments = await commentsRes.json();
+      if (argumentsRes.ok) argumentList = await argumentsRes.json();
     }
   } catch (error) {
     if (error && typeof error === 'object' && 'digest' in error && error.digest === 'DYNAMIC_SERVER_USAGE') {
@@ -53,8 +53,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
   const stats = profile.stats || {};
   const recentStats = profile.recent_stats || {};
   const recentActivitySummary = [
-    formatCount(recentStats.comments, 'comment'),
-    formatCount(recentStats.verdicts, 'verdict'),
+    formatCount(recentStats.arguments, 'argument'),
     formatCount(recentStats.papers, 'paper submitted', 'papers submitted'),
   ].filter(Boolean).join(', ');
   const recentWindowHours = recentStats.window_hours || 3;
@@ -62,13 +61,13 @@ export default async function UserProfilePage({ params, searchParams }: { params
   // Activity tab: interleave all items sorted by date
   const allActivity = [
     ...papers.map((p: any) => ({ ...p, _type: 'paper' })),
-    ...comments.map((c: any) => ({ ...c, _type: 'comment' })),
+    ...argumentList.map((a: any) => ({ ...a, _type: 'argument' })),
   ].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
   const TABS = [
     { value: 'activity', label: 'Activity', icon: Activity, count: allActivity.length },
     { value: 'papers', label: 'Papers', icon: FileText, count: papers.length },
-    { value: 'comments', label: 'Comments', icon: MessageSquare, count: comments.length },
+    { value: 'arguments', label: 'Arguments', icon: MessageSquare, count: argumentList.length },
   ];
 
   return (
@@ -129,14 +128,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
 
         {/* Activity stats */}
         <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
-          {profile.actor_type === 'agent' && profile.karma != null && (
-            <span><strong>{profile.karma.toFixed(1)}</strong> karma</span>
-          )}
-          {profile.actor_type === 'agent' && profile.strike_count != null && (
-            <span><strong>{profile.strike_count}</strong> strikes</span>
-          )}
-          {stats.comments != null && <span><strong>{stats.comments}</strong> comments</span>}
-          {stats.verdicts != null && stats.verdicts > 0 && <span><strong>{stats.verdicts}</strong> verdicts</span>}
+          {stats.arguments != null && <span><strong>{stats.arguments}</strong> arguments</span>}
           {stats.votes_cast != null && <span><strong>{stats.votes_cast}</strong> votes cast</span>}
           {stats.votes_received != null && <span><strong>{stats.votes_received}</strong> votes received</span>}
         </div>
@@ -204,9 +196,9 @@ export default async function UserProfilePage({ params, searchParams }: { params
         />
       )}
 
-      {tab === 'comments' && (
-        <UserCommentsTab
-          comments={comments}
+      {tab === 'arguments' && (
+        <UserArgumentsTab
+          arguments={argumentList}
           userId={id}
         />
       )}
@@ -233,7 +225,7 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
     && profileUserId
     && item.author_id !== profileUserId;
 
-  const typeLabel = type === 'paper' ? 'Submitted' : 'Commented';
+  const typeLabel = type === 'paper' ? 'Submitted' : 'Argued';
 
   return (
     <div className="border rounded-lg p-3">
@@ -256,11 +248,11 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
         )}
         {item.created_at && <><span>·</span><span>{timeAgo(item.created_at)}</span></>}
       </div>
-      {type !== 'paper' && item.content_preview && (
-        <p className="text-sm line-clamp-3 mt-1">{item.content_preview}</p>
+      {type !== 'paper' && item.claim && (
+        <p className="text-sm line-clamp-3 mt-1">{item.claim}</p>
       )}
       {type !== 'paper' && (
-        <Link href={`/p/${paperId}#comment-${item.id}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
+        <Link href={`/p/${paperId}#argument-${item.id}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
           on {paperTitle}
         </Link>
       )}
@@ -269,7 +261,7 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
           {paperTitle}
         </Link>
       )}
-      <PostActions paperId={paperId} commentId={type !== 'paper' ? item.id : undefined} />
+      <PostActions paperId={paperId} argumentId={type !== 'paper' ? item.id : undefined} />
     </div>
   );
 }

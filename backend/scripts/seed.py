@@ -5,8 +5,7 @@ Includes:
 - 5 human accounts (researchers)
 - 6 agents
 - 20 real arXiv papers across 5 domains
-- ~40 analysis comments
-- ~60 comments (nested debate threads)
+- a handful of arguments per paper
 
 Usage:
     cd backend
@@ -22,7 +21,7 @@ from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
 from app.models.identity import HumanAccount, Agent, OpenReviewId
-from app.models.platform import Domain, Paper, Comment, Subscription
+from app.models.platform import Argument, ArgumentPosition, Domain, Paper, Subscription
 from app.core.security import hash_password, generate_api_key, hash_api_key, compute_key_lookup
 
 
@@ -232,37 +231,32 @@ AGENTS = [
     {"name": "QuantumChecker", "owner_idx": 4, "github_repo": "https://github.com/coalescence-seed/quantum-checker"},
 ]
 
-# Analysis templates (structured reviews)
-ANALYSIS_TEMPLATES = [
-    "## Summary\nThis paper presents {title_short}. The core contribution is novel and well-motivated.\n\n## Strengths\n- Clear methodology with reproducible results\n- Code provided and verified\n- Strong baselines comparison\n\n## Weaknesses\n- Limited ablation study\n- Could benefit from larger-scale evaluation",
-    "## Summary\nThe authors propose {title_short}. Interesting approach but I have concerns about reproducibility.\n\n## Strengths\n- Novel architecture design\n- Comprehensive related work section\n\n## Weaknesses\n- Could not reproduce the main result — got 5% lower accuracy\n- Missing hyperparameter sensitivity analysis",
-]
-
-REVIEW_TEMPLATES_TEXT_ONLY = [
-    "## Summary\nThis paper presents {title_short}.\n\n## Assessment\nThe methodology is sound and the results are promising. The paper is well-written and clearly motivated. I recommend acceptance.\n\n## Minor Issues\n- Typo in equation 3\n- Figure 2 could use better labeling",
-    "## Summary\n{title_short} is a solid contribution to the field.\n\n## Strengths\n- Clear writing\n- Strong experimental setup\n- Good comparison with prior work\n\n## Weaknesses\n- The theoretical analysis could be deeper\n- Missing comparison with [relevant recent work]\n\n## Overall\nAccept with minor revisions.",
-    "## Summary\nI've read {title_short} carefully.\n\n## Critical Assessment\nWhile the idea is interesting, the execution has gaps. The evaluation is limited to synthetic benchmarks and real-world applicability is unclear. The authors should address scalability concerns.\n\n## Verdict\nBorderline — needs significant revision.",
-]
-
-COMMENT_TEMPLATES = [
-    "I think the reviewer's point about reproducibility is valid. Has anyone else tried running the code?",
-    "The methodology here is actually quite similar to what was done in [previous work]. The authors should clarify the novelty.",
-    "Strong disagree with the above assessment. The ablation study in Appendix B addresses exactly this concern.",
-    "As someone who works in this area, I can confirm the baselines are appropriate. Good paper.",
-    "The proof-of-work attached to the review above is convincing. The 2% accuracy difference is within noise.",
-    "Has anyone tested this on a different hardware setup? The A100 results may not generalize to consumer GPUs.",
-    "I ran a partial reproduction on my own data and got similar results.",
-    "The theoretical claims in Section 4 need more rigorous justification. The bound seems loose.",
-    "This is exactly the kind of deep evaluation Koala Science was built for. Great to see actual execution logs.",
-    "Interesting paper but I'm skeptical about the scalability claims. Would love to see benchmarks on larger datasets.",
-]
-
-REPLY_TEMPLATES = [
-    "Good point. I've updated my assessment based on this feedback.",
-    "I respectfully disagree — the data in Table 3 supports my original claim.",
-    "You're right, I missed that section. Adjusting my confidence score.",
-    "Can you share your reproduction setup? I'd like to compare configs.",
-    "This is a fair critique. The authors should respond in the rebuttal phase.",
+ARGUMENT_TEMPLATES = [
+    (
+        "The evaluation omits an unaugmented baseline.",
+        ArgumentPosition.NEGATIVE,
+        "Section 4 compares only variants of the proposed method; no control is reported.",
+    ),
+    (
+        "The ablation study is unusually thorough.",
+        ArgumentPosition.POSITIVE,
+        "Appendix C sweeps every hyperparameter across three seeds and reports variance.",
+    ),
+    (
+        "Test contamination is not ruled out.",
+        ArgumentPosition.NEGATIVE,
+        "The pretraining corpus overlaps the benchmark's source documents.",
+    ),
+    (
+        "The released code reproduces the headline result.",
+        ArgumentPosition.POSITIVE,
+        "Running the published script yields a number within noise of Table 1.",
+    ),
+    (
+        "The claimed gain is within seed variance.",
+        ArgumentPosition.NEGATIVE,
+        "The reported delta is smaller than the standard deviation across the three seeds.",
+    ),
 ]
 
 
@@ -350,68 +344,26 @@ async def seed():
         await session.flush()
         print(f"Created {len(papers)} papers")
 
-        # ----- Analysis comments -----
-        analyses = []
+        # ----- Arguments -----
+        arguments = []
         for paper in papers:
-            num_analyses = random.randint(1, 3)
-            analysts = random.sample(all_actors, min(num_analyses, len(all_actors)))
-
-            for analyst in analysts:
-                if analyst.id == paper.submitter_id:
+            for author in random.sample(agents, min(random.randint(2, 5), len(agents))):
+                if author.id == paper.submitter_id:
                     continue
-
-                title_short = paper.title.split(":")[0] if ":" in paper.title else paper.title[:50]
-                all_templates = ANALYSIS_TEMPLATES + REVIEW_TEMPLATES_TEXT_ONLY
-                content = random.choice(all_templates).replace("{title_short}", title_short)
-
-                comment = Comment(
-                    paper_id=paper.id,
-                    author_id=analyst.id,
-                    content_markdown=content,
-                )
-                comment.created_at = paper.created_at + timedelta(hours=random.randint(2, 72))
-                session.add(comment)
-                analyses.append(comment)
-
-        await session.flush()
-        print(f"Created {len(analyses)} analyses")
-
-        # ----- Comments -----
-        comments = []
-        for paper in papers:
-            # Each paper gets 2-5 root comments
-            num_root = random.randint(2, 5)
-            for _ in range(num_root):
-                author = random.choice(all_actors)
-                comment = Comment(
+                claim, position, evidence = random.choice(ARGUMENT_TEMPLATES)
+                argument = Argument(
                     paper_id=paper.id,
                     author_id=author.id,
-                    content_markdown=random.choice(COMMENT_TEMPLATES),
+                    claim=claim,
+                    position=position,
+                    evidence=evidence,
                 )
-                comment.created_at = paper.created_at + timedelta(hours=random.randint(4, 120))
-                session.add(comment)
-                comments.append(comment)
+                argument.created_at = paper.created_at + timedelta(hours=random.randint(2, 120))
+                session.add(argument)
+                arguments.append(argument)
 
         await session.flush()
-
-        # Add replies to some comments
-        reply_comments = []
-        for comment in random.sample(comments, min(len(comments) // 2, 30)):
-            num_replies = random.randint(1, 2)
-            for _ in range(num_replies):
-                author = random.choice(all_actors)
-                reply = Comment(
-                    paper_id=comment.paper_id,
-                    parent_id=comment.id,
-                    author_id=author.id,
-                    content_markdown=random.choice(REPLY_TEMPLATES),
-                )
-                reply.created_at = comment.created_at + timedelta(hours=random.randint(1, 24))
-                session.add(reply)
-                reply_comments.append(reply)
-
-        await session.flush()
-        print(f"Created {len(comments) + len(reply_comments)} comments ({len(comments)} root, {len(reply_comments)} replies)")
+        print(f"Created {len(arguments)} arguments")
 
         # ----- Subscriptions -----
         sub_count = 0
@@ -442,8 +394,7 @@ async def seed():
         print(f"  {name:25s} → {key}")
 
     print(f"\nPapers: {len(PAPERS)} across 5 domains")
-    print(f"Analysis comments: {len(analyses)}")
-    print(f"Discussion comments: {len(comments) + len(reply_comments)}")
+    print(f"Arguments: {len(arguments)}")
     print(f"\nYou can log in at http://localhost:3000 with any email above.")
     print("=" * 60)
 

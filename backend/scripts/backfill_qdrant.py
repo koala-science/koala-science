@@ -15,11 +15,10 @@ from sqlalchemy.orm import joinedload
 
 from app.db.session import AsyncSessionLocal
 from app.models.identity import Actor, Agent
-from app.models.platform import Paper, Comment, Domain
+from app.models.platform import Paper, Domain
 from app.core.qdrant import (
     ensure_collections,
     PAPERS_COLLECTION,
-    THREADS_COLLECTION,
     ACTORS_COLLECTION,
     DOMAINS_COLLECTION,
     batch_upsert,
@@ -82,67 +81,16 @@ async def backfill():
             else:
                 print("No paper embeddings generated")
 
-        # --- Threads (root comments) ---
-        print("\n--- Threads ---")
-        result = await session.execute(
-            select(Comment)
-            .options(joinedload(Comment.author), joinedload(Comment.paper))
-            .where(Comment.parent_id.is_(None))
-        )
-        comments = result.scalars().unique().all()
-        print(f"Found {len(comments)} root comments")
-
-        if comments:
-            from app.core.thread_assembler import assemble_thread_text
-
-            thread_data = []
-            thread_texts = []
-            for c in comments:
-                # Assemble thread text for embedding
-                text = f"{c.paper.title if c.paper else ''}\n\n{c.content_markdown or ''}"
-                thread_texts.append(text)
-                thread_data.append(c)
-
-            print(f"Generating embeddings for {len(thread_texts)} threads...")
-            embeddings = await generate_embeddings_batch(thread_texts)
-
-            points = []
-            for c, emb in zip(thread_data, embeddings):
-                if emb is None:
-                    continue
-                created_at = int(c.created_at.timestamp()) if c.created_at else 0
-                points.append(qmodels.PointStruct(
-                    id=str(c.id),
-                    vector=emb,
-                    payload={
-                        "comment_id": str(c.id),
-                        "paper_id": str(c.paper_id),
-                        "paper_title": c.paper.title if c.paper else "",
-                        "paper_domains": c.paper.domains if c.paper else [],
-                        "author_id": str(c.author_id),
-                        "author_name": c.author.name if c.author else "",
-                        "content_preview": (c.content_markdown or "")[:500],
-                        "created_at": created_at,
-                    },
-                ))
-
-            if points:
-                count = batch_upsert(THREADS_COLLECTION, points)
-                print(f"Upserted {count} threads to Qdrant")
-            else:
-                print("No thread embeddings generated")
-
         # --- Actors ---
         print("\n--- Actors ---")
         result = await session.execute(select(Actor))
         actors = result.scalars().all()
 
         desc_result = await session.execute(
-            select(Agent.id, Agent.description, Agent.karma)
+            select(Agent.id, Agent.description)
         )
-        agent_meta = {str(row[0]): {"desc": row[1] or "", "karma": row[2]} for row in desc_result.all()}
+        agent_meta = {str(row[0]): {"desc": row[1] or ""} for row in desc_result.all()}
         descriptions = {k: v["desc"] for k, v in agent_meta.items()}
-        karma_map = {k: v["karma"] for k, v in agent_meta.items()}
 
         print(f"Found {len(actors)} actors")
 
@@ -163,7 +111,6 @@ async def backfill():
                 if emb is None:
                     continue
                 created_at = int(a.created_at.timestamp()) if a.created_at else 0
-                karma = karma_map.get(str(a.id), 0.0)
                 points.append(qmodels.PointStruct(
                     id=str(a.id),
                     vector=emb,
@@ -172,7 +119,6 @@ async def backfill():
                         "name": a.name,
                         "actor_type": a.actor_type.value,
                         "description": (desc or "")[:1000],
-                        "karma": karma,
                         "created_at": created_at,
                     },
                 ))
@@ -229,7 +175,7 @@ async def backfill():
     client = get_client()
     print("\n" + "=" * 60)
     print("Backfill complete. Collection counts:")
-    for name in [PAPERS_COLLECTION, THREADS_COLLECTION, ACTORS_COLLECTION, DOMAINS_COLLECTION]:
+    for name in [PAPERS_COLLECTION, ACTORS_COLLECTION, DOMAINS_COLLECTION]:
         info = client.get_collection(name)
         print(f"  {name}: {info.points_count} points")
     print("=" * 60)

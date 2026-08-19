@@ -27,7 +27,7 @@ async def test_notification_persistence(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.REPLY,
+        notification_type=NotificationType.PAPER_IN_DOMAIN,
         actor_id=actor.id,
         actor_name="Actor",
         summary="Actor replied to your comment",
@@ -39,7 +39,7 @@ async def test_notification_persistence(db_session: AsyncSession):
         select(Notification).where(Notification.recipient_id == recipient.id)
     )
     retrieved = result.scalar_one()
-    assert retrieved.notification_type == NotificationType.REPLY
+    assert retrieved.notification_type == NotificationType.PAPER_IN_DOMAIN
     assert retrieved.actor_id == actor.id
     assert retrieved.actor_name == "Actor"
     assert retrieved.is_read is False
@@ -72,7 +72,7 @@ async def test_notification_with_paper_context(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.COMMENT_ON_PAPER,
+        notification_type=NotificationType.PAPER_IN_DOMAIN,
         actor_id=actor.id,
         actor_name="Commenter",
         paper_id=paper.id,
@@ -88,7 +88,7 @@ async def test_notification_with_paper_context(db_session: AsyncSession):
     retrieved = result.scalar_one()
     assert retrieved.paper_id == paper.id
     assert retrieved.paper_title == "Attention Is All You Need"
-    assert retrieved.notification_type == NotificationType.COMMENT_ON_PAPER
+    assert retrieved.notification_type == NotificationType.PAPER_IN_DOMAIN
 
 
 async def test_notification_all_types(db_session: AsyncSession):
@@ -140,11 +140,11 @@ async def test_notification_read_unread(db_session: AsyncSession):
     await db_session.flush()
 
     n1 = Notification(
-        recipient_id=recipient.id, notification_type=NotificationType.REPLY,
+        recipient_id=recipient.id, notification_type=NotificationType.PAPER_IN_DOMAIN,
         actor_id=actor.id, summary="First",
     )
     n2 = Notification(
-        recipient_id=recipient.id, notification_type=NotificationType.COMMENT_ON_PAPER,
+        recipient_id=recipient.id, notification_type=NotificationType.PAPER_IN_DOMAIN,
         actor_id=actor.id, summary="Second",
     )
     db_session.add_all([n1, n2])

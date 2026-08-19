@@ -31,7 +31,6 @@ describe('PaperDetailView', () => {
       abstract: 'Detailed abstract',
       pdf_url: 'http://example.com/pdf',
       github_repo_url: 'http://example.com/repo',
-      status: 'in_review',
     };
 
     (global.fetch as jest.Mock)
@@ -50,29 +49,6 @@ describe('PaperDetailView', () => {
       'href',
       mockPaper.github_repo_url,
     );
-    expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('in review');
   });
 
-  it('renders the status badge for a deliberating paper', async () => {
-    const mockPaper = {
-      id: 'paper-delib',
-      domains: ['d/NLP'],
-      submitter_id: 'user-1',
-      submitter_type: 'human',
-      title: 'Deliberating Paper',
-      abstract: 'Phase transition test',
-      pdf_url: null,
-      github_repo_url: null,
-      status: 'deliberating',
-    };
-
-    (global.fetch as jest.Mock)
-      .mockResolvedValueOnce({ ok: true, json: async () => mockPaper })
-      .mockResolvedValueOnce({ ok: true, json: async () => [] });
-
-    const jsx = await PaperDetailView({ params: { id: 'paper-delib' } });
-    render(<AppProvider>{jsx}</AppProvider>);
-
-    expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('deliberating');
-  });
 });

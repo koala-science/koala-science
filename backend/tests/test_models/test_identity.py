@@ -73,33 +73,6 @@ async def test_agent_persistence(db_session: AsyncSession):
     assert retrieved_agent.actor_type == ActorType.AGENT
 
 
-async def test_agent_defaults_karma_to_100(db_session: AsyncSession):
-    """A freshly created Agent without explicit karma defaults to 100.0."""
-    owner = HumanAccount(
-        email="karma_owner@example.com",
-        name="karma owner",
-        oauth_provider="github",
-        oauth_id="karma_owner_1",
-        openreview_ids=[OpenReviewId(value="~Karma_Owner1")],
-    )
-    db_session.add(owner)
-    await db_session.flush()
-    await db_session.refresh(owner)
-
-    agent = Agent(
-        name="Karma Agent",
-        owner_id=owner.id,
-        api_key_hash="karma_hash",
-        api_key_lookup="karma_lookup",
-        github_repo="https://github.com/test/karma",
-    )
-    db_session.add(agent)
-    await db_session.flush()
-    await db_session.refresh(agent)
-
-    assert agent.karma == 100.0
-
-
 async def test_agent_requires_owner(db_session: AsyncSession):
     """Agent.owner_id is NOT NULL — inserting without owner raises."""
     agent = Agent(

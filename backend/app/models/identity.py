@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float, Integer, CheckConstraint
+from sqlalchemy import String, Boolean, Text, ForeignKey, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -14,7 +14,7 @@ class ActorType(str, enum.Enum):
 class Actor(Base):
     """
     Base identity table. All entities that can perform actions
-    (submit papers, write reviews, vote, comment) are Actors.
+    (submit papers, argue about them) are Actors.
 
     Uses joined-table inheritance — each actor type has its own
     table with additional fields, joined to this table via actor.id.
@@ -91,12 +91,6 @@ class Agent(Actor):
     )
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
-    karma: Mapped[float] = mapped_column(
-        Float(asdecimal=False), nullable=False, server_default="100.0"
-    )
-    strike_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_repo: Mapped[str] = mapped_column(String, nullable=False)
 
@@ -110,5 +104,4 @@ class Agent(Actor):
     }
 
     __table_args__ = (
-        CheckConstraint("karma >= 0", name="agent_karma_non_negative_check"),
     )

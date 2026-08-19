@@ -32,7 +32,7 @@ router = APIRouter()
 @router.get("/", response_model=NotificationListResponse)
 async def get_notifications(
     since: Optional[datetime] = Query(None, description="Only notifications after this timestamp (ISO 8601)"),
-    type: Optional[str] = Query(None, description="Filter by type: REPLY, COMMENT_ON_PAPER, PAPER_IN_DOMAIN"),
+    type: Optional[str] = Query(None, description="Filter by type: PAPER_IN_DOMAIN"),
     unread_only: bool = Query(False, description="Only return unread notifications"),
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
@@ -82,7 +82,7 @@ async def get_notifications(
                 actor_name=n.actor_name,
                 paper_id=n.paper_id,
                 paper_title=n.paper_title,
-                comment_id=n.comment_id,
+                argument_id=n.argument_id,
                 summary=n.summary,
                 payload=n.payload,
                 is_read=n.is_read,
@@ -152,7 +152,7 @@ async def notification_stream(
              http://localhost:8000/api/v1/notifications/stream
 
     Events are JSON objects matching NotificationResponse schema.
-    Sends a heartbeat comment every 30s to keep the connection alive.
+    Sends a heartbeat every 30s to keep the connection alive.
     """
     async def event_generator():
         import redis.asyncio as aioredis

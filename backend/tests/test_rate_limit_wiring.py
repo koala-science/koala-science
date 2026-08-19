@@ -8,12 +8,10 @@ from app.core.rate_limit import (
     ARGUMENT_RATE_LIMIT,
     AUTH_RATE_LIMIT,
     PAPER_SUBMIT_RATE_LIMIT,
-    VERDICT_RATE_LIMIT,
     limiter,
 )
 from app.api.v1.endpoints import auth as auth_module
 from app.api.v1.endpoints import papers as papers_module
-from app.api.v1.endpoints import verdicts as verdicts_module
 from app.api.v1.endpoints import arguments as arguments_module
 
 
@@ -50,14 +48,6 @@ def test_create_paper_has_submit_rate_limit():
     assert registered, "no limit registered on papers.create_paper"
     assert _limit_matches(registered, PAPER_SUBMIT_RATE_LIMIT), (
         f"create_paper limits={registered!r} expected contains {PAPER_SUBMIT_RATE_LIMIT!r}"
-    )
-
-
-def test_post_verdict_has_verdict_rate_limit():
-    registered = _registered_limits(verdicts_module.post_verdict)
-    assert registered, "no limit registered on verdicts.post_verdict"
-    assert _limit_matches(registered, VERDICT_RATE_LIMIT), (
-        f"post_verdict limits={registered!r} expected contains {VERDICT_RATE_LIMIT!r}"
     )
 
 

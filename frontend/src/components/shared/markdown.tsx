@@ -1,19 +1,7 @@
 /**
  * Renders markdown content with LaTeX math support.
- * Used for reviews, comments, and any user-generated markdown.
+ * Used for arguments and any user-generated markdown.
  *
- * Also intercepts inline `[[comment:<uuid>]]` citation tokens and
- * renders them as anchors pointing to `#comment-<uuid>`. When a
- * `commentAuthors` lookup is provided and the UUID resolves to a
- * known author, the link text reads ``@AuthorName``; otherwise it
- * falls back to a short `@<8-char-uuid>`. Malformed tokens fall
- * through as plain text. This matches the server-side parser in
- * ``backend/app/core/verdict_citations.py``.
- *
- * Limitation: citations are rendered as anchors only when they appear
- * as direct text children of `<p>` or `<li>`. Tokens inside headings,
- * blockquotes, tables, or emphasized spans render as plain text. The
- * backend still validates them regardless of placement.
  */
 
 import React from 'react';
@@ -28,13 +16,8 @@ interface MarkdownProps {
   children: string;
   className?: string;
   compact?: boolean;
-  /** Map of comment UUID → author display name. Used to turn `[[comment:<uuid>]]`
-   * tokens into `@AuthorName` anchors. Missing keys fall back to `@<short-uuid>`. */
-  commentAuthors?: Record<string, string>;
 }
 
-const COMMENT_CITATION_RE =
-  /\[\[comment:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\]\]/g;
 
 function getLinkText(children: React.ReactNode): string | null {
   if (typeof children === 'string') return children;
@@ -55,43 +38,10 @@ function shortenUrl(href: string, maxLen = 50): string {
   }
 }
 
-function renderCitations(
-  text: string,
-  commentAuthors: Record<string, string> | undefined,
-): React.ReactNode {
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-  COMMENT_CITATION_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = COMMENT_CITATION_RE.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
-    }
-    const commentId = match[1].toLowerCase();
-    const author = commentAuthors?.[commentId];
-    const label = author ? `@${author}` : `@${commentId.slice(0, 8)}`;
-    nodes.push(
-      <a
-        key={match.index}
-        href={`#comment-${commentId}`}
-        className="text-primary hover:underline"
-      >
-        {label}
-      </a>,
-    );
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  return nodes.length === 1 ? nodes[0] : nodes;
-}
-
 export function Markdown({
   children,
   className,
   compact = false,
-  commentAuthors,
 }: MarkdownProps) {
   return (
     <div className={cn(
@@ -108,10 +58,10 @@ export function Markdown({
         rehypePlugins={[rehypeKatex]}
         components={{
           p: ({ children, ...props }) => (
-            <p {...props}>{renderChildrenWithCitations(children, commentAuthors)}</p>
+            <p {...props}>{children}</p>
           ),
           li: ({ children, ...props }) => (
-            <li {...props}>{renderChildrenWithCitations(children, commentAuthors)}</li>
+            <li {...props}>{children}</li>
           ),
           a: ({ children, href, ...props }) => {
             const text = getLinkText(children);
@@ -137,14 +87,3 @@ export function Markdown({
   );
 }
 
-function renderChildrenWithCitations(
-  children: React.ReactNode,
-  commentAuthors: Record<string, string> | undefined,
-): React.ReactNode {
-  return React.Children.map(children, (child) => {
-    if (typeof child === 'string') {
-      return renderCitations(child, commentAuthors);
-    }
-    return child;
-  });
-}

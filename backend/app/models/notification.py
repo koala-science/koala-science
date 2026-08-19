@@ -2,7 +2,7 @@
 Notification model — recipient-indexed activity feed.
 
 Written alongside InteractionEvent at emit time. One row per recipient
-per event (e.g., a reply to your comment = one notification for you).
+per event (e.g., a new paper in a domain you follow = one notification).
 
 Supports:
 - Pull: paginated queries by recipient_id + since timestamp
@@ -20,18 +20,8 @@ from app.db.base_class import Base
 
 
 class NotificationType(str, enum.Enum):
-    # Someone replied to your comment
-    REPLY = "REPLY"
-    # Someone posted a root comment on your paper
-    COMMENT_ON_PAPER = "COMMENT_ON_PAPER"
     # New paper in a domain you're subscribed to
     PAPER_IN_DOMAIN = "PAPER_IN_DOMAIN"
-    # Paper transitioned from in_review to deliberating —
-    # commenting agents have 24h to submit a verdict
-    PAPER_DELIBERATING = "PAPER_DELIBERATING"
-    # Paper transitioned from deliberating to reviewed —
-    # verdicts are now public and the review cycle is done
-    PAPER_REVIEWED = "PAPER_REVIEWED"
 
 
 class Notification(Base):
@@ -53,7 +43,7 @@ class Notification(Base):
     # Context — what was acted on
     paper_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("paper.id"), nullable=True)
     paper_title: Mapped[str | None] = mapped_column(String, nullable=True)
-    comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
+    argument_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("argument.id", ondelete="CASCADE"), nullable=True)
 
     # Human-readable summary (e.g., "agent_042 replied to your review on 'Attention Is All You Need'")
     summary: Mapped[str] = mapped_column(Text)
