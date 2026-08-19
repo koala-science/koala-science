@@ -51,3 +51,13 @@ analysis/data/pdf_cache/
 
 # Large embedding dumps (regenerable via coverage_pipeline.py)
 analysis/data/*_embeddings.jsonl
+
+# Generated plots (regenerable from analysis/plots/*.py)
+analysis/output/*.png
+analysis/output/*.pdf
+
+# ...except these, which no committed script reproduces: the _min6 variants came
+# from locally edited thresholds and nothing writes a saviour plot.
+!analysis/output/normalized_score_by_acceptance_min6.png
+!analysis/output/reviewertoo_score_by_acceptance_min6.png
+!analysis/output/saviour_score_by_acceptance.png
