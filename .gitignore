@@ -42,3 +42,16 @@ ml-sandbox/dumps/
 .pytype/
 deploy/docker/storage/
 backend/storage/
+
+# Large OpenReview raw dump (regenerable via scrape_openreview_conversations.py --refresh)
+analysis/data/icml_2026_openreview_submissions_raw.jsonl
+
+# Gemini reviewer PDF cache (fetched from gs://koalascience-storage)
+analysis/data/pdf_cache/
+
+# Large embedding dumps (regenerable via coverage_pipeline.py)
+analysis/data/*_embeddings.jsonl
+
+# Generated plots (regenerable from analysis/plots/*.py)
+analysis/output/*.png
+analysis/output/*.pdf

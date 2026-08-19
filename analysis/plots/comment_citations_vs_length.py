@@ -1,10 +1,12 @@
-"""Scatter: verdict citations received vs comment length (chars).
+"""Comment length distribution: cited vs never-cited comments.
 
-Each point = one comment. Citation count comes from verdict_citation
-rows pointing at the comment (a verdict cites a comment when its
-author drew from it for their final ruling). Most comments have 0
-citations because they're on papers that never reached deliberation
-or were never cited.
+Each comment is either cited by >=1 verdict (verdict_citation rows pointing
+at it, drawn on by a verdict author for their final ruling) or never cited.
+Box plots (with the underlying comments as jittered dots) compare the length
+distributions of these two groups, tested with a t-test on log-transformed
+length -- simpler to explain than a rank-based test, and log-transforming a
+right-skewed length distribution roughly normalizes it (same reasoning as the
+log x-axis already used here).
 
 Run from the analysis/ directory:
     .venv/bin/python plots/comment_citations_vs_length.py
@@ -15,6 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import psycopg
+from scipy import stats
 
 DB = "postgresql:///coalescence_snapshot"
 OUT = Path(__file__).parent.parent / "output" / "comment_citations_vs_length.png"
@@ -31,33 +34,39 @@ with psycopg.connect(DB) as conn, conn.cursor() as cur:
     cur.execute(QUERY)
     df = pd.DataFrame(cur.fetchall(), columns=[c.name for c in cur.description])
 
-cited = df[df.citation_count > 0]
-print(f"comments: {len(df)}  (with ≥1 citation: {len(cited)}, {len(cited) / len(df):.1%})")
-print(f"length_chars: min={df.length_chars.min()}, max={df.length_chars.max()}, median={df.length_chars.median()}")
-print(f"citation_count: max={df.citation_count.max()}, mean={df.citation_count.mean():.2f}, "
-      f"mean (cited only)={cited.citation_count.mean():.2f}")
+cited = df[df.citation_count > 0].length_chars
+uncited = df[df.citation_count == 0].length_chars
+print(f"comments: {len(df)}  (cited: {len(cited)}, {len(cited) / len(df):.1%}; "
+      f"uncited: {len(uncited)}, {len(uncited) / len(df):.1%})")
+print(f"median length -- cited: {cited.median():.0f}  uncited: {uncited.median():.0f}")
 
-spearman = df.length_chars.corr(df.citation_count, method="spearman")
-print(f"spearman ρ (all comments): {spearman:+.3f}")
+t_stat, pval = stats.ttest_ind(np.log10(cited), np.log10(uncited))
+print(f"t-test on log10(length) = {t_stat:.2f}  p={pval:.2g}")
 
-fig, ax = plt.subplots(figsize=(10, 6))
-# Tiny jitter on y so 0/1/2 don't fully overlap; shifts < 0.3 stay readable.
-y_jitter = df.citation_count + np.random.uniform(-0.15, 0.15, size=len(df))
-ax.scatter(df.length_chars, y_jitter, alpha=0.15, s=10, edgecolor="none", color="steelblue")
+fig, ax = plt.subplots(figsize=(10, 2.5))
+for y, group in [(1, uncited), (2, cited)]:
+    y_jitter = y + np.random.uniform(-0.28, 0.28, size=len(group))
+    ax.scatter(group, y_jitter, alpha=0.15, s=10, edgecolor="none", color="steelblue", zorder=1)
 
-ax.text(
-    0.02, 0.97,
-    f"Spearman ρ = {spearman:+.3f}\n(all comments, n={len(df)})",
-    transform=ax.transAxes, va="top", ha="left",
-    fontsize=11,
-    bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="0.6", alpha=0.9),
+ax.boxplot(
+    [uncited, cited],
+    vert=False,
+    tick_labels=["No citations", "≥1 citation"],
+    widths=0.55,
+    patch_artist=True,
+    showfliers=False,
+    boxprops=dict(facecolor="#cfe0f3", edgecolor="steelblue", linewidth=1.5, alpha=0.85),
+    medianprops=dict(color="crimson", linewidth=2.5),
+    whiskerprops=dict(color="steelblue"),
+    capprops=dict(color="steelblue"),
+    zorder=2,
 )
 
 ax.set_xscale("log")
-ax.set_xlabel("Comment length (chars, log scale)")
-ax.set_ylabel("Citations received in verdicts")
-ax.set_title(f"Citations vs comment length — {len(df)} comments ({len(cited)} cited)")
-ax.grid(alpha=0.3)
+ax.set_xlabel("Comment length", fontsize=16)
+ax.set_title("Comment length in cited and non-cited comments", fontsize=17)
+ax.tick_params(labelsize=13)
+ax.grid(alpha=0.3, axis="x")
 
 OUT.parent.mkdir(exist_ok=True)
 fig.tight_layout()

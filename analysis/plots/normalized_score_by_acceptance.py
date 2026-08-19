@@ -1,15 +1,17 @@
 """Per-agent-normalized avg paper score, split by ICML 2026 acceptance.
 
-Among the 376 papers reviewed on koala-science, ~107 made it into
-ICML 2026 (matched by title). Plot the per-agent-normalized
-avg-score distribution for the two cohorts and run a t-test +
-KS-test on the difference.
+Among the 376 papers reviewed on koala-science, ~119 were accepted at
+ICML 2026. Acceptance is taken from the authoritative OpenReview venue
+field (regular/spotlight = accept) via the paper->forum match table
+``data/icml_2026_paper_openreview_match.jsonl`` — this replaces the old
+title-list match, which mislabeled papers renamed between arxiv and
+OpenReview as rejects. Plot the per-agent-normalized avg-score
+distribution for the two cohorts and run a t-test + KS-test.
 
 Run from the analysis/ directory:
     .venv/bin/python plots/normalized_score_by_acceptance.py
 """
 import json
-import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -19,15 +21,9 @@ import psycopg
 from scipy import stats
 
 DB = "postgresql:///coalescence_snapshot"
-ICML_FILE = Path(__file__).parent.parent / "data" / "icml_2026_accepted.jsonl"
+MATCH_FILE = Path(__file__).parent.parent / "data" / "icml_2026_paper_openreview_match.jsonl"
 OUT = Path(__file__).parent.parent / "output" / "normalized_score_by_acceptance.png"
 MIN_VERDICTS_TO_NORMALIZE = 5
-
-
-def norm(s: str) -> str:
-    s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 # 1. Pull verdicts on reviewed papers + paper titles
@@ -41,16 +37,18 @@ with psycopg.connect(DB) as conn, conn.cursor() as cur:
 
 print(f"verdicts on reviewed papers: {len(df)}")
 
-# 2. Build accepted-title set from ICML 2026 list
-accepted_titles = set()
-with ICML_FILE.open() as f:
+# 2. Acceptance from the OpenReview venue field (paper_id -> accepted)
+accepted_by_pid = {}
+with MATCH_FILE.open() as f:
     for line in f:
-        accepted_titles.add(norm(json.loads(line)["title"]))
-print(f"ICML 2026 accepted titles: {len(accepted_titles)}")
+        rec = json.loads(line)
+        accepted_by_pid[rec["paper_id"]] = rec["accepted"]
+print(f"ICML 2026 accepted (OpenReview venue): {sum(accepted_by_pid.values())}")
 
 # 3. Per-agent normalization, same as the prior plot
-raw_avg = df.groupby("paper_id").score.mean()
-target_mean, target_std = raw_avg.mean(), raw_avg.std()
+df["score"] = 1.0 + df["score"] * 0.5  # rescale raw 0–10 to 1–6
+
+target_mean, target_std = 3.0, 1.0
 agent_stats = df.groupby("agent_id").score.agg(["mean", "std", "count"])
 
 def adjust(row):
@@ -68,7 +66,7 @@ per_paper = df.groupby(["paper_id", "title"]).agg(
     adjusted=("adjusted", "mean"),
     n_verdicts=("score", "size"),
 ).reset_index()
-per_paper["accepted"] = per_paper.title.apply(lambda t: norm(t) in accepted_titles)
+per_paper["accepted"] = per_paper.paper_id.map(accepted_by_pid)
 
 before = len(per_paper)
 per_paper = per_paper[per_paper.n_verdicts >= MIN_VERDICTS_PER_PAPER]
@@ -78,7 +76,11 @@ n_accept = int(per_paper.accepted.sum())
 n_reject = int((~per_paper.accepted).sum())
 print(f"\nreviewed papers: {len(per_paper)}")
 print(f"  accepted at ICML 2026:      {n_accept}")
-print(f"  not in our ICML 2026 list:  {n_reject}")
+print(f"  not accepted at ICML 2026:  {n_reject}")
+
+ICML_ACCEPT_RATE = 0.266
+top_cutoff = per_paper.adjusted.quantile(1 - ICML_ACCEPT_RATE)
+print(f"\ntop {ICML_ACCEPT_RATE*100:.1f}% cutoff (all reviewed papers): {top_cutoff:.3f}")
 
 acc = per_paper.loc[per_paper.accepted, "adjusted"]
 rej = per_paper.loc[~per_paper.accepted, "adjusted"]
@@ -94,7 +96,7 @@ print(f"KS 2-sample:   D={ks_stat:.3f}, p={ks_p:.2e}")
 # 5. Plot
 fig, ax = plt.subplots(figsize=(11, 6))
 bins = np.linspace(per_paper.adjusted.min() - 0.1, per_paper.adjusted.max() + 0.1, 31)
-ax.hist(rej, bins=bins, alpha=0.5, label=f"not in ICML 2026 (n={n_reject})",
+ax.hist(rej, bins=bins, alpha=0.5, label=f"not accepted at ICML 2026 (n={n_reject})",
         color="steelblue", edgecolor="white", density=True)
 ax.hist(acc, bins=bins, alpha=0.5, label=f"accepted at ICML 2026 (n={n_accept})",
         color="crimson", edgecolor="white", density=True)
@@ -102,6 +104,8 @@ ax.axvline(rej.mean(), color="steelblue", linestyle="--", linewidth=1.2,
            label=f"reject mean = {rej.mean():.2f}")
 ax.axvline(acc.mean(), color="crimson", linestyle="--", linewidth=1.2,
            label=f"accept mean = {acc.mean():.2f}")
+ax.axvline(top_cutoff, color="black", linestyle=":", linewidth=1.6,
+           label=f"top {ICML_ACCEPT_RATE*100:.1f}% cutoff = {top_cutoff:.2f}")
 
 stats_text = (
     f"Welch t: t={t_stat:+.2f}, p={t_p:.2e}\n"
