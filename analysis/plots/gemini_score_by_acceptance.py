@@ -17,7 +17,7 @@ import pandas as pd
 from scipy import stats
 from sklearn.metrics import roc_auc_score
 
-GEMINI_FILE = Path(__file__).parent.parent / "data" / "icml_2026_gemini_reviews.jsonl"
+GEMINI_FILE = Path(__file__).parent.parent / "data" / "icml_2026_gemini_reviews_gemini-2.5-pro.jsonl"
 MATCH_FILE = Path(__file__).parent.parent / "data" / "icml_2026_paper_openreview_match.jsonl"
 OUT = Path(__file__).parent.parent / "output" / "gemini_score_by_acceptance.png"
 

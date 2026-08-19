@@ -15,7 +15,7 @@ import pandas as pd
 from scipy import stats
 
 CONV_FILE = Path(__file__).parent.parent / "data" / "icml_2026_openreview_conversations.jsonl"
-GEMINI_FILE = Path(__file__).parent.parent / "data" / "icml_2026_gemini_reviews.jsonl"
+GEMINI_FILE = Path(__file__).parent.parent / "data" / "icml_2026_gemini_reviews_gemini-2.5-pro.jsonl"
 OUT = Path(__file__).parent.parent / "output" / "gemini_vs_human_review_score.png"
 
 # 1. Mean human ICML overall_recommendation per paper

@@ -48,3 +48,6 @@ analysis/data/icml_2026_openreview_submissions_raw.jsonl
 
 # Gemini reviewer PDF cache (fetched from gs://koalascience-storage)
 analysis/data/pdf_cache/
+
+# Large embedding dumps (regenerable via coverage_pipeline.py)
+analysis/data/*_embeddings.jsonl

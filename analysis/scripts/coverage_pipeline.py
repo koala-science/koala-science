@@ -143,19 +143,41 @@ async def stage_embed(threshold: float, tag: str) -> None:
     import os
     from google import genai
     import numpy as np
+    from tqdm import tqdm
 
     blob = json.load(open(out_path(tag, "args.json")))
     args = blob["args"]
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    n = len(args)
 
-    vecs = []
-    B = 100
-    for i in range(0, len(args), B):
-        batch = [a["text"] for a in args[i:i + B]]
-        resp = await asyncio.to_thread(
-            client.models.embed_content, model=EMBED_MODEL, contents=batch)
-        vecs.extend([e.values for e in resp.embeddings])
-    X = np.array(vecs)
+    # Incremental checkpoint: one line per embedded arg, flushed after each
+    # batch, so an interrupted run resumes from where it left off instead of
+    # re-embedding (and re-paying for) everything already done.
+    cache_path = out_path(tag, "embeddings.jsonl")
+    cached: dict[int, list[float]] = {}
+    if cache_path.exists():
+        for line in open(cache_path):
+            rec = json.loads(line)
+            cached[rec["i"]] = rec["vec"]
+
+    todo_idx = [i for i in range(n) if i not in cached]
+    print(f"args={n}  already embedded: {len(cached)}  to embed: {len(todo_idx)}")
+
+    if todo_idx:
+        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        B = 100
+        with cache_path.open("a") as cf, tqdm(total=len(todo_idx), unit="arg") as pbar:
+            for start in range(0, len(todo_idx), B):
+                batch_idx = todo_idx[start:start + B]
+                batch_text = [args[i]["text"] for i in batch_idx]
+                resp = await asyncio.to_thread(
+                    client.models.embed_content, model=EMBED_MODEL, contents=batch_text)
+                for i, e in zip(batch_idx, resp.embeddings):
+                    cached[i] = e.values
+                    cf.write(json.dumps({"i": i, "vec": e.values}) + "\n")
+                cf.flush()
+                pbar.update(len(batch_idx))
+
+    X = np.array([cached[i] for i in range(n)])
     X = X / np.linalg.norm(X, axis=1, keepdims=True)
     sim = X @ X.T
 
@@ -302,6 +324,20 @@ METHOD_LABEL = {"koala": "Koala Science", "reviewertoo": "Varying Personalities"
                 "peerreviewbench": "Varying Base Models"}
 
 
+def distinct(idxs: list[int], same: set[tuple[int, int]], rng, n_orders: int = 24) -> float:
+    idxs = list(idxs)
+    total = 0
+    for _ in range(n_orders):
+        order = list(idxs)
+        rng.shuffle(order)
+        reps: list[int] = []
+        for x in order:
+            if all((x, r) not in same for r in reps):
+                reps.append(x)
+        total += len(reps)
+    return total / n_orders
+
+
 def stage_plot(tag: str, max_budget_cap: int | None = None) -> None:
     from collections import defaultdict
 
@@ -316,19 +352,6 @@ def stage_plot(tag: str, max_budget_cap: int | None = None) -> None:
         same.add((j, i))
 
     rng = np.random.default_rng(0)
-
-    def distinct(idxs: list[int], n_orders: int = 24) -> float:
-        idxs = list(idxs)
-        total = 0
-        for _ in range(n_orders):
-            order = list(idxs)
-            rng.shuffle(order)
-            reps: list[int] = []
-            for x in order:
-                if all((x, r) not in same for r in reps):
-                    reps.append(x)
-            total += len(reps)
-        return total / n_orders
 
     by_paper_source: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, m in enumerate(meta):
@@ -348,7 +371,7 @@ def stage_plot(tag: str, max_budget_cap: int | None = None) -> None:
         for b in range(1, pool_budget + 1):
             acc = 0.0
             for _ in range(N_BUDGET_DRAWS):
-                acc += distinct(rng.choice(pool, size=b, replace=False), n_orders=1)
+                acc += distinct(rng.choice(pool, size=b, replace=False), same, rng, n_orders=1)
             curve[b] = acc / N_BUDGET_DRAWS
         curves[(pid, src)] = curve
 

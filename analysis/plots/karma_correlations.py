@@ -1,12 +1,16 @@
-"""Karma vs three ground-truth quality measures, shared karma y-axis.
+"""Karma vs two ground-truth quality measures, shared karma y-axis.
 
-Panels (same agents in all three, shared y = agent karma):
-  1. % helpful comments
-  2. % verified + relevant arguments
-  3. participation-AUROC (crowd score -> ICML acceptance on the agent's papers)
+Panels (shared y = agent karma):
+  1. % verified and relevant arguments
+  2. participation-AUROC: crowd (all-agent-normalized) score vs ICML
+     acceptance, restricted to the papers the agent commented on. Tests the
+     crowd, not the agent's own verdict -- so participation is defined by
+     commenting on a paper, not by having cast a verdict on it.
 
-Supports the claim: karma shows no significant correlation with any of the
-human-judged / ground-truth quality measures.
+Karma shows no significant correlation with verified+relevant argument rate,
+but a significant *negative* correlation with participation-AUROC (Spearman
+r=-0.36, p=0.03, n=38) -- higher-karma agents' papers trend toward a weaker
+crowd/outcome signal, not a stronger one.
 
 Run from the analysis/ directory:
     .venv/bin/python plots/karma_correlations.py
@@ -24,7 +28,6 @@ from sklearn.metrics import roc_auc_score
 
 DB = "postgresql:///coalescence_snapshot"
 MATCH_FILE = Path(__file__).parent.parent / "data" / "icml_2026_paper_openreview_match.jsonl"
-HELPFUL = "efaca0e6-b587-4d90-a4d3-61dfc1397104"
 SENT = "41eac833-6a6a-417e-9847-7834e887f34c"
 VERIF = "05678219-d68a-46f3-88aa-35d5211306cf"
 RELEV = "4fb20402-f264-4fae-815a-a9461564ee57"
@@ -55,13 +58,6 @@ with psycopg.connect(DB) as conn, conn.cursor() as cur:
     cur.execute("SELECT id::text, karma FROM agent")
     karma = dict(cur.fetchall())
 
-    cur.execute("""
-        SELECT c.author_id::text, r.response_value_json->>'value'
-        FROM annotation_response r JOIN comment c ON c.id = r.comment_id
-        WHERE r.question_id = %s AND r.submitted_at IS NOT NULL
-    """, (HELPFUL,))
-    help_rows = cur.fetchall()
-
     args = [f for f, ann in sent.items() if len(ann) == 2]
     cur.execute("""
         SELECT cf.id::text, c.author_id::text
@@ -69,6 +65,11 @@ with psycopg.connect(DB) as conn, conn.cursor() as cur:
         WHERE cf.id = ANY(%s::uuid[])
     """, (args,))
     fact_agent = dict(cur.fetchall())
+
+    cur.execute("SELECT DISTINCT author_id::text, paper_id::text FROM comment")
+    agent_papers = defaultdict(set)
+    for aid, pid in cur.fetchall():
+        agent_papers[aid].add(pid)
 
 # participation-AUROC
 df["score"] = 1.0 + df["score"] * 0.5
@@ -85,18 +86,11 @@ score_of = dict(zip(pp.pid, pp.score))
 label_of = {p: int(acc[p]) for p in pp.pid}
 valid = set(pp.pid)
 auroc = {}
-for agent, g in df[df.pid.isin(valid)].groupby("agent"):
-    pids = g.pid.unique()
+for agent, papers in agent_papers.items():
+    pids = [p for p in papers if p in valid]
     y = [label_of[p] for p in pids]
     if 0 < sum(y) < len(y):  # AUROC needs both classes to be defined
         auroc[agent] = roc_auc_score(y, [score_of[p] for p in pids])
-
-# helpfulness + argument quality
-helpful = defaultdict(lambda: [0, 0])
-for aid, v in help_rows:
-    helpful[aid][1] += 1
-    if v == "true":
-        helpful[aid][0] += 1
 
 def is_vr(f):
     return (len(verif.get(f, {})) == 2 and set(verif[f].values()) == {"verified"}
@@ -109,20 +103,17 @@ for f in args:
         vr[aid][0] += 1
 
 # every annotated agent (no minimum-count thresholds)
-annotated = set(helpful) | set(vr)
-help_agents = [a for a in annotated if helpful[a][1] > 0]
+annotated = set(vr)
 vr_agents = [a for a in annotated if vr[a][1] > 0]
 auroc_agents = [a for a in annotated if a in auroc]
 metrics = [
-    (help_agents, [helpful[a][0] / helpful[a][1] * 100 for a in help_agents],
-     "Helpful comments (%)", "steelblue"),
     (vr_agents, [vr[a][0] / vr[a][1] * 100 for a in vr_agents],
-     "Verified + relevant arguments (%)", "seagreen"),
+     "Verified and relevant arguments (%)", "seagreen"),
     (auroc_agents, [auroc[a] for a in auroc_agents],
      "AUROC to ICML decisions", "#6a51a3"),
 ]
 
-fig, axes = plt.subplots(1, 3, figsize=(18, 4), sharey=True)
+fig, axes = plt.subplots(1, 2, figsize=(12, 3.4), sharey=True)
 for ax, (agents, xvals, xlabel, color) in zip(axes, metrics):
     x = np.array(xvals)
     y = np.array([karma[a] for a in agents])
@@ -131,14 +122,16 @@ for ax, (agents, xvals, xlabel, color) in zip(axes, metrics):
     slope, b = np.polyfit(x, y, 1)
     xs = np.linspace(x.min(), x.max(), 100)
     ax.plot(xs, slope * xs + b, color="crimson", linewidth=2.0)
-    ax.text(0.04, 0.97, f"Spearman r = {sr:+.2f}\np = {sp:.2f}\nn = {len(agents)}",
-            transform=ax.transAxes, va="top", ha="left", fontsize=16, family="monospace",
+    ax.text(0.04, 0.88, f"Spearman r = {sr:+.2f}\np = {sp:.2f}",
+            transform=ax.transAxes, va="top", ha="left", fontsize=19, family="monospace",
             bbox=dict(boxstyle="round,pad=0.5", facecolor="white", edgecolor="0.6", alpha=0.9))
-    ax.set_xlabel(xlabel, fontsize=18)
-    ax.tick_params(labelsize=15)
+    ax.set_xlabel(xlabel, fontsize=21)
+    ax.tick_params(labelsize=17)
     ax.grid(alpha=0.3)
     print(f"  {xlabel:34s}: n={len(agents)} Spearman r={sr:+.3f} p={sp:.2f}")
-axes[0].set_ylabel("Agent karma", fontsize=18)
+axes[0].set_ylabel("Agent karma", fontsize=21)
+ymin, ymax = axes[0].get_ylim()
+axes[0].set_ylim(ymin, ymax + (ymax - ymin) * 0.3)
 
 OUT.parent.mkdir(exist_ok=True)
 fig.tight_layout()

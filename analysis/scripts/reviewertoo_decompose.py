@@ -1,16 +1,28 @@
-"""Decompose ReviewerToo's 11 monolithic persona reviews into discrete
+"""Decompose ReviewerToo's monolithic persona reviews into discrete
 review-bearing arguments, using koala's own extraction prompt verbatim
 (backend/scripts/fact_extraction_prompt.py -- itself adapted from
 Demfier/reviewertoo, so platform and ReviewerToo arguments are directly
 comparable units).
 
-Scoped to the 30-paper coverage-analysis sample
-(data/coverage_sample_30_papers.json). 30 papers x 11 personas = 330 calls
-on gemini-2.5-pro.
+Source file is configurable via --reviewertoo-file: defaults to the
+original run (data/reviewertoo_monolithic_reviews.jsonl, 11 personas,
+gemini-3.1-pro backend). Pass
+data/reviewertoo_gptoss_monolithic_reviews.jsonl (built by
+scripts/flatten_reviewertoo_gptoss.py) to decompose the gpt-oss backend
+re-run instead (13 personas).
+
+Scoped to whatever paper sample --sample points at. On the 30-paper
+coverage-analysis sample (data/coverage_sample_30_papers.json): 30 papers
+x 11 personas = 330 calls on the original source, or x 13 personas = 390
+calls on the gpt-oss source. Resumable -- already-done (paper_id, persona)
+pairs are skipped on rerun, so an interrupted run just picks up where it
+left off; each result is written and flushed immediately, so a crash loses
+at most the in-flight batch.
 
 Run from the analysis/ directory:
     GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' ../backend/.env | cut -d= -f2-) \
-        .venv/bin/python scripts/reviewertoo_decompose.py
+        .venv/bin/python scripts/reviewertoo_decompose.py \
+        --sample data/coverage_sample_30_papers.json --out data/reviewertoo_decomposed_sample30.jsonl
 """
 import asyncio
 import json
@@ -32,7 +44,7 @@ MODEL = "gemini-2.5-pro"
 PRICING = {"gemini-2.5-pro": {"input": 1.25, "output": 10.00}}
 
 ROOT = Path(__file__).parent.parent
-REVIEWERTOO = ROOT / "data" / "reviewertoo_monolithic_reviews.jsonl"
+DEFAULT_REVIEWERTOO = ROOT / "data" / "reviewertoo_monolithic_reviews.jsonl"
 
 FIELDS_PROSE = ("summary_of_contributions", "claims_and_evidence",
                 "relation_to_prior_work", "broader_impact_concerns")
@@ -54,9 +66,9 @@ def to_markdown(review: dict) -> str:
     return "\n\n".join(parts)
 
 
-def load_reviewertoo(paper_ids: set[str]) -> list[dict]:
+def load_reviewertoo(paper_ids: set[str], reviewertoo_file: Path) -> list[dict]:
     rows = []
-    for line in REVIEWERTOO.open():
+    for line in reviewertoo_file.open():
         row = json.loads(line)
         if row["paper_id"] in paper_ids:
             rows.append(row)
@@ -109,14 +121,14 @@ async def decompose_one(client: genai.Client, row: dict, title: str) -> dict:
         return {**base, "status": "error", "error": f"{type(exc).__name__}: {exc}"}
 
 
-async def run(concurrency: int, sample_path: Path, out_path: Path) -> None:
+async def run(concurrency: int, sample_path: Path, out_path: Path, reviewertoo_file: Path) -> None:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("set $GEMINI_API_KEY")
 
     sample_ids = set(json.load(sample_path.open()))
-    rows = load_reviewertoo(sample_ids)
-    print(f"papers: {len(sample_ids)}  reviewertoo rows: {len(rows)}")
+    rows = load_reviewertoo(sample_ids, reviewertoo_file)
+    print(f"papers: {len(sample_ids)}  reviewertoo rows: {len(rows)}  source: {reviewertoo_file.name}")
 
     with psycopg.connect("postgresql:///coalescence_snapshot") as conn, conn.cursor() as cur:
         cur.execute("SELECT id::text, title FROM paper WHERE id = ANY(%s::uuid[])",
@@ -164,5 +176,8 @@ if __name__ == "__main__":
     ap.add_argument("--sample", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--concurrency", type=int, default=12)
+    ap.add_argument("--reviewertoo-file", type=Path, default=DEFAULT_REVIEWERTOO,
+                    help="flattened monolithic-reviews JSONL to decompose "
+                         "(default: the original gemini-3.1-pro run)")
     a = ap.parse_args()
-    asyncio.run(run(a.concurrency, a.sample, a.out))
+    asyncio.run(run(a.concurrency, a.sample, a.out, a.reviewertoo_file))

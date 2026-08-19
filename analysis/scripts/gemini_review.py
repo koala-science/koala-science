@@ -25,74 +25,27 @@ from pathlib import Path
 import psycopg
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+
+from icml_review_prompt import ICML_INSTRUCTIONS, ICMLReview as GeminiReview
 
 MODEL_DEFAULT = "gemini-2.5-pro"
 DB = "postgresql:///coalescence_snapshot"
 GCS_PDF = "gs://koalascience-storage/pdfs"
 
+# Pricing per million tokens, for the running cost estimate printed to stdout.
+PRICING = {
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
+    "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
+}
+
 ROOT = Path(__file__).parent.parent
 MATCH_FILE = ROOT / "data" / "icml_2026_paper_openreview_match.jsonl"
-OUT = ROOT / "data" / "icml_2026_gemini_reviews.jsonl"
 PDF_CACHE = ROOT / "data" / "pdf_cache"
 MIN_VERDICTS_PER_PAPER = 3
 
-# Verbatim ICML 2026 reviewer instructions + rating scales
-# (https://icml.cc/Conferences/2026/ReviewerInstructions).
-ICML_INSTRUCTIONS = """You are an expert reviewer for ICML 2026 (International Conference on Machine \
-Learning). Review the submission below following the official ICML 2026 reviewer \
-instructions. Base your review SOLELY on the paper provided; do not rely on any \
-outside knowledge of the paper, its authors, or its outcome.
 
-Fill in every field of the review form.
-
-SUMMARY: Briefly summarize the paper and its contributions in your own words. Do \
-not critique here and do not paste the abstract.
-
-STRENGTHS AND WEAKNESSES: Assess the paper across soundness, presentation, \
-significance, and originality, treating these as distinct (soundness is distinct \
-from impact). Justify any "fair" or "poor" dimension rating here.
-
-KEY QUESTIONS FOR AUTHORS: 3-5 questions, reserved for cases where the answer \
-would likely change your evaluation, clarify a confusing point, or address a \
-critical limitation.
-
-LIMITATIONS: Have the authors adequately discussed limitations and potential \
-negative societal impact? If yes, say 'yes'; otherwise give constructive \
-suggestions.
-
-RATING SCALES (return the integer only):
-
-soundness / presentation / significance / originality (1-4):
-  4 = excellent, 3 = good, 2 = fair, 1 = poor.
-
-confidence (1-5):
-  5 = absolutely certain; checked math/details carefully; very familiar with related work.
-  4 = confident but not certain.
-  3 = fairly confident; details not carefully checked.
-  2 = willing to defend, but likely missed central parts or related work.
-  1 = educated guess; outside your area or hard to understand.
-
-overall_recommendation (1-6):
-  6 = Strong Accept: technically flawless, exceptional impact, strong evaluation and reproducibility.
-  5 = Accept: technically solid, high impact on >=1 sub-area, good-to-excellent evaluation.
-  4 = Weak Accept: technically solid, advances a sub-area, but weaknesses limit impact.
-  3 = Weak Reject: clear merits but weaknesses overall outweigh them; needs revision.
-  2 = Reject: technical flaws, weak evaluation, poor reproducibility, or writing too poor to follow.
-  1 = Strong Reject: well-known results, or so poorly written the contribution is unclear."""
-
-
-class GeminiReview(BaseModel):
-    summary: str
-    strengths_and_weaknesses: str
-    soundness: int
-    presentation: int
-    significance: int
-    originality: int
-    key_questions_for_authors: str
-    limitations: str
-    overall_recommendation: int
-    confidence: int
+def out_path(model: str) -> Path:
+    return ROOT / "data" / f"icml_2026_gemini_reviews_{model}.jsonl"
 
 
 def build_system_prompt() -> str:
@@ -169,6 +122,17 @@ def already_done(path: Path) -> set[str]:
     return done
 
 
+def prune_pending_retries(path: Path, retry_ids: set[str]) -> None:
+    """Drop existing (stale) records for papers about to be retried, so the
+    append-only write below doesn't leave duplicate rows behind."""
+    if not path.exists() or not retry_ids:
+        return
+    kept = [json.loads(l) for l in path.open() if json.loads(l)["paper_id"] not in retry_ids]
+    with path.open("w") as f:
+        for rec in kept:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
 async def review_one(client: genai.Client, model: str, temperature: float,
                      paper: dict) -> dict:
     base = {"paper_id": paper["paper_id"], "forum_id": paper["forum_id"],
@@ -193,37 +157,51 @@ async def review_one(client: genai.Client, model: str, temperature: float,
 
 async def run(model: str, temperature: float, concurrency: int, limit: int | None,
               refresh: bool) -> None:
+    from tqdm import tqdm
+
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("set $GEMINI_API_KEY (e.g. from backend/.env)")
+    if model not in PRICING:
+        sys.exit(f"no pricing entry for {model} -- add one to PRICING before running")
 
+    out = out_path(model)
     papers = load_papers()
-    done = set() if refresh else already_done(OUT)
+    done = set() if refresh else already_done(out)
     todo = [p for p in papers if p["paper_id"] not in done]
     if limit:
         todo = todo[:limit]
     print(f"papers: {len(papers)}  already done: {len(done)}  to review: {len(todo)}")
     if not todo:
         return
+    if not refresh:
+        prune_pending_retries(out, {p["paper_id"] for p in todo})
 
     client = genai.Client(api_key=api_key)
     sem = asyncio.Semaphore(concurrency)
     started = time.time()
     counts = {"ok": 0, "error": 0}
     recs = []
+    cost_usd = 0.0
+    price = PRICING[model]
 
-    mode = "a" if (OUT.exists() and not refresh) else "w"
-    with OUT.open(mode) as f:
+    mode = "a" if (out.exists() and not refresh) else "w"
+    with out.open(mode) as f, tqdm(total=len(todo), desc=model, unit="paper") as pbar:
         async def worker(paper: dict) -> None:
+            nonlocal cost_usd
             async with sem:
                 rec = await review_one(client, model, temperature, paper)
             counts[rec["status"]] += 1
+            if rec["status"] == "ok":
+                cost_usd += (rec["usage"]["prompt"] * price["input"]
+                             + rec["usage"]["output"] * price["output"]) / 1_000_000
+            else:
+                tqdm.write(f"  ERROR [{paper['title'][:45]}]: {rec['error']}")
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             f.flush()
             recs.append(rec)
-            done_n = sum(counts.values())
-            print(f"  {done_n}/{len(todo)} ok={counts['ok']} err={counts['error']} "
-                  f"[{paper['title'][:45]}]", flush=True)
+            pbar.set_postfix(ok=counts["ok"], err=counts["error"], cost=f"${cost_usd:.2f}")
+            pbar.update(1)
 
         await asyncio.gather(*(worker(p) for p in todo))
 
@@ -233,8 +211,9 @@ async def run(model: str, temperature: float, concurrency: int, limit: int | Non
             k = r["review"]["overall_recommendation"]
             dist[k] = dist.get(k, 0) + 1
     print(f"\ndone in {time.time()-started:.0f}s  ok={counts['ok']} error={counts['error']}")
+    print(f"estimated cost: ${cost_usd:.2f}")
     print(f"overall_recommendation dist: {dict(sorted(dist.items()))}")
-    print(f"wrote {OUT}")
+    print(f"wrote {out}")
 
 
 def main() -> None:

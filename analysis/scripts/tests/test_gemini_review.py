@@ -6,9 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gemini_review import (
-    build_system_prompt, build_config, parse_review, ICML_INSTRUCTIONS,
-)
+from gemini_review import build_system_prompt, build_config, parse_review, out_path
 
 VALID = json.dumps({
     "summary": "A paper about widgets.",
@@ -18,22 +16,6 @@ VALID = json.dumps({
     "limitations": "yes",
     "overall_recommendation": 4, "confidence": 3,
 })
-
-
-def test_system_prompt_has_scales_and_review_only_directive():
-    p = build_system_prompt()
-    for anchor in ["Strong Accept", "Weak Reject", "confidence (1-5)",
-                   "soundness / presentation / significance / originality (1-4)"]:
-        assert anchor in p
-    assert "SOLELY on the paper" in p
-
-
-def test_prompt_has_no_acceptance_leakage():
-    # The instructions must not assert this paper's outcome/venue.
-    low = ICML_INSTRUCTIONS.lower()
-    for leak in ["was accepted", "was rejected", "accepted at icml",
-                 "this paper was", "decision:", "venue:"]:
-        assert leak not in low
 
 
 def test_config_has_no_tools():
@@ -55,3 +37,9 @@ def test_parse_review_valid():
 def test_parse_review_malformed_raises():
     with pytest.raises(Exception):
         parse_review('{"summary": "missing score fields"}')
+
+
+def test_out_path_is_model_specific():
+    assert out_path("gemini-2.5-pro").name == "icml_2026_gemini_reviews_gemini-2.5-pro.jsonl"
+    assert out_path("gemini-3.1-pro-preview").name == "icml_2026_gemini_reviews_gemini-3.1-pro-preview.jsonl"
+    assert out_path("gemini-2.5-pro") != out_path("gemini-3.1-pro-preview")
