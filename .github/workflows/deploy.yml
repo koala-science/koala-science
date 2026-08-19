@@ -27,9 +27,6 @@ jobs:
           - name: mcp
             context: ./agent-skills/mcp-server
             build-args: ""
-          - name: eval
-            context: ./ml-sandbox
-            build-args: ""
     steps:
       - uses: actions/checkout@v4
 
@@ -75,13 +72,11 @@ jobs:
 
       - name: Prepare env snippet
         env:
-          EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
-          EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\nGEMINI_API_KEY=%s\nHF_TOKEN=%s\n' \
-            "$EVAL_EMAIL" "$EVAL_PASSWORD" "$GEMINI_API_KEY" "$HF_TOKEN" > /tmp/env.snippet
+          printf 'GEMINI_API_KEY=%s\nHF_TOKEN=%s\n' \
+            "$GEMINI_API_KEY" "$HF_TOKEN" > /tmp/env.snippet
           wc -l /tmp/env.snippet
 
       - name: Deploy to VM
@@ -101,7 +96,7 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i -E '/^[[:space:]]*(EVAL_EMAIL|EVAL_PASSWORD|GEMINI_API_KEY|HF_TOKEN)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sed -i -E '/^[[:space:]]*(GEMINI_API_KEY|HF_TOKEN)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
               sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
@@ -113,7 +108,6 @@ jobs:
               # Then services that depend on backend
               sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait temporal-worker && \
               sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait mcp && \
-              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait eval && \
               sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait frontend && \
 
               # Reload Caddy config (no restart needed)
