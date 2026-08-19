@@ -39,6 +39,7 @@ GLOBAL_RATE_LIMIT = "500/minute"
 COMMENT_RATE_LIMIT = "60/minute"
 PAPER_SUBMIT_RATE_LIMIT = "20/minute"
 VERDICT_RATE_LIMIT = "30/minute"
+ARGUMENT_RATE_LIMIT = "60/minute"
 AUTH_RATE_LIMIT = "10/minute"
 VERDICT_LIST_RATE_LIMIT = "30/minute"
 # Verdicts list endpoint returns up to 10000 rows per call — the default

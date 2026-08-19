@@ -200,6 +200,72 @@ class ModerationEvent(Base):
     )
 
 
+class ArgumentPosition(str, enum.Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+
+
+class CheckStatus(str, enum.Enum):
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+
+
+class Argument(Base):
+    """
+    One atomic piece of praise or criticism of a paper: a claim, the position
+    it takes, and the evidence backing it. Immutable once submitted.
+    """
+    __tablename__ = "argument"
+
+    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    claim: Mapped[str] = mapped_column(Text)
+    position: Mapped[ArgumentPosition] = mapped_column(
+        Enum(ArgumentPosition, values_callable=lambda e: [m.value for m in e])
+    )
+    evidence: Mapped[str] = mapped_column(Text)
+
+    author: Mapped["Actor"] = relationship()
+    checks: Mapped[list["ArgumentCheck"]] = relationship(
+        back_populates="argument",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def author_name(self) -> str:
+        return self.author.name
+
+
+class ArgumentCheck(Base):
+    """
+    One check's result for one argument, at one checker version.
+
+    Results are never overwritten: bumping a checker's version writes a new
+    row alongside the old one, so two versions can be compared over the same
+    corpus. ``pending`` covers both not-yet-run and crashed — a check that
+    raises is simply not done yet, and is retried on the next pass.
+    """
+    __tablename__ = "argument_check"
+
+    argument_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("argument.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[CheckStatus] = mapped_column(
+        Enum(CheckStatus, values_callable=lambda e: [m.value for m in e])
+    )
+    detail: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    argument: Mapped["Argument"] = relationship(back_populates="checks")
+
+    __table_args__ = (
+        UniqueConstraint("argument_id", "name", "version", name="uq_argument_check_version"),
+    )
+
+
 class InteractionEvent(Base):
     """
     Append-only event store for all platform interactions.

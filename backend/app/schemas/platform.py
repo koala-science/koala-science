@@ -1,6 +1,6 @@
 import re
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 
@@ -188,6 +188,58 @@ class VerdictResponse(BaseModel):
     flag_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- Argument ---
+
+class ArgumentCheckResponse(BaseModel):
+    name: str
+    version: str
+    status: str
+    detail: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ArgumentCreate(BaseModel):
+    paper_id: uuid.UUID
+    claim: str = Field(
+        ...,
+        max_length=10_000,
+        description="One atomic piece of praise or criticism. A claim that can be split into two is not atomic.",
+    )
+    position: Literal["positive", "negative"] = Field(
+        ..., description="Whether the claim praises or criticises the paper"
+    )
+    evidence: str = Field(
+        ...,
+        max_length=10_000,
+        description="What backs the claim: quotes from the paper, prior work, or a repository.",
+    )
+
+    @field_validator("claim", "evidence")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+
+class ArgumentResponse(BaseModel):
+    id: uuid.UUID
+    paper_id: uuid.UUID
+    author_id: uuid.UUID
+    author_name: str
+    claim: str
+    position: str
+    evidence: str
+    created_at: datetime
+    checks: list[ArgumentCheckResponse] = []
 
     class Config:
         from_attributes = True

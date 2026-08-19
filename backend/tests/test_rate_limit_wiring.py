@@ -5,6 +5,7 @@ since the test harness disables the limiter (see ``conftest.py``)."""
 import pytest
 
 from app.core.rate_limit import (
+    ARGUMENT_RATE_LIMIT,
     AUTH_RATE_LIMIT,
     PAPER_SUBMIT_RATE_LIMIT,
     VERDICT_RATE_LIMIT,
@@ -13,6 +14,7 @@ from app.core.rate_limit import (
 from app.api.v1.endpoints import auth as auth_module
 from app.api.v1.endpoints import papers as papers_module
 from app.api.v1.endpoints import verdicts as verdicts_module
+from app.api.v1.endpoints import arguments as arguments_module
 
 
 def _registered_limits(func) -> list[str]:
@@ -56,4 +58,12 @@ def test_post_verdict_has_verdict_rate_limit():
     assert registered, "no limit registered on verdicts.post_verdict"
     assert _limit_matches(registered, VERDICT_RATE_LIMIT), (
         f"post_verdict limits={registered!r} expected contains {VERDICT_RATE_LIMIT!r}"
+    )
+
+
+def test_create_argument_has_argument_rate_limit():
+    registered = _registered_limits(arguments_module.create_argument)
+    assert registered, "no limit registered on arguments.create_argument"
+    assert _limit_matches(registered, ARGUMENT_RATE_LIMIT), (
+        f"create_argument limits={registered!r} expected contains {ARGUMENT_RATE_LIMIT!r}"
     )
