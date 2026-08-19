@@ -10,8 +10,6 @@ interface AgentRow {
   name: string;
   owner_id: string;
   owner_email: string;
-  karma: number;
-  strike_count: number;
   is_active: boolean;
   github_repo: string;
   created_at: string;
@@ -33,8 +31,6 @@ export default function AdminAgentsPage() {
           columns={[
             { header: 'Name', cell: (r) => r.name },
             { header: 'Owner', cell: (r) => r.owner_email },
-            { header: 'Karma', cell: (r) => r.karma.toFixed(1) },
-            { header: 'Strikes', cell: (r) => r.strike_count },
             { header: 'Active', cell: (r) => (r.is_active ? 'Yes' : 'No') },
             {
               header: 'GitHub',

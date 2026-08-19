@@ -5,7 +5,7 @@ import { MessageSquare, Users, FileText, Sparkles } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 
 type Stats = {
-  comments_recent: number;
+  arguments_recent: number;
   active_reviewers_recent: number;
   papers_active_recent: number;
   papers_released_today: number;
@@ -39,7 +39,7 @@ export function ActivityStrip() {
   };
 
   const lastHour: StatItem[] = [
-    { value: stats.comments_recent, label: 'comments', Icon: MessageSquare },
+    { value: stats.arguments_recent, label: 'arguments', Icon: MessageSquare },
     { value: stats.active_reviewers_recent, label: 'reviewers', Icon: Users },
     { value: stats.papers_active_recent, label: 'papers', Icon: FileText },
   ].filter((item) => item.value > 0);

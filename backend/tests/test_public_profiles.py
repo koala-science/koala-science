@@ -51,9 +51,9 @@ async def _make_agent(owner_id: str) -> str:
 async def _make_paper(submitter_id: str, *, released: bool) -> str:
     pid = str(uuid.uuid4())
     await _exec(
-        "INSERT INTO paper (id, title, abstract, domains, submitter_id, status, "
+        "INSERT INTO paper (id, title, abstract, domains, submitter_id, "
         "released_at, created_at, updated_at) "
-        "VALUES (:id, :t, 'a', ARRAY['d/ProfileTest'], :sub, 'in_review'::paperstatus, "
+        "VALUES (:id, :t, 'a', ARRAY['d/ProfileTest'], :sub, "
         ":released_at, now(), now())",
         {
             "id": pid,
@@ -65,42 +65,27 @@ async def _make_paper(submitter_id: str, *, released: bool) -> str:
     return pid
 
 
-async def _make_comment(paper_id: str, author_id: str) -> str:
-    cid = str(uuid.uuid4())
+async def _make_argument(paper_id: str, author_id: str) -> str:
+    aid = str(uuid.uuid4())
     await _exec(
-        "INSERT INTO comment (id, paper_id, author_id, content_markdown, github_file_url, "
+        "INSERT INTO argument (id, paper_id, author_id, claim, position, evidence, "
         "created_at, updated_at) "
-        "VALUES (:id, :p, :a, 'profile comment', "
-        "'https://github.com/x/y/blob/main/profile.md', now(), now())",
-        {"id": cid, "p": paper_id, "a": author_id},
+        "VALUES (:id, :p, :a, 'profile claim', 'negative', 'profile evidence', "
+        "now(), now())",
+        {"id": aid, "p": paper_id, "a": author_id},
     )
-    return cid
-
-
-async def _make_verdict(paper_id: str, author_id: str) -> str:
-    vid = str(uuid.uuid4())
-    await _exec(
-        "INSERT INTO verdict (id, paper_id, author_id, content_markdown, score, github_file_url, "
-        "created_at, updated_at) "
-        "VALUES (:id, :p, :a, 'profile verdict', 8.0, "
-        "'https://github.com/x/y/blob/main/profile-verdict.md', now(), now())",
-        {"id": vid, "p": paper_id, "a": author_id},
-    )
-    return vid
+    return aid
 
 
 async def _cleanup(
     *,
-    comments: list[str],
+    arguments: list[str],
     papers: list[str],
     agents: list[str],
     humans: list[str],
-    verdicts: list[str] | None = None,
 ) -> None:
-    for vid in verdicts or []:
-        await _exec("DELETE FROM verdict WHERE id = :id", {"id": vid})
-    for cid in comments:
-        await _exec("DELETE FROM comment WHERE id = :id", {"id": cid})
+    for aid in arguments:
+        await _exec("DELETE FROM argument WHERE id = :id", {"id": aid})
     for pid in papers:
         await _exec("DELETE FROM paper WHERE id = :id", {"id": pid})
     for aid in agents:
@@ -130,15 +115,14 @@ async def test_public_agent_profile_exposes_owner_link(client: AsyncClient):
         assert body["owner_name"].startswith("profile_human_")
         assert body["github_repo"] == "https://github.com/x/y"
     finally:
-        await _cleanup(comments=[], papers=[], agents=agents, humans=humans)
+        await _cleanup(arguments=[], papers=[], agents=agents, humans=humans)
 
 
 async def test_public_profile_activity_only_includes_released_papers(client: AsyncClient):
     humans: list[str] = []
     agents: list[str] = []
     papers: list[str] = []
-    comments: list[str] = []
-    verdicts: list[str] = []
+    arguments: list[str] = []
     try:
         human = await _make_human()
         humans.append(human)
@@ -147,33 +131,26 @@ async def test_public_profile_activity_only_includes_released_papers(client: Asy
         released_paper = await _make_paper(human, released=True)
         unreleased_paper = await _make_paper(human, released=False)
         papers.extend([released_paper, unreleased_paper])
-        released_comment = await _make_comment(released_paper, agent)
-        unreleased_comment = await _make_comment(unreleased_paper, agent)
-        comments.extend([released_comment, unreleased_comment])
-        released_verdict = await _make_verdict(released_paper, agent)
-        unreleased_verdict = await _make_verdict(unreleased_paper, agent)
-        verdicts.extend([released_verdict, unreleased_verdict])
+        released_argument = await _make_argument(released_paper, agent)
+        unreleased_argument = await _make_argument(unreleased_paper, agent)
+        arguments.extend([released_argument, unreleased_argument])
 
         profile_resp = await client.get(f"/api/v1/users/{agent}")
         assert profile_resp.status_code == 200
         agent_profile = profile_resp.json()
-        assert agent_profile["stats"]["comments"] == 1
-        assert agent_profile["stats"]["verdicts"] == 1
-        assert agent_profile["recent_stats"]["comments"] == 1
-        assert agent_profile["recent_stats"]["verdicts"] == 1
+        assert agent_profile["stats"]["arguments"] == 1
+        assert agent_profile["recent_stats"]["arguments"] == 1
         assert agent_profile["recent_stats"]["window_hours"] == 3
 
         human_resp = await client.get(f"/api/v1/users/{human}")
         assert human_resp.status_code == 200
-        human_profile = human_resp.json()
-        assert human_profile["recent_stats"]["comments"] == 1
-        assert human_profile["recent_stats"]["verdicts"] == 1
-        assert human_profile["recent_stats"]["papers"] == 1
+        assert human_resp.json()["recent_stats"]["arguments"] == 1
+        assert human_resp.json()["recent_stats"]["papers"] == 1
 
-        comments_resp = await client.get(f"/api/v1/users/{agent}/comments")
-        assert comments_resp.status_code == 200
-        ids = {row["id"] for row in comments_resp.json()}
-        assert released_comment in ids
-        assert unreleased_comment not in ids
+        listing = await client.get(f"/api/v1/users/{agent}/arguments")
+        assert listing.status_code == 200
+        ids = {row["id"] for row in listing.json()}
+        assert released_argument in ids
+        assert unreleased_argument not in ids
     finally:
-        await _cleanup(comments=comments, papers=papers, agents=agents, humans=humans, verdicts=verdicts)
+        await _cleanup(arguments=arguments, papers=papers, agents=agents, humans=humans)

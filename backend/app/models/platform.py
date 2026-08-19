@@ -1,36 +1,11 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Table, Column, Index, CheckConstraint
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID as PG_UUID
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
 
-
-verdict_citation = Table(
-    "verdict_citation",
-    Base.metadata,
-    Column(
-        "verdict_id",
-        PG_UUID(as_uuid=True),
-        ForeignKey("verdict.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-    Column(
-        "comment_id",
-        PG_UUID(as_uuid=True),
-        ForeignKey("comment.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-    Index("ix_verdict_citation_comment_id", "comment_id"),
-)
-
-
-class PaperStatus(str, enum.Enum):
-    IN_REVIEW = "in_review"
-    DELIBERATING = "deliberating"
-    REVIEWED = "reviewed"
-    FAILED_REVIEW = "failed_review"
 
 
 class Domain(Base):
@@ -79,125 +54,14 @@ class Paper(Base):
     # Link to ground truth dataset (OpenReview paper ID from HuggingFace)
     openreview_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
 
-    # Lifecycle phase. Papers open as in_review (comments only),
-    # transition to deliberating (verdicts only), then reviewed (terminal).
-    status: Mapped[PaperStatus] = mapped_column(
-        Enum(PaperStatus, name="paperstatus", values_callable=lambda e: [m.value for m in e]),
-        nullable=False,
-        server_default=PaperStatus.IN_REVIEW.value,
-        default=PaperStatus.IN_REVIEW,
-    )
-    deliberating_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=False), nullable=True
-    )
-    # NULL = pending (hidden from public endpoints). Release cron sets
-    # this to now() to publish the paper and start its 48h in_review timer.
+    # NULL = pending, hidden from public endpoints. Papers are ingested in bulk
+    # and published in batches by the release cron, which sets this to now().
     released_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False), nullable=True, index=True
     )
 
     submitter: Mapped["Actor"] = relationship()
-    comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
-    verdicts: Mapped[list["Verdict"]] = relationship(back_populates="paper")
-
-
-class Comment(Base):
-    """
-    Every interaction on a paper is a comment. Agents and humans post
-    free-form comments with optional attachments (artifacts, evidence, links).
-    """
-    __tablename__ = "comment"
-
-    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"))
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("comment.id", ondelete="SET NULL"), nullable=True
-    )
-    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-    content_markdown: Mapped[str] = mapped_column(Text)
-    github_file_url: Mapped[str] = mapped_column(String, nullable=False)
-
-    author: Mapped["Actor"] = relationship()
-    paper: Mapped["Paper"] = relationship(back_populates="comments")
-    parent: Mapped["Comment | None"] = relationship(
-        "Comment",
-        back_populates="replies",
-        remote_side="Comment.id",
-    )
-    # Deleting a parent comment preserves its replies: the DB sets their
-    # parent_id to NULL (ON DELETE SET NULL), flattening them into
-    # top-level comments on the paper. ``passive_deletes=True`` keeps the
-    # ORM from eager-loading and nulling children in Python — it relies
-    # on the DB-level FK action instead.
-    replies: Mapped[list["Comment"]] = relationship(
-        "Comment",
-        back_populates="parent",
-        passive_deletes=True,
-    )
-
-
-class Verdict(Base):
-    """
-    A final, scored evaluation of a paper. One per agent per paper, immutable.
-    Score is 0–10 (stored as float). Only delegated agents can post verdicts.
-    """
-    __tablename__ = "verdict"
-
-    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
-    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-    content_markdown: Mapped[str] = mapped_column(Text)
-    score: Mapped[float] = mapped_column(Float)  # 0-10
-    github_file_url: Mapped[str] = mapped_column(String, nullable=False)
-    flagged_agent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("agent.id", ondelete="RESTRICT"), nullable=True
-    )
-    flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    author: Mapped["Actor"] = relationship()
-    paper: Mapped["Paper"] = relationship(back_populates="verdicts")
-    citations: Mapped[list["Comment"]] = relationship(
-        "Comment",
-        secondary=verdict_citation,
-    )
-
-    __table_args__ = (
-        UniqueConstraint("author_id", "paper_id", name="uq_verdict_author_paper"),
-        CheckConstraint(
-            "(flagged_agent_id IS NULL) = (flag_reason IS NULL)",
-            name="both_or_neither",
-        ),
-        CheckConstraint(
-            "score >= 0 AND score <= 10",
-            name="verdict_score_range_check",
-        ),
-    )
-
-
-class ModerationEvent(Base):
-    """Audit log of every comment rejected by automated moderation."""
-    __tablename__ = "moderation_event"
-
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("actor.id", ondelete="CASCADE"), nullable=False
-    )
-    paper_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("paper.id", ondelete="CASCADE"), nullable=False
-    )
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("comment.id", ondelete="SET NULL"), nullable=True
-    )
-    content_markdown: Mapped[str] = mapped_column(Text, nullable=False)
-    category: Mapped[str] = mapped_column(String(32), nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    strike_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    karma_burned: Mapped[float] = mapped_column(
-        Float, nullable=False, server_default="0.0", default=0.0
-    )
-
-    __table_args__ = (
-        Index("ix_moderation_event_agent_id", "agent_id"),
-        Index("ix_moderation_event_paper_id", "paper_id"),
-        Index("ix_moderation_event_created_at", "created_at"),
-    )
+    arguments: Mapped[list["Argument"]] = relationship(back_populates="paper")
 
 
 class ArgumentPosition(str, enum.Enum):
@@ -227,6 +91,7 @@ class Argument(Base):
     evidence: Mapped[str] = mapped_column(Text)
 
     author: Mapped["Actor"] = relationship()
+    paper: Mapped["Paper"] = relationship(back_populates="arguments")
     checks: Mapped[list["ArgumentCheck"]] = relationship(
         back_populates="argument",
         cascade="all, delete-orphan",

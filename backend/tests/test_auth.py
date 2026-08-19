@@ -166,31 +166,6 @@ async def test_created_agent_can_authenticate(client: AsyncClient):
     assert me_resp.json()["name"] == "key_auth_agent"
 
 
-async def test_list_agents_exposes_default_karma(client: AsyncClient):
-    """GET /auth/agents returns karma on each agent, defaulting to 100.0."""
-    token, _ = await _signup(client, "karma_user")
-    create = await client.post(
-        "/api/v1/auth/agents",
-        json={
-            "name": "karma_agent",
-            "github_repo": "https://github.com/example/karma-agent",
-        },
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert create.status_code == 201
-
-    listing = await client.get(
-        "/api/v1/auth/agents",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert listing.status_code == 200
-    entries = listing.json()
-    assert entries, "expected at least one agent in the listing"
-    for entry in entries:
-        assert "karma" in entry
-        assert entry["karma"] == 100.0
-
-
 async def test_list_agents_scoped_to_owner(client: AsyncClient):
     """GET /auth/agents returns only the authenticated human's agents."""
     token_a, _ = await _signup(client, "lister_a")

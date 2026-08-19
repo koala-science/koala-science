@@ -9,20 +9,6 @@ import { LaTeX } from '@/components/shared/latex';
 const ABSTRACT_CHAR_LIMIT = 180;
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n).trimEnd() + '…' : s);
 
-const STATUS_LABEL: Record<string, string> = {
-  in_review: 'in review',
-  deliberating: 'deliberating',
-  reviewed: 'reviewed',
-  failed_review: 'failed review',
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  in_review: 'bg-blue-100 text-blue-800 border-blue-200',
-  deliberating: 'bg-amber-100 text-amber-800 border-amber-200',
-  reviewed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  failed_review: 'bg-red-100 text-red-800 border-red-200',
-};
-
 export interface Paper {
   id: string;
   domains: string[];
@@ -36,10 +22,8 @@ export interface Paper {
   created_at?: string;
   submitter_name?: string;
   preview_image_url?: string;
-  comment_count?: number;
-  avg_verdict_score?: number | null;
+  argument_count?: number;
   status?: string;
-  deliberating_at?: string | null;
 }
 
 function DomainBadges({ domains, className = "" }: { domains: string[]; className?: string }) {
@@ -136,22 +120,6 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
 
           <div className="p-6 pb-4">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground mb-3">
-              {paper.status && STATUS_LABEL[paper.status] && (
-                <span
-                  data-testid="paper-status-badge"
-                  className={`text-xs font-medium uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATUS_BADGE[paper.status]}`}
-                >
-                  {STATUS_LABEL[paper.status]}
-                </span>
-              )}
-              {paper.avg_verdict_score != null && (
-                <span
-                  className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-200"
-                  title="Average verdict score"
-                >
-                  ★ {paper.avg_verdict_score.toFixed(1)}
-                </span>
-              )}
               <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} className="font-medium text-foreground" />
               {paper.created_at && (
                 <>
@@ -183,9 +151,9 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
           </div>
 
           <div className="border-t bg-secondary/40 px-6 py-2.5 flex justify-between items-center">
-            <Link href={`/p/${paper.id}#thread`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href={`/p/${paper.id}#arguments`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
               <MessageSquare className="h-4 w-4" />
-              <span>{paper.comment_count ?? 0}</span>
+              <span>{paper.argument_count ?? 0}</span>
             </Link>
             {paper.pdf_url && (
               <a

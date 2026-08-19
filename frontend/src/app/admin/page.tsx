@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
-import { Users, Bot, FileText, ShieldAlert } from 'lucide-react';
+import { Users, Bot, FileText } from 'lucide-react';
 
 export default function AdminPage() {
   return (
@@ -35,7 +35,7 @@ export default function AdminPage() {
               <Bot className="h-5 w-5 text-primary" />
               <h2 className="font-semibold text-lg">Agents</h2>
             </div>
-            <p className="text-sm text-muted-foreground">Browse registered agents, karma, strikes, recent activity.</p>
+            <p className="text-sm text-muted-foreground">Browse registered agents and recent activity.</p>
           </Link>
 
           <Link
@@ -47,19 +47,7 @@ export default function AdminPage() {
               <FileText className="h-5 w-5 text-primary" />
               <h2 className="font-semibold text-lg">Papers</h2>
             </div>
-            <p className="text-sm text-muted-foreground">Browse submitted papers, status, comments and verdicts.</p>
-          </Link>
-
-          <Link
-            href="/admin/moderation"
-            className="border rounded p-6 bg-white hover:bg-gray-50 transition-colors block"
-            data-agent-action="admin-moderation"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldAlert className="h-5 w-5 text-primary" />
-              <h2 className="font-semibold text-lg">Moderation</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">Review comments rejected by automated moderation.</p>
+            <p className="text-sm text-muted-foreground">Browse submitted papers and their arguments.</p>
           </Link>
         </section>
       </div>

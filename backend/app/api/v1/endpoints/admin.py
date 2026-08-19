@@ -2,20 +2,18 @@
 
 All endpoints require a superuser human account (is_superuser = true) via JWT.
 """
-import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import distinct, select, func, case
+from sqlalchemy import distinct, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from app.core.deps import require_superuser
 from app.db.session import get_db
-from app.models.identity import Actor, ActorType, Agent, HumanAccount, OpenReviewId
+from app.models.identity import Actor, Agent, HumanAccount, OpenReviewId
 from app.models.platform import (
-    Paper, PaperStatus, Comment, Verdict,
-    Domain, Subscription, InteractionEvent, ModerationEvent,
+    Paper, Argument, Domain, Subscription, InteractionEvent,
 )
 from app.models.notification import Notification
 from app.schemas.admin import (
@@ -23,13 +21,9 @@ from app.schemas.admin import (
     AdminAgentDetail,
     AdminAgentListResponse,
     AdminAgentRow,
-    AdminModerationEventListResponse,
-    AdminModerationEventRow,
-    AdminPaperAvgVerdictResponse,
     AdminPaperDetail,
     AdminPaperListResponse,
     AdminPaperRow,
-    AdminPaperVerdictRow,
     AdminUserAgentRow,
     AdminUserDetail,
     AdminUserListResponse,
@@ -38,13 +32,6 @@ from app.schemas.admin import (
 
 router = APIRouter()
 
-logger = logging.getLogger(__name__)
-
-
-_NEXT_STATUS = {
-    PaperStatus.IN_REVIEW: PaperStatus.DELIBERATING,
-    PaperStatus.DELIBERATING: PaperStatus.REVIEWED,
-}
 
 
 # --- Listings: users / agents / papers ---
@@ -112,8 +99,6 @@ async def get_user_detail(
         AdminUserAgentRow(
             id=a.id,
             name=a.name,
-            karma=a.karma,
-            strike_count=a.strike_count,
             is_active=a.is_active,
         )
         for a in human.agents
@@ -159,8 +144,6 @@ async def list_agents(
             name=a.name,
             owner_id=a.owner_id,
             owner_email=owner_email,
-            karma=a.karma,
-            strike_count=a.strike_count,
             is_active=a.is_active,
             github_repo=a.github_repo,
             created_at=a.created_at,
@@ -188,28 +171,16 @@ async def get_agent_detail(
         raise HTTPException(status_code=404, detail="Agent not found")
     agent, owner_email = row
 
-    comments_result = await db.execute(
-        select(Comment.id, Comment.paper_id, Paper.title, Comment.created_at)
-        .join(Paper, Paper.id == Comment.paper_id)
-        .where(Comment.author_id == agent_id)
-        .order_by(Comment.created_at.desc())
+    arguments_result = await db.execute(
+        select(Argument.id, Argument.paper_id, Paper.title, Argument.created_at)
+        .join(Paper, Paper.id == Argument.paper_id)
+        .where(Argument.author_id == agent_id)
+        .order_by(Argument.created_at.desc())
         .limit(20)
     )
-    recent_comments = [
-        AdminAgentActivityRow(id=cid, paper_id=pid, paper_title=title, created_at=created_at)
-        for cid, pid, title, created_at in comments_result.all()
-    ]
-
-    verdicts_result = await db.execute(
-        select(Verdict.id, Verdict.paper_id, Paper.title, Verdict.created_at)
-        .join(Paper, Paper.id == Verdict.paper_id)
-        .where(Verdict.author_id == agent_id)
-        .order_by(Verdict.created_at.desc())
-        .limit(5)
-    )
-    recent_verdicts = [
-        AdminAgentActivityRow(id=vid, paper_id=pid, paper_title=title, created_at=created_at)
-        for vid, pid, title, created_at in verdicts_result.all()
+    recent_arguments = [
+        AdminAgentActivityRow(id=aid, paper_id=pid, paper_title=title, created_at=created_at)
+        for aid, pid, title, created_at in arguments_result.all()
     ]
 
     return AdminAgentDetail(
@@ -217,13 +188,10 @@ async def get_agent_detail(
         name=agent.name,
         owner_id=agent.owner_id,
         owner_email=owner_email,
-        karma=agent.karma,
-        strike_count=agent.strike_count,
         is_active=agent.is_active,
         github_repo=agent.github_repo,
         created_at=agent.created_at,
-        recent_comments=recent_comments,
-        recent_verdicts=recent_verdicts,
+        recent_arguments=recent_arguments,
     )
 
 
@@ -242,23 +210,13 @@ async def list_papers(
         )
     ).scalar_one()
 
-    comment_count_sq = (
-        select(Comment.paper_id, func.count(Comment.id).label("comment_count"))
-        .group_by(Comment.paper_id)
-        .subquery()
-    )
-    verdict_count_sq = (
+    argument_sq = (
         select(
-            Verdict.paper_id,
-            func.count(Verdict.id).label("verdict_count"),
-            func.avg(Verdict.score).label("avg_verdict_score"),
+            Argument.paper_id,
+            func.count(Argument.id).label("argument_count"),
+            func.count(distinct(Argument.author_id)).label("reviewer_count"),
         )
-        .group_by(Verdict.paper_id)
-        .subquery()
-    )
-    reviewer_count_sq = (
-        select(Comment.paper_id, func.count(distinct(Comment.author_id)).label("reviewer_count"))
-        .group_by(Comment.paper_id)
+        .group_by(Argument.paper_id)
         .subquery()
     )
 
@@ -266,17 +224,13 @@ async def list_papers(
         select(
             Paper,
             Actor.name.label("submitter_name"),
-            func.coalesce(comment_count_sq.c.comment_count, 0).label("comment_count"),
-            func.coalesce(verdict_count_sq.c.verdict_count, 0).label("verdict_count"),
-            verdict_count_sq.c.avg_verdict_score.label("avg_verdict_score"),
-            func.coalesce(reviewer_count_sq.c.reviewer_count, 0).label("reviewer_count"),
+            func.coalesce(argument_sq.c.argument_count, 0).label("argument_count"),
+            func.coalesce(argument_sq.c.reviewer_count, 0).label("reviewer_count"),
         )
         .outerjoin(Actor, Actor.id == Paper.submitter_id)
-        .outerjoin(comment_count_sq, comment_count_sq.c.paper_id == Paper.id)
-        .outerjoin(verdict_count_sq, verdict_count_sq.c.paper_id == Paper.id)
-        .outerjoin(reviewer_count_sq, reviewer_count_sq.c.paper_id == Paper.id)
+        .outerjoin(argument_sq, argument_sq.c.paper_id == Paper.id)
         .where(Paper.released_at.isnot(None))
-        .order_by(func.coalesce(reviewer_count_sq.c.reviewer_count, 0).desc(), Paper.released_at.desc())
+        .order_by(func.coalesce(argument_sq.c.reviewer_count, 0).desc(), Paper.released_at.desc())
         .offset(offset)
         .limit(limit)
     )
@@ -285,17 +239,14 @@ async def list_papers(
         AdminPaperRow(
             id=p.id,
             title=p.title,
-            status=p.status.value,
             submitter_id=p.submitter_id,
             submitter_name=submitter_name,
-            comment_count=comment_count,
-            verdict_count=verdict_count,
+            argument_count=argument_count,
             reviewer_count=reviewer_count,
-            avg_verdict_score=float(avg_score) if avg_score is not None else None,
             released_at=p.released_at,
             created_at=p.created_at,
         )
-        for p, submitter_name, comment_count, verdict_count, avg_score, reviewer_count in result.all()
+        for p, submitter_name, argument_count, reviewer_count in result.all()
     ]
 
     return AdminPaperListResponse(items=items, total=total, page=page, limit=limit)
@@ -317,169 +268,24 @@ async def get_paper_detail(
         raise HTTPException(status_code=404, detail="Paper not found")
     paper, submitter_name = row
 
-    comment_count = (await db.execute(
-        select(func.count()).select_from(Comment).where(Comment.paper_id == paper_id)
-    )).scalar_one()
-    top_level_count = (await db.execute(
-        select(func.count()).select_from(Comment).where(
-            Comment.paper_id == paper_id,
-            Comment.parent_id.is_(None),
-        )
-    )).scalar_one()
-    verdict_count = (await db.execute(
-        select(func.count()).select_from(Verdict).where(Verdict.paper_id == paper_id)
-    )).scalar_one()
-    reviewer_count = (await db.execute(
-        select(func.count(distinct(Comment.author_id))).select_from(Comment)
-        .where(Comment.paper_id == paper_id)
-    )).scalar_one()
-
-    verdicts_result = await db.execute(
-        select(Verdict.id, Verdict.author_id, Verdict.score, Verdict.created_at)
-        .where(Verdict.paper_id == paper_id)
-        .order_by(Verdict.created_at.desc())
-    )
-    verdicts = [
-        AdminPaperVerdictRow(id=vid, author_id=aid, score=score, created_at=created_at)
-        for vid, aid, score, created_at in verdicts_result.all()
-    ]
+    argument_count, reviewer_count = (await db.execute(
+        select(
+            func.count(),
+            func.count(distinct(Argument.author_id)),
+        ).select_from(Argument).where(Argument.paper_id == paper_id)
+    )).one()
 
     return AdminPaperDetail(
         id=paper.id,
         title=paper.title,
-        status=paper.status.value,
         submitter_id=paper.submitter_id,
         submitter_name=submitter_name,
-        comment_count=comment_count,
-        verdict_count=verdict_count,
+        argument_count=argument_count,
         reviewer_count=reviewer_count,
         released_at=paper.released_at,
         created_at=paper.created_at,
         domains=paper.domains,
-        top_level_comment_count=top_level_count,
-        verdicts=verdicts,
     )
-
-
-@router.get(
-    "/papers/{paper_id}/avg-verdict",
-    response_model=AdminPaperAvgVerdictResponse,
-)
-async def get_paper_avg_verdict(
-    paper_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: HumanAccount = Depends(require_superuser),
-):
-    paper = await db.get(Paper, paper_id)
-    if paper is None:
-        raise HTTPException(status_code=404, detail="Paper not found")
-
-    row = (
-        await db.execute(
-            select(func.avg(Verdict.score), func.count(Verdict.id))
-            .where(Verdict.paper_id == paper_id)
-        )
-    ).one()
-    avg_score, verdict_count = row
-    return AdminPaperAvgVerdictResponse(
-        avg_score=float(avg_score) if avg_score is not None else None,
-        verdict_count=verdict_count,
-    )
-
-
-# --- Moderation events listing ---
-
-
-@router.get("/moderation", response_model=AdminModerationEventListResponse)
-async def list_moderation_events(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
-    _: HumanAccount = Depends(require_superuser),
-):
-    offset = (page - 1) * limit
-
-    total = (
-        await db.execute(select(func.count()).select_from(ModerationEvent))
-    ).scalar_one()
-
-    result = await db.execute(
-        select(
-            ModerationEvent,
-            Actor.name.label("agent_name"),
-            Paper.title.label("paper_title"),
-        )
-        .join(Actor, Actor.id == ModerationEvent.agent_id)
-        .join(Paper, Paper.id == ModerationEvent.paper_id)
-        .order_by(ModerationEvent.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-
-    items = [
-        AdminModerationEventRow(
-            id=event.id,
-            created_at=event.created_at,
-            agent_id=event.agent_id,
-            agent_name=agent_name,
-            paper_id=event.paper_id,
-            paper_title=paper_title,
-            parent_id=event.parent_id,
-            content_markdown=event.content_markdown,
-            category=event.category,
-            reason=event.reason,
-            strike_number=event.strike_number,
-            karma_burned=event.karma_burned,
-        )
-        for event, agent_name, paper_title in result.all()
-    ]
-
-    return AdminModerationEventListResponse(
-        items=items, total=total, page=page, limit=limit
-    )
-
-
-# --- Paper status override (debug) ---
-
-
-@router.post("/papers/{paper_id}/advance")
-async def advance_paper_status(
-    paper_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    superuser: HumanAccount = Depends(require_superuser),
-):
-    """Force-advance a paper to the next lifecycle stage.
-
-    Debug escape hatch: flips `in_review -> deliberating` or
-    `deliberating -> reviewed` without sending notifications or
-    redistributing karma. The scheduled cron remains authoritative for
-    normal lifecycle transitions.
-    """
-    paper = await db.get(Paper, paper_id)
-    if paper is None:
-        raise HTTPException(status_code=404, detail="Paper not found")
-
-    next_status = _NEXT_STATUS.get(paper.status)
-    if next_status is None:
-        raise HTTPException(status_code=409, detail="Paper is already reviewed")
-
-    prev_status = paper.status
-    paper.status = next_status
-    if next_status == PaperStatus.DELIBERATING:
-        paper.deliberating_at = func.now()
-    await db.commit()
-
-    logger.info(
-        "admin advanced paper %s %s -> %s by %s",
-        paper_id,
-        prev_status.value,
-        next_status.value,
-        superuser.id,
-    )
-    return {"id": str(paper.id), "status": next_status.value}
-
-
-# --- Stats ---
 
 
 @router.get("/stats", dependencies=[Depends(require_superuser)])
@@ -489,8 +295,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "actors": Actor,
         "agents": Agent,
         "papers": Paper,
-        "comments": Comment,
-        "verdicts": Verdict,
+        "arguments": Argument,
         "domains": Domain,
         "subscriptions": Subscription,
         "interaction_events": InteractionEvent,
@@ -501,77 +306,3 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(func.count()).select_from(model))
         counts[name] = result.scalar() or 0
     return counts
-
-
-# --- Verdict activity stats ---
-
-
-@router.get("/verdict-stats", dependencies=[Depends(require_superuser)])
-async def get_verdict_stats(
-    threshold: int = 50,
-    db: AsyncSession = Depends(get_db),
-):
-    """Breakdown of active agents by verdict count."""
-    verdict_counts = (
-        select(
-            Actor.id.label("agent_id"),
-            func.count(Verdict.id).label("verdict_count"),
-        )
-        .outerjoin(Verdict, Verdict.author_id == Actor.id)
-        .where(
-            Actor.actor_type == ActorType.AGENT,
-            Actor.is_active.is_(True),
-        )
-        .group_by(Actor.id)
-    ).subquery()
-
-    total_result = await db.execute(select(func.count()).select_from(verdict_counts))
-    total_agents = total_result.scalar() or 0
-
-    above_result = await db.execute(
-        select(func.count())
-        .select_from(verdict_counts)
-        .where(verdict_counts.c.verdict_count >= threshold)
-    )
-    above_threshold = above_result.scalar() or 0
-
-    buckets_result = await db.execute(
-        select(
-            func.sum(case((verdict_counts.c.verdict_count == 0, 1), else_=0)).label("0"),
-            func.sum(case((verdict_counts.c.verdict_count.between(1, 9), 1), else_=0)).label("1_9"),
-            func.sum(case((verdict_counts.c.verdict_count.between(10, 24), 1), else_=0)).label("10_24"),
-            func.sum(case((verdict_counts.c.verdict_count.between(25, 49), 1), else_=0)).label("25_49"),
-            func.sum(case((verdict_counts.c.verdict_count.between(50, 99), 1), else_=0)).label("50_99"),
-            func.sum(case((verdict_counts.c.verdict_count >= 100, 1), else_=0)).label("100_plus"),
-        ).select_from(verdict_counts)
-    )
-    row = buckets_result.one()
-
-    agents_result = await db.execute(
-        select(Actor.id, Actor.name, verdict_counts.c.verdict_count)
-        .join(verdict_counts, Actor.id == verdict_counts.c.agent_id)
-        .where(verdict_counts.c.verdict_count >= threshold)
-        .order_by(verdict_counts.c.verdict_count.desc())
-    )
-    agents_above = [
-        {"id": str(aid), "name": name, "verdict_count": cnt}
-        for aid, name, cnt in agents_result.all()
-    ]
-
-    return {
-        "total_active_agents": total_agents,
-        "threshold": threshold,
-        "above_threshold": above_threshold,
-        "fraction": round(above_threshold / total_agents, 4) if total_agents else 0.0,
-        "histogram": {
-            "0": row[0] or 0,
-            "1-9": row[1] or 0,
-            "10-24": row[2] or 0,
-            "25-49": row[3] or 0,
-            "50-99": row[4] or 0,
-            "100+": row[5] or 0,
-        },
-        "agents": agents_above,
-    }
-
-

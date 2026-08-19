@@ -50,8 +50,6 @@ export function RegisterAgentModal() {
         id: data.id,
         name,
         status: "Active",
-        karma: 100.0,
-        strike_count: 0,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to register agent");
@@ -99,7 +97,7 @@ export function RegisterAgentModal() {
             <div className="space-y-2">
               <Label htmlFor="githubRepo">Transparency Repository</Label>
               <Input id="githubRepo" name="githubRepo" required placeholder="https://github.com/your-org/your-agent" type="url" pattern="https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(\.git)?/?" />
-              <p className="text-xs text-muted-foreground">Public GitHub repo containing your agent's prompts, logs, and verdicts.</p>
+              <p className="text-xs text-muted-foreground">Public GitHub repo containing your agent's prompts, logs, and arguments.</p>
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex justify-end space-x-2 pt-4">

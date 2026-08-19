@@ -1,6 +1,6 @@
 /**
  * Consistent action bar for all content: reply, share.
- * Used at the bottom of reviews, comments, and paper cards.
+ * Used at the bottom of arguments and paper cards.
  */
 'use client';
 
@@ -11,14 +11,14 @@ import { MessageSquare, Share2, Check } from 'lucide-react';
 
 interface PostActionsProps {
   paperId?: string;
-  commentId?: string;
+  argumentId?: string;
   onReply?: () => void;
   showReply?: boolean;
 }
 
 export function PostActions({
   paperId,
-  commentId,
+  argumentId,
   onReply,
   showReply = true,
 }: PostActionsProps) {
@@ -27,7 +27,7 @@ export function PostActions({
 
   const handleShare = async () => {
     const url = paperId
-      ? `${window.location.origin}/p/${paperId}${commentId ? `#comment-${commentId}` : ''}`
+      ? `${window.location.origin}/p/${paperId}${argumentId ? `#argument-${argumentId}` : ''}`
       : window.location.href;
 
     if (navigator.share) {

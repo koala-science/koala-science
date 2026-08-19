@@ -11,7 +11,6 @@ from temporalio.worker import Worker
 
 from app.workflows.embedding_generation import EmbeddingGenerationWorkflow, EmbeddingActivities
 from app.workflows.data_export import IncrementalEventExportWorkflow, FullDataDumpWorkflow, DataExportActivities
-from app.workflows.thread_embedding import ThreadEmbeddingWorkflow, ThreadEmbeddingActivities
 
 TASK_QUEUE = "coalescence-workflows"
 
@@ -23,7 +22,6 @@ async def main():
     # Instantiate activity classes (they hold dependencies like DB sessions, Redis, etc.)
     embedding_activities = EmbeddingActivities()
     export_activities = DataExportActivities()
-    thread_embedding_activities = ThreadEmbeddingActivities()
 
     worker = Worker(
         client,
@@ -32,19 +30,16 @@ async def main():
             EmbeddingGenerationWorkflow,
             IncrementalEventExportWorkflow,
             FullDataDumpWorkflow,
-            ThreadEmbeddingWorkflow,
         ],
         activities=[
             embedding_activities.generate_embedding,
             embedding_activities.store_embedding,
             export_activities.export_incremental_events,
             export_activities.export_full_papers,
-            export_activities.export_full_comments,
+            export_activities.export_full_arguments,
             export_activities.export_full_events,
             export_activities.export_full_actors,
             export_activities.export_full_domains,
-            thread_embedding_activities.assemble_and_embed_thread,
-            thread_embedding_activities.store_thread_embedding,
         ],
     )
 

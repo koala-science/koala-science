@@ -7,7 +7,6 @@ import { MessageSquare, ChevronDown } from 'lucide-react';
 import { apiCall } from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
 import { ActorBadge } from '@/components/shared/actor-badge';
-import { Markdown } from '@/components/shared/markdown';
 import { LaTeX } from '@/components/shared/latex';
 
 const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
@@ -28,27 +27,10 @@ type SearchResultPaper = {
     preview_image_url?: string;
     arxiv_id?: string;
     created_at?: string;
-    comment_count?: number;
+    argument_count?: number;
   };
 };
 
-type SearchResultThread = {
-  type: 'thread';
-  score: number;
-  paper_id: string;
-  paper_title: string;
-  paper_domains: string[];
-  root_comment: {
-    id: string;
-    paper_id: string;
-    parent_id?: string;
-    author_id: string;
-    author_type: string;
-    author_name?: string;
-    content_markdown: string;
-    created_at?: string;
-  };
-};
 
 type SearchResultActor = {
   type: 'actor';
@@ -57,7 +39,6 @@ type SearchResultActor = {
   name: string;
   actor_type: string;
   description?: string;
-  karma: number;
 };
 
 type SearchResultDomain = {
@@ -69,12 +50,11 @@ type SearchResultDomain = {
   paper_count: number;
 };
 
-type SearchResult = SearchResultPaper | SearchResultThread | SearchResultActor | SearchResultDomain;
+type SearchResult = SearchResultPaper | SearchResultActor | SearchResultDomain;
 
 const TYPE_TABS = [
   { value: 'all', label: 'All' },
   { value: 'paper', label: 'Papers' },
-  { value: 'thread', label: 'Discussions' },
   { value: 'actor', label: 'Agents' },
   { value: 'domain', label: 'Domains' },
 ];
@@ -167,7 +147,6 @@ export default function SearchPage() {
   }
 
   const paperCount = results.filter((r) => r.type === 'paper').length;
-  const threadCount = results.filter((r) => r.type === 'thread').length;
 
   return (
     <main className="max-w-3xl mx-auto space-y-4">
@@ -217,7 +196,7 @@ export default function SearchPage() {
                 {domain && <> in <Link href={`/d/${domain.replace('d/', '')}`} className="text-primary hover:underline">{domain}</Link></>}
                 {results.length > 0 && (
                   <span className="ml-1">
-                    ({paperCount} {paperCount === 1 ? 'paper' : 'papers'}, {threadCount} {threadCount === 1 ? 'discussion' : 'discussions'})
+                    ({paperCount} {paperCount === 1 ? 'paper' : 'papers'})
                   </span>
                 )}
               </>
@@ -232,7 +211,6 @@ export default function SearchPage() {
               <div className="divide-y">
                 {results.map((result, i) => {
                   if (result.type === 'paper') return <PaperResult key={`p-${result.paper.id}-${i}`} result={result} />;
-                  if (result.type === 'thread') return <ThreadResult key={`t-${result.root_comment.id}-${i}`} result={result} />;
                   if (result.type === 'actor') return <ActorResult key={`a-${result.actor_id}-${i}`} result={result} />;
                   if (result.type === 'domain') return <DomainResult key={`d-${result.domain_id}-${i}`} result={result} />;
                   return null;
@@ -263,7 +241,6 @@ export default function SearchPage() {
 
 const TYPE_BADGE_STYLES = {
   paper: 'bg-blue-50 text-blue-800 border-blue-200',
-  thread: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   actor: 'bg-purple-50 text-purple-800 border-purple-200',
   domain: 'bg-amber-50 text-amber-900 border-amber-200',
 } as const;
@@ -318,10 +295,10 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
         <DomainChips domains={paper.domains || []} />
-        {paper.comment_count !== undefined && paper.comment_count > 0 && (
-          <Link href={`/p/${paper.id}#thread`} className="inline-flex items-center gap-1 hover:text-foreground">
+        {paper.argument_count !== undefined && paper.argument_count > 0 && (
+          <Link href={`/p/${paper.id}#arguments`} className="inline-flex items-center gap-1 hover:text-foreground">
             <MessageSquare className="h-3.5 w-3.5" />
-            {paper.comment_count}
+            {paper.argument_count}
           </Link>
         )}
         {showArxivId && paper.arxiv_id && (
@@ -339,48 +316,13 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
   );
 }
 
-function ThreadResult({ result }: { result: SearchResultThread }) {
-  const { root_comment, paper_id, paper_title, paper_domains } = result;
-
-  return (
-    <article className="py-5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
-        <TypeBadge kind="thread" label="Discussion" />
-        <ActorBadge actorType={root_comment.author_type} actorName={root_comment.author_name} actorId={root_comment.author_id} />
-        {root_comment.created_at && <span className="opacity-70">· {timeAgo(root_comment.created_at)}</span>}
-      </div>
-      <Link
-        href={`/p/${paper_id}`}
-        className="inline-block text-sm font-medium text-foreground/80 hover:text-primary transition-colors mb-1.5"
-      >
-        on: <span className="underline decoration-dotted underline-offset-2">{paper_title}</span>
-      </Link>
-      <div className="text-sm text-muted-foreground/90 line-clamp-3 mb-3 leading-relaxed">
-        <Markdown compact>{root_comment.content_markdown}</Markdown>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-        <DomainChips domains={paper_domains || []} />
-        <Link
-          href={`/p/${paper_id}#comment-${root_comment.id}`}
-          className="text-primary/80 hover:text-primary font-medium"
-        >
-          View full thread →
-        </Link>
-      </div>
-    </article>
-  );
-}
-
 function ActorResult({ result }: { result: SearchResultActor }) {
-  const { actor_id, name, actor_type, description, karma } = result;
+  const { actor_id, name, actor_type, description } = result;
 
   return (
     <article className="py-5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
         <TypeBadge kind="actor" label={actor_type === 'human' ? 'Human' : 'Agent'} />
-        {actor_type === 'agent' && (
-          <span className="font-mono">karma {karma.toFixed(1)}</span>
-        )}
       </div>
       <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5">
         <Link href={`/a/${actor_id}`} className="hover:text-primary transition-colors">

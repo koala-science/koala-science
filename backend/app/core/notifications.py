@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType
-from app.models.platform import Paper, Comment, Subscription, Domain
+from app.models.platform import Subscription, Domain
 from app.models.identity import Actor
 
 logger = logging.getLogger(__name__)
@@ -37,11 +37,7 @@ async def emit_notifications(
     payload = payload or {}
     notifications: list[Notification] = []
 
-    if event_type == "COMMENT_POSTED":
-        notifications = await _handle_comment_posted(
-            db, actor_id, actor_name, target_id, payload,
-        )
-    elif event_type == "PAPER_SUBMITTED":
+    if event_type == "PAPER_SUBMITTED":
         notifications = await _handle_paper_submitted(
             db, actor_id, actor_name, target_id, payload,
         )
@@ -51,75 +47,6 @@ async def emit_notifications(
 
     if notifications:
         await _publish_to_redis(notifications)
-
-    return notifications
-
-
-async def _handle_comment_posted(
-    db: AsyncSession,
-    actor_id: uuid.UUID,
-    actor_name: str,
-    comment_id: uuid.UUID,
-    payload: dict,
-) -> list[Notification]:
-    """A comment was posted. Notify:
-    1. REPLY → the parent comment's author (if reply and author != actor).
-    2. COMMENT_ON_PAPER → every other distinct prior commenter on the paper,
-       excluding the actor and the REPLY recipient.
-    """
-    paper_id = uuid.UUID(payload["paper_id"])
-    parent_id_str = payload.get("parent_id")
-    content_preview = payload.get("content_preview", "")
-
-    paper_title = (
-        await db.execute(select(Paper.title).where(Paper.id == paper_id))
-    ).scalar_one()
-
-    notifications: list[Notification] = []
-    excluded = {actor_id}
-
-    if parent_id_str:
-        parent_author = (
-            await db.execute(
-                select(Comment.author_id).where(Comment.id == uuid.UUID(parent_id_str))
-            )
-        ).scalar_one()
-        if parent_author != actor_id:
-            excluded.add(parent_author)
-            notifications.append(Notification(
-                recipient_id=parent_author,
-                notification_type=NotificationType.REPLY,
-                actor_id=actor_id,
-                actor_name=actor_name,
-                paper_id=paper_id,
-                paper_title=paper_title,
-                comment_id=comment_id,
-                summary=f"{actor_name} replied to your comment",
-                payload={"content_preview": content_preview} if content_preview else None,
-            ))
-
-    distinct_commenters = (
-        await db.execute(
-            select(Comment.author_id)
-            .where(Comment.paper_id == paper_id)
-            .distinct()
-        )
-    ).scalars().all()
-
-    for recipient_id in distinct_commenters:
-        if recipient_id in excluded:
-            continue
-        notifications.append(Notification(
-            recipient_id=recipient_id,
-            notification_type=NotificationType.COMMENT_ON_PAPER,
-            actor_id=actor_id,
-            actor_name=actor_name,
-            paper_id=paper_id,
-            paper_title=paper_title,
-            comment_id=comment_id,
-            summary=f'{actor_name} commented on "{paper_title}"',
-            payload={"content_preview": content_preview} if content_preview else None,
-        ))
 
     return notifications
 
@@ -193,7 +120,7 @@ async def _publish_to_redis(notifications: list[Notification]) -> None:
                     "actor_name": n.actor_name,
                     "summary": n.summary,
                     "paper_id": str(n.paper_id) if n.paper_id else None,
-                    "comment_id": str(n.comment_id) if n.comment_id else None,
+                    "argument_id": str(n.argument_id) if n.argument_id else None,
                 })
                 await r.publish(channel, message)
         finally:

@@ -1,13 +1,13 @@
 from coalescence.client import (
+    Argument,
+    ArgumentCheck,
     CoalescenceAsyncClient,
     CoalescenceClient,
-    CommentNode,
-    build_comment_tree,
 )
 
 __all__ = [
     "CoalescenceClient",
     "CoalescenceAsyncClient",
-    "CommentNode",
-    "build_comment_tree",
+    "Argument",
+    "ArgumentCheck",
 ]

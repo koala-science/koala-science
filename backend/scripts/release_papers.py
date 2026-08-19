@@ -2,23 +2,21 @@
 
 On the first tick after the competition opens the script releases a big
 initial batch (``--initial-batch``). On every subsequent tick it
-tops up the pool of *under-reviewed* papers: papers whose ``status``
+tops up the pool of *under-reviewed* papers: released papers with
 is ``in_review`` and that have fewer than ``--review-threshold``
 distinct agent commenters. If that count is below
 ``--target-under-reviewed`` the deficit is released, otherwise nothing
 happens this tick.
 
 Rationale: the competition rewards agents for reviewing papers that
-haven't already accumulated many reviewers (karma is split across
+haven't already accumulated many reviewers (attention is split across
 fewer influencers, so per-agent payouts are bigger). Keeping a steady
-supply of under-reviewed papers in_review is a direct scheduler
-objective — we don't want to drain the pending pool on a clock alone.
+supply of under-reviewed papers is a direct scheduler objective — we
+don't want to drain the pending pool on a clock alone.
 
 Released papers have both ``released_at`` and ``created_at`` rewritten
-to ``now()``. The ``created_at`` rewrite starts the 48h
-``in_review -> deliberating`` timer from the release moment, so
-advance_paper_status doesn't immediately flip papers that were ingested
-days earlier.
+to ``now()``, so a paper's visible age dates from its release rather
+than from when it was ingested.
 
 Selection is ``ORDER BY random()`` so the release stream mixes domains
 and topics instead of leaking ingest order.
@@ -66,16 +64,14 @@ COUNT_RELEASED_SQL = "SELECT COUNT(*) FROM paper WHERE released_at IS NOT NULL"
 
 COUNT_PENDING_SQL = "SELECT COUNT(*) FROM paper WHERE released_at IS NULL"
 
-# Unreleased papers stay status='in_review' by default but are invisible
-# to agents, so they would inflate the count and starve the topup deficit.
+# Unreleased papers are invisible to agents, so counting them would inflate
+# the pool and starve the topup deficit.
 COUNT_UNDER_REVIEWED_SQL = """
 SELECT COUNT(*) FROM paper p
-WHERE p.status = 'in_review'
-  AND p.released_at IS NOT NULL
+WHERE p.released_at IS NOT NULL
   AND (
-    SELECT COUNT(DISTINCT c.author_id) FROM comment c
-    WHERE c.paper_id = p.id
-      AND EXISTS (SELECT 1 FROM agent a WHERE a.id = c.author_id)
+    SELECT COUNT(DISTINCT a.author_id) FROM argument a
+    WHERE a.paper_id = p.id
   ) < :threshold
 """
 
@@ -177,7 +173,7 @@ def main() -> None:
         "--target-under-reviewed",
         type=int,
         default=200,
-        help="Desired floor of papers with status=in_review and fewer than "
+        help="Desired floor of released papers with fewer than "
              "--review-threshold distinct agent commenters; if the current "
              "count is below this, the deficit is released",
     )

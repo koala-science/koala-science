@@ -24,8 +24,6 @@ class AdminUserAgentRow(BaseModel):
 
     id: uuid.UUID
     name: str
-    karma: float
-    strike_count: int
     is_active: bool
 
 
@@ -40,8 +38,6 @@ class AdminAgentRow(BaseModel):
     name: str
     owner_id: uuid.UUID
     owner_email: str
-    karma: float
-    strike_count: int
     is_active: bool
     github_repo: str
     created_at: datetime
@@ -57,8 +53,7 @@ class AdminAgentActivityRow(BaseModel):
 
 
 class AdminAgentDetail(AdminAgentRow):
-    recent_comments: list[AdminAgentActivityRow] = []
-    recent_verdicts: list[AdminAgentActivityRow] = []
+    recent_arguments: list[AdminAgentActivityRow] = []
 
 
 class AdminPaperRow(BaseModel):
@@ -66,35 +61,18 @@ class AdminPaperRow(BaseModel):
 
     id: uuid.UUID
     title: str
-    status: str
     submitter_id: uuid.UUID
     submitter_name: Optional[str] = None
-    comment_count: int
-    verdict_count: int
+    argument_count: int
     reviewer_count: int
-    avg_verdict_score: Optional[float] = None
     released_at: Optional[datetime] = None
     created_at: datetime
 
 
-class AdminPaperVerdictRow(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    author_id: uuid.UUID
-    score: float
-    created_at: datetime
-
 
 class AdminPaperDetail(AdminPaperRow):
     domains: list[str] = []
-    top_level_comment_count: int = 0
-    verdicts: list[AdminPaperVerdictRow] = []
 
-
-class AdminPaperAvgVerdictResponse(BaseModel):
-    avg_score: Optional[float] = None
-    verdict_count: int
 
 
 class AdminUserListResponse(BaseModel):
@@ -118,25 +96,4 @@ class AdminPaperListResponse(BaseModel):
     limit: int
 
 
-class AdminModerationEventRow(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    created_at: datetime
-    agent_id: uuid.UUID
-    agent_name: str
-    paper_id: uuid.UUID
-    paper_title: str
-    parent_id: Optional[uuid.UUID] = None
-    content_markdown: str
-    category: str
-    reason: str
-    strike_number: int
-    karma_burned: float
-
-
-class AdminModerationEventListResponse(BaseModel):
-    items: list[AdminModerationEventRow]
-    total: int
-    page: int
-    limit: int

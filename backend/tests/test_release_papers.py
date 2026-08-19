@@ -55,9 +55,9 @@ async def _insert_pending_paper(submitter_id: str, created_at: datetime) -> str:
             await conn.execute(
                 text(
                     "INSERT INTO paper (id, title, abstract, domains, submitter_id, "
-                    "status, released_at, created_at, updated_at) "
+                    "released_at, created_at, updated_at) "
                     "VALUES (:id, :title, 'a', ARRAY['d/NLP'], :sub, "
-                    "'in_review'::paperstatus, NULL, :cre, :cre)"
+                    "NULL, :cre, :cre)"
                 ),
                 {
                     "id": paper_id,
@@ -107,9 +107,9 @@ async def test_release_picks_only_pending_and_rewrites_timestamps():
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "INSERT INTO paper (id, title, abstract, domains, submitter_id, status, "
+                "INSERT INTO paper (id, title, abstract, domains, submitter_id, "
                 "released_at, created_at, updated_at) VALUES (:id, 't', 'a', "
-                "ARRAY['d/NLP'], :sub, 'in_review'::paperstatus, :when, :when, :when)"
+                "ARRAY['d/NLP'], :sub, :when, :when, :when)"
             ),
             {"id": released_id, "sub": submitter, "when": released_at_orig},
         )
@@ -194,12 +194,12 @@ async def _pending_paper_ids() -> set[str]:
     return {str(r[0]) for r in rows}
 
 
-async def _delete_comments_for_paper(paper_id: str) -> None:
+async def _delete_arguments_for_paper(paper_id: str) -> None:
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     try:
         async with engine.begin() as conn:
             await conn.execute(
-                text("DELETE FROM comment WHERE paper_id = :id"), {"id": paper_id}
+                text("DELETE FROM argument WHERE paper_id = :id"), {"id": paper_id}
             )
     finally:
         await engine.dispose()
@@ -234,27 +234,23 @@ async def _insert_agent(owner_id: str) -> str:
     return actor_id
 
 
-async def _insert_comment(paper_id: str, author_id: str) -> str:
+async def _insert_argument(paper_id: str, author_id: str) -> str:
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
-    comment_id = str(uuid.uuid4())
+    argument_id = str(uuid.uuid4())
     try:
         async with engine.begin() as conn:
             await conn.execute(
                 text(
-                    "INSERT INTO comment (id, paper_id, author_id, content_markdown, "
-                    "github_file_url, created_at, updated_at) "
-                    "VALUES (:id, :pid, :aid, 'review', :url, now(), now())"
+                    "INSERT INTO argument (id, paper_id, author_id, claim, position, "
+                    "evidence, created_at, updated_at) "
+                    "VALUES (:id, :pid, :aid, 'a claim', 'negative', 'some evidence', "
+                    "now(), now())"
                 ),
-                {
-                    "id": comment_id,
-                    "pid": paper_id,
-                    "aid": author_id,
-                    "url": "https://github.com/koala-science/test/blob/main/c.md",
-                },
+                {"id": argument_id, "pid": paper_id, "aid": author_id},
             )
     finally:
         await engine.dispose()
-    return comment_id
+    return argument_id
 
 
 @pytest.mark.anyio
@@ -391,38 +387,37 @@ async def test_topup_skips_when_target_met(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_under_reviewed_query_counts_only_agents_below_threshold():
-    """Integration test for COUNT_UNDER_REVIEWED_SQL: a paper at or above the
-    agent-commenter threshold does NOT count; only in_review papers with
-    < threshold distinct agent commenters do. Human comments are ignored."""
+async def test_under_reviewed_query_counts_papers_below_threshold():
+    """Integration test for COUNT_UNDER_REVIEWED_SQL: a released paper counts as
+    under-reviewed only while it has fewer than `threshold` distinct argument
+    authors. Arguments are agents-only at the API layer, so no author filter."""
     from scripts.release_papers import _under_reviewed_count
 
     human = await _insert_human()
     base = datetime(2026, 1, 1, 12, 0, 0)
 
-    # Release 3 fresh papers so they are status='in_review'.
+    # Release 3 fresh papers.
     reviewed = await _insert_pending_paper(human, base)
     under_reviewed = await _insert_pending_paper(human, base)
-    human_only = await _insert_pending_paper(human, base)
+    unargued = await _insert_pending_paper(human, base)
 
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     async with engine.begin() as conn:
         await conn.execute(
             text("UPDATE paper SET released_at = now() WHERE id = ANY(:ids)"),
-            {"ids": [reviewed, under_reviewed, human_only]},
+            {"ids": [reviewed, under_reviewed, unargued]},
         )
     await engine.dispose()
 
     agent1 = await _insert_agent(human)
     agent2 = await _insert_agent(human)
 
-    # `reviewed` has 2 distinct agent comments — at/above threshold=2.
-    await _insert_comment(reviewed, agent1)
-    await _insert_comment(reviewed, agent2)
-    # `under_reviewed` has 1 agent comment — below threshold.
-    await _insert_comment(under_reviewed, agent1)
-    # `human_only` has a human comment — must not count toward the threshold.
-    await _insert_comment(human_only, human)
+    # `reviewed` has 2 distinct authors — at/above threshold=2.
+    await _insert_argument(reviewed, agent1)
+    await _insert_argument(reviewed, agent2)
+    # `under_reviewed` has 1 author — below threshold=2.
+    await _insert_argument(under_reviewed, agent1)
+    # `unargued` has none at all.
 
     # Baseline against the shared DB; compare deltas so test is robust to noise.
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
@@ -431,18 +426,16 @@ async def test_under_reviewed_query_counts_only_agents_below_threshold():
         thresh1 = await _under_reviewed_count(conn, 1)
     await engine.dispose()
 
-    # `reviewed` (>=2 agents) is NOT under-reviewed at threshold=2.
-    # `under_reviewed` (1 agent) IS under-reviewed at threshold=2.
-    # `human_only` (0 agents) IS under-reviewed at threshold=2.
-    # At threshold=1 only `human_only` qualifies.
-    # So thresh2 - thresh1 should be >= 1 (the under_reviewed paper moves in).
+    # At threshold=2: `under_reviewed` (1 author) and `unargued` (0) qualify;
+    # `reviewed` (2) does not. At threshold=1 only `unargued` qualifies, so
+    # `under_reviewed` moves in as the threshold rises.
     assert thresh2 > thresh1, (
         f"threshold=2 should include at least one paper that threshold=1 "
         f"excludes (got thresh2={thresh2}, thresh1={thresh1})"
     )
 
-    for pid in [reviewed, under_reviewed, human_only]:
-        await _delete_comments_for_paper(pid)
+    for pid in [reviewed, under_reviewed, unargued]:
+        await _delete_arguments_for_paper(pid)
         await _delete_paper(pid)
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     async with engine.begin() as conn:

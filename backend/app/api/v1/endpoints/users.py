@@ -11,8 +11,8 @@ from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
 from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
-from app.models.platform import Paper, Comment, Verdict, Domain, Subscription
-from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
+from app.models.platform import Paper, Argument, Domain, Subscription
+from app.schemas.platform import UserProfileResponse, PaperResponse, DomainResponse, UserPaperResponse, UserArgumentResponse
 
 router = APIRouter()
 
@@ -21,18 +21,10 @@ PROFILE_ACTIVITY_WINDOW_HOURS = 3
 
 async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID, *, public_only: bool = True) -> dict:
     """Compute activity stats for an actor."""
-    comments_query = select(func.count()).select_from(Comment).where(Comment.author_id == actor_id)
-    verdicts_query = select(func.count()).select_from(Verdict).where(Verdict.author_id == actor_id)
+    query = select(func.count()).select_from(Argument).where(Argument.author_id == actor_id)
     if public_only:
-        comments_query = comments_query.join(Paper, Comment.paper_id == Paper.id).where(public_paper_clause())
-        verdicts_query = verdicts_query.join(Paper, Verdict.paper_id == Paper.id).where(public_paper_clause())
-
-    comments = (await db.execute(comments_query)).scalar() or 0
-    verdicts = (await db.execute(verdicts_query)).scalar() or 0
-    return {
-        "comments": comments,
-        "verdicts": verdicts,
-    }
+        query = query.join(Paper, Argument.paper_id == Paper.id).where(public_paper_clause())
+    return {"arguments": (await db.execute(query)).scalar_one()}
 
 
 # --- /me/subscriptions ---
@@ -72,8 +64,6 @@ class PublicProfileResponse(BaseModel):
     owner_id: Optional[uuid.UUID] = None  # For agents
     owner_name: Optional[str] = None  # For agents
     agents: Optional[list[dict]] = None  # For humans
-    karma: Optional[float] = None  # For agents
-    strike_count: Optional[int] = None  # For agents
     stats: dict
     recent_stats: dict
 
@@ -106,7 +96,6 @@ async def get_current_user_profile(
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
-                "karma": a.karma,
                 "stats": stats,
             })
 
@@ -116,8 +105,6 @@ async def get_current_user_profile(
 
     orcid_id = None
     google_scholar_id = None
-    karma = None
-    strike_count = None
     github_repo = None
     is_superuser = False
     is_annotator = False
@@ -133,8 +120,6 @@ async def get_current_user_profile(
         agent_self = await db.execute(select(Agent).where(Agent.id == actor.id))
         agent_row = agent_self.scalar_one_or_none()
         if agent_row:
-            karma = agent_row.karma
-            strike_count = agent_row.strike_count
             github_repo = agent_row.github_repo
 
     return UserProfileResponse(
@@ -148,8 +133,6 @@ async def get_current_user_profile(
         github_repo=github_repo,
         is_superuser=is_superuser,
         is_annotator=is_annotator,
-        karma=karma,
-        strike_count=strike_count,
     )
 
 
@@ -222,8 +205,6 @@ async def get_public_profile(
     description = None
     github_repo = None
     agents_list = None
-    agent_karma: float | None = None
-    agent_strike_count: int | None = None
 
     if actor.actor_type == ActorType.HUMAN:
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == user_id))
@@ -249,8 +230,6 @@ async def get_public_profile(
         if agent:
             description = agent.description
             github_repo = agent.github_repo
-            agent_karma = agent.karma
-            agent_strike_count = agent.strike_count
             if agent.owner:
                 owner_id = agent.owner_id
                 owner_name = agent.owner.name
@@ -263,42 +242,24 @@ async def get_public_profile(
         )).all()]
         if owned_agent_ids:
             activity_actor_ids.extend(owned_agent_ids)
-            agent_comments = (await db.execute(
+            actor_stats["arguments"] += (await db.execute(
                 select(func.count())
-                .select_from(Comment)
-                .join(Paper, Comment.paper_id == Paper.id)
-                .where(Comment.author_id.in_(owned_agent_ids), public_paper_clause())
-            )).scalar() or 0
-            agent_verdicts = (await db.execute(
-                select(func.count())
-                .select_from(Verdict)
-                .join(Paper, Verdict.paper_id == Paper.id)
-                .where(Verdict.author_id.in_(owned_agent_ids), public_paper_clause())
-            )).scalar() or 0
-            actor_stats["comments"] += agent_comments
-            actor_stats["verdicts"] += agent_verdicts
+                .select_from(Argument)
+                .join(Paper, Argument.paper_id == Paper.id)
+                .where(Argument.author_id.in_(owned_agent_ids), public_paper_clause())
+            )).scalar_one()
 
     recent_cutoff = func.now() - text(f"interval '{PROFILE_ACTIVITY_WINDOW_HOURS} hours'")
-    recent_comments = (await db.execute(
+    recent_arguments = (await db.execute(
         select(func.count())
-        .select_from(Comment)
-        .join(Paper, Comment.paper_id == Paper.id)
+        .select_from(Argument)
+        .join(Paper, Argument.paper_id == Paper.id)
         .where(
-            Comment.author_id.in_(activity_actor_ids),
-            Comment.created_at >= recent_cutoff,
+            Argument.author_id.in_(activity_actor_ids),
+            Argument.created_at >= recent_cutoff,
             public_paper_clause(),
         )
-    )).scalar() or 0
-    recent_verdicts = (await db.execute(
-        select(func.count())
-        .select_from(Verdict)
-        .join(Paper, Verdict.paper_id == Paper.id)
-        .where(
-            Verdict.author_id.in_(activity_actor_ids),
-            Verdict.created_at >= recent_cutoff,
-            public_paper_clause(),
-        )
-    )).scalar() or 0
+    )).scalar_one()
     recent_papers = (await db.execute(
         select(func.count())
         .select_from(Paper)
@@ -311,12 +272,10 @@ async def get_public_profile(
 
     stats = {
         "papers": paper_count,
-        "comments": actor_stats["comments"],
-        "verdicts": actor_stats["verdicts"],
+        "arguments": actor_stats["arguments"],
     }
     recent_stats = {
-        "comments": recent_comments,
-        "verdicts": recent_verdicts,
+        "arguments": recent_arguments,
         "papers": recent_papers,
         "window_hours": PROFILE_ACTIVITY_WINDOW_HOURS,
     }
@@ -335,8 +294,6 @@ async def get_public_profile(
         owner_id=owner_id,
         owner_name=owner_name,
         agents=agents_list,
-        karma=agent_karma,
-        strike_count=agent_strike_count,
         stats=stats,
         recent_stats=recent_stats,
     )
@@ -379,18 +336,17 @@ async def get_user_papers(
     ]
 
 
-# --- /{id}/reviews ---
 
-# --- /{id}/comments ---
+# --- /{id}/arguments ---
 
-@router.get("/{user_id}/comments", response_model=list[UserCommentResponse])
-async def get_user_comments(
+@router.get("/{user_id}/arguments", response_model=list[UserArgumentResponse])
+async def get_user_arguments(
     user_id: uuid.UUID,
     limit: int | None = None,
     skip: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get comments by a user. For humans, also includes comments by agents they own."""
+    """Arguments by a user. For humans, also those by agents they own."""
     actor_ids: list[uuid.UUID] = [user_id]
     actor_row = (await db.execute(
         select(Actor.actor_type).where(Actor.id == user_id)
@@ -402,29 +358,28 @@ async def get_user_comments(
         actor_ids.extend(aid for (aid,) in owned_agents)
 
     stmt = (
-        select(Comment, Paper.title, Paper.domains, Actor.name, Actor.actor_type)
-        .join(Paper, Comment.paper_id == Paper.id)
-        .join(Actor, Comment.author_id == Actor.id)
-        .where(Comment.author_id.in_(actor_ids), public_paper_clause())
-        .order_by(Comment.created_at.desc())
+        select(Argument, Paper.title, Paper.domains, Actor.name)
+        .join(Paper, Argument.paper_id == Paper.id)
+        .join(Actor, Argument.author_id == Actor.id)
+        .where(Argument.author_id.in_(actor_ids), public_paper_clause())
+        .order_by(Argument.created_at.desc())
         .offset(skip)
     )
     if limit is not None:
         stmt = stmt.limit(limit)
-    result = await db.execute(stmt)
 
     return [
         {
-            "id": str(c.id),
-            "paper_id": str(c.paper_id),
+            "id": str(a.id),
+            "paper_id": str(a.paper_id),
             "paper_title": title,
             "paper_domains": domains,
-            "content_markdown": c.content_markdown,
-            "content_preview": c.content_markdown[:200],
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-            "author_id": str(c.author_id),
+            "claim": a.claim,
+            "position": a.position.value,
+            "evidence": a.evidence,
+            "created_at": a.created_at.isoformat(),
+            "author_id": str(a.author_id),
             "author_name": author_name,
-            "author_type": author_type.value if author_type else None,
         }
-        for c, title, domains, author_name, author_type in result
+        for a, title, domains, author_name in await db.execute(stmt)
     ]

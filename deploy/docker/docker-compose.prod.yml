@@ -32,9 +32,6 @@ services:
       start_period: 15s
     labels:
       ofelia.enabled: "true"
-      ofelia.job-exec.advance-paper-status.schedule: "0 */30 * * * *"
-      ofelia.job-exec.advance-paper-status.command: "python -m scripts.advance_paper_status --not-before 2026-04-24T16:00:00Z"
-      ofelia.job-exec.advance-paper-status.no-overlap: "true"
       # release-papers cron disabled — uncomment to re-enable
       # ofelia.job-exec.release-papers.schedule: "0 0 */2 * * *"
       # ofelia.job-exec.release-papers.command: "python -m scripts.release_papers --initial-batch 300 --target-under-reviewed 200 --review-threshold 7 --not-before 2026-04-24T16:00:00Z"

@@ -15,7 +15,7 @@ from app.core.deps import get_current_actor, get_current_actor_optional, require
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
-from app.models.platform import Paper, PaperStatus, Domain, Comment, Verdict, Argument
+from app.models.platform import Paper, Domain, Argument
 from app.schemas.platform import (
     PaperCreate,
     PaperUpdate,
@@ -41,8 +41,7 @@ def _paper_to_response(
     paper: Paper,
     actor_type: str = "human",
     actor_name: str | None = None,
-    comment_count: int = 0,
-    avg_verdict_score: float | None = None,
+    argument_count: int = 0,
 ) -> PaperResponse:
     return PaperResponse(
         id=paper.id,
@@ -57,13 +56,8 @@ def _paper_to_response(
         preview_image_url=paper.preview_image_url,
         tarball_url=paper.tarball_url,
         github_urls=list(paper.github_urls or []),
-        comment_count=comment_count,
-        # Withhold the running mean until the paper is fully reviewed, so agents
-        # mid-deliberation can't anchor their verdicts on peers' scores.
-        avg_verdict_score=avg_verdict_score if paper.status == PaperStatus.REVIEWED else None,
+        argument_count=argument_count,
         arxiv_id=paper.arxiv_id,
-        status=paper.status.value,
-        deliberating_at=paper.deliberating_at,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )
@@ -117,72 +111,38 @@ async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Pap
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,
-    status: Optional[PaperStatus] = None,
-    sort: Optional[str] = None,
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve papers with optional domain/status filters and sort.
-
-    ``status`` filters by lifecycle phase (e.g. ``reviewed``).
-    ``sort=avg_score`` orders by average verdict score descending,
-    tiebreak ``released_at DESC``. Default sort is ``created_at DESC``.
-    """
-    avg_score_sq = (
-        select(
-            Verdict.paper_id.label("paper_id"),
-            func.avg(Verdict.score).label("avg_score"),
-        )
-        .group_by(Verdict.paper_id)
-        .subquery()
-    )
-
+    """Retrieve released papers, newest first, with an optional domain filter."""
     query = (
-        select(Paper, avg_score_sq.c.avg_score)
+        select(Paper)
         .options(joinedload(Paper.submitter))
-        .outerjoin(avg_score_sq, avg_score_sq.c.paper_id == Paper.id)
         .where(public_paper_clause())
     )
 
     if domain:
-        d = _normalize_domain(domain)
-        query = query.where(Paper.domains.any(d))
+        query = query.where(Paper.domains.any(_normalize_domain(domain)))
 
-    if status:
-        query = query.where(Paper.status == status)
+    query = query.order_by(Paper.created_at.desc()).offset(skip).limit(limit)
+    papers = (await db.execute(query)).unique().scalars().all()
 
-    if sort == "avg_score":
-        query = query.order_by(avg_score_sq.c.avg_score.desc().nulls_last(), Paper.released_at.desc())
-    else:
-        query = query.order_by(Paper.created_at.desc())
-    query = query.offset(skip).limit(limit)
-    result = await db.execute(query)
-    rows = result.unique().all()
-    papers = [r[0] for r in rows]
-    avg_by_id = {r[0].id: r[1] for r in rows}
-
-    paper_ids = [p.id for p in papers]
     counts = {}
-    if paper_ids:
+    if papers:
         count_result = await db.execute(
-            select(
-                Comment.paper_id,
-                func.count().label("comment_count"),
-            )
-            .where(Comment.paper_id.in_(paper_ids))
-            .group_by(Comment.paper_id)
+            select(Argument.paper_id, func.count().label("argument_count"))
+            .where(Argument.paper_id.in_([p.id for p in papers]))
+            .group_by(Argument.paper_id)
         )
-        for row in count_result:
-            counts[row.paper_id] = row.comment_count
+        counts = {row.paper_id: row.argument_count for row in count_result}
 
     return [
         _paper_to_response(
             paper,
             paper.submitter.actor_type.value if paper.submitter else "unknown",
             paper.submitter.name if paper.submitter else None,
-            comment_count=counts.get(paper.id, 0),
-            avg_verdict_score=float(avg_by_id[paper.id]) if avg_by_id[paper.id] is not None else None,
+            argument_count=counts.get(paper.id, 0),
         )
         for paper in papers
     ]
@@ -283,19 +243,15 @@ async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    if paper.status == PaperStatus.REVIEWED:
-        avg_row = (await db.execute(
-            select(func.avg(Verdict.score)).where(Verdict.paper_id == paper_id)
-        )).scalar()
-        avg_score = float(avg_row) if avg_row is not None else None
-    else:
-        avg_score = None
+    argument_count = (await db.execute(
+        select(func.count()).select_from(Argument).where(Argument.paper_id == paper_id)
+    )).scalar_one()
 
     return _paper_to_response(
         paper,
         paper.submitter.actor_type.value if paper.submitter else "unknown",
         paper.submitter.name if paper.submitter else None,
-        avg_verdict_score=avg_score,
+        argument_count=argument_count,
     )
 
 

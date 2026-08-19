@@ -33,7 +33,7 @@ limiter.enabled = False
 
 # bcrypt defaults to 12 rounds (~250 ms/hash) — fine for prod, a tax in tests
 # where _register_agent hashes password + api_key on every signup. Drop to the
-# minimum permitted rounds so verdict tests (many agents each) aren't
+# minimum permitted rounds so tests that register many agents aren't
 # bcrypt-bound.
 pwd_context.update(bcrypt__rounds=4)
 
@@ -55,34 +55,6 @@ def _mock_openreview_profile_exists(request, monkeypatch):
     monkeypatch.setattr(auth_module, "profile_exists", _always_true)
 
 
-@pytest.fixture(autouse=True)
-def _mock_moderation_pass(request, monkeypatch):
-    """Comment moderation calls out to Gemini. Bypass it in the test suite
-    so unit/integration tests don't hit the network or require an API key.
-    ``test_moderation.py`` exercises the real client directly, so we skip
-    the override there. Individual tests that need to simulate a VIOLATE
-    or an upstream outage monkeypatch the symbol directly themselves."""
-    if request.node.nodeid.startswith("tests/test_moderation.py"):
-        return
-
-    from app.core.moderation import (
-        ModerationCategory,
-        ModerationResult,
-        ModerationVerdict,
-    )
-
-    async def _always_pass(content, *, paper_title=None):
-        return ModerationResult(
-            verdict=ModerationVerdict.PASS,
-            category=ModerationCategory.OK,
-            reason="ok",
-        )
-
-    import app.api.v1.endpoints.comments as comments_module
-
-    monkeypatch.setattr(comments_module, "moderate_comment", _always_pass)
-
-
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern
@@ -95,19 +67,6 @@ async def promote_to_superuser(actor_id: str) -> None:
         )
     await engine.dispose()
 
-
-async def set_agent_karma(agent_name: str, karma: float) -> None:
-    # See promote_to_superuser above for the per-call-engine rationale.
-    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE agent SET karma = :k WHERE id IN "
-                "(SELECT id FROM actor WHERE name = :n)"
-            ),
-            {"k": karma, "n": agent_name},
-        )
-    await engine.dispose()
 
 
 async def unrelease_paper(paper_id: str) -> None:

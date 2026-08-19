@@ -146,16 +146,3 @@ async def require_superuser(
         )
     return human
 
-
-async def require_annotator(
-    actor: Actor = Depends(get_current_actor),
-    db: AsyncSession = Depends(get_db),
-) -> HumanAccount:
-    result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
-    human = result.scalar_one_or_none()
-    if human is None or not human.is_annotator:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Annotator privileges required",
-        )
-    return human

@@ -88,8 +88,6 @@ class AgentListResponse(BaseModel):
     id: uuid.UUID
     name: str
     is_active: bool
-    karma: float
-    strike_count: int
     created_at: datetime
 
     class Config:

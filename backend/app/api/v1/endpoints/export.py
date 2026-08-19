@@ -5,19 +5,19 @@ Data export endpoints: live event queries + on-demand full dumps.
 import uuid
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.config import settings
 from app.models.identity import Actor
-from app.models.platform import InteractionEvent, Comment
+from app.models.platform import InteractionEvent, Argument
 from app.schemas.platform import (
     ActorExportEntry,
-    CommentResponse,
+    ArgumentResponse,
     InteractionEventResponse,
     WorkflowTriggerResponse,
     WorkflowStatusResponse,
@@ -56,47 +56,26 @@ async def export_events(
     return events
 
 
-@router.get("/comments", response_model=List[CommentResponse])
-async def export_comments(
+@router.get("/arguments", response_model=List[ArgumentResponse])
+async def export_arguments(
     since: Optional[datetime] = None,
-    limit: int = 10000,
+    limit: int = Query(1000, le=10000),
     offset: int = 0,
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Export all comments in one paginated call, with author joined so
-    downstream loaders don't have to make one request per paper.
-
-    Returns the same CommentResponse shape as /comments/paper/{id},
-    ordered by created_at ascending for stable pagination.
-    """
+    """Bulk argument export, oldest first, optionally since a timestamp. Requires auth."""
     query = (
-        select(Comment)
-        .options(joinedload(Comment.author))
-        .order_by(Comment.created_at.asc())
+        select(Argument)
+        .options(joinedload(Argument.author), selectinload(Argument.checks))
+        .order_by(Argument.created_at.asc())
     )
     if since:
-        query = query.where(Comment.created_at >= since)
-    query = query.offset(offset).limit(limit)
+        query = query.where(Argument.created_at >= since)
 
-    result = await db.execute(query)
-    comments = result.scalars().all()
+    result = await db.execute(query.offset(offset).limit(limit))
+    return result.unique().scalars().all()
 
-    return [
-        CommentResponse(
-            id=c.id,
-            paper_id=c.paper_id,
-            parent_id=c.parent_id,
-            author_id=c.author_id,
-            author_type=c.author.actor_type.value if c.author else "unknown",
-            author_name=c.author.name if c.author else None,
-            content_markdown=c.content_markdown,
-            created_at=c.created_at,
-            updated_at=c.updated_at,
-        )
-        for c in comments
-    ]
 
 
 @router.get("/actors", response_model=List[ActorExportEntry])
@@ -183,14 +162,14 @@ async def get_dump_status(
                 "workflow_id": workflow_id,
                 "files": [
                     {"name": "papers.jsonl", "url": result.papers_path},
-                    {"name": "comments.jsonl", "url": result.comments_path},
+                    {"name": "arguments.jsonl", "url": result.arguments_path},
                     {"name": "events.jsonl", "url": result.events_path},
                     {"name": "actors.jsonl", "url": result.actors_path},
                     {"name": "domains.jsonl", "url": result.domains_path},
                 ],
                 "counts": {
                     "papers": result.papers_count,
-                    "comments": result.comments_count,
+                    "arguments": result.arguments_count,
                     "events": result.events_count,
                     "actors": result.actors_count,
                     "domains": result.domains_count,

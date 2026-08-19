@@ -12,7 +12,7 @@ from sqlalchemy.orm import joinedload
 from app.core.paper_visibility import public_paper_clause
 from app.db.session import get_db
 from app.models.identity import Actor
-from app.models.platform import Comment, Paper, PaperStatus
+from app.models.platform import Argument, Paper
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ ACTIVITY_WINDOW_HOURS = 3
 
 
 class ActivityStats(BaseModel):
-    comments_recent: int
+    arguments_recent: int
     active_reviewers_recent: int
     papers_active_recent: int
     papers_released_today: int
@@ -38,7 +38,7 @@ class RecentEventPaper(BaseModel):
 
 
 class RecentEvent(BaseModel):
-    type: Literal["comment", "reply"]
+    type: Literal["argument"]
     id: uuid.UUID
     created_at: datetime
     actor: RecentEventActor
@@ -53,7 +53,7 @@ class ActivePaperActor(BaseModel):
 
 class ActivePaper(BaseModel):
     paper: RecentEventPaper
-    comment_count: int
+    argument_count: int
     reviewer_count: int
     latest_activity_at: datetime
     recent_actors: list[ActivePaperActor]
@@ -68,26 +68,23 @@ async def get_activity_stats(db: AsyncSession = Depends(get_db)):
     hour_row = (
         await db.execute(
             select(
-                func.count(Comment.id),
-                func.count(distinct(Comment.author_id)),
-                func.count(distinct(Comment.paper_id)),
+                func.count(Argument.id),
+                func.count(distinct(Argument.author_id)),
+                func.count(distinct(Argument.paper_id)),
             )
-            .join(Comment.paper)
-            .where(Comment.created_at >= recent_cutoff, public_paper_clause())
+            .join(Argument.paper)
+            .where(Argument.created_at >= recent_cutoff, public_paper_clause())
         )
     ).one()
 
     papers_today = (
         await db.execute(
-            select(func.count(Paper.id)).where(
-                Paper.released_at >= start_of_day,
-                Paper.status != PaperStatus.FAILED_REVIEW,
-            )
+            select(func.count(Paper.id)).where(Paper.released_at >= start_of_day)
         )
     ).scalar_one()
 
     return ActivityStats(
-        comments_recent=hour_row[0] or 0,
+        arguments_recent=hour_row[0] or 0,
         active_reviewers_recent=hour_row[1] or 0,
         papers_active_recent=hour_row[2] or 0,
         papers_released_today=papers_today or 0,
@@ -99,21 +96,21 @@ async def get_recent_events(
     limit: int = Query(15, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
-    """Most recent comment activity, newest first."""
+    """Most recent argument activity, newest first."""
     rows = (
         await db.execute(
-            select(Comment)
-            .join(Comment.paper)
-            .options(joinedload(Comment.author), joinedload(Comment.paper))
+            select(Argument)
+            .join(Argument.paper)
+            .options(joinedload(Argument.author), joinedload(Argument.paper))
             .where(public_paper_clause())
-            .order_by(Comment.created_at.desc())
+            .order_by(Argument.created_at.desc())
             .limit(limit)
         )
     ).scalars().all()
 
     return [
         RecentEvent(
-            type="reply" if c.parent_id else "comment",
+            type="argument",
             id=c.id,
             created_at=c.created_at,
             actor=RecentEventActor(
@@ -130,7 +127,7 @@ async def get_active_papers(
     limit: int = Query(5, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
 ):
-    """Papers with the most recent public comment activity in the activity window."""
+    """Papers with the most recent public argument activity in the activity window."""
     recent_cutoff = func.now() - text(f"interval '{ACTIVITY_WINDOW_HOURS} hours'")
 
     rows = (
@@ -138,14 +135,14 @@ async def get_active_papers(
             select(
                 Paper.id,
                 Paper.title,
-                func.count(Comment.id).label("comment_count"),
-                func.count(distinct(Comment.author_id)).label("reviewer_count"),
-                func.max(Comment.created_at).label("latest_activity_at"),
+                func.count(Argument.id).label("argument_count"),
+                func.count(distinct(Argument.author_id)).label("reviewer_count"),
+                func.max(Argument.created_at).label("latest_activity_at"),
             )
-            .join(Comment, Comment.paper_id == Paper.id)
-            .where(public_paper_clause(), Comment.created_at >= recent_cutoff)
+            .join(Argument, Argument.paper_id == Paper.id)
+            .where(public_paper_clause(), Argument.created_at >= recent_cutoff)
             .group_by(Paper.id, Paper.title)
-            .order_by(func.max(Comment.created_at).desc())
+            .order_by(func.max(Argument.created_at).desc())
             .limit(limit)
         )
     ).all()
@@ -157,15 +154,15 @@ async def get_active_papers(
     if paper_ids:
         actor_rows = (
             await db.execute(
-                select(Comment.paper_id, Actor)
-                .join(Comment.paper)
-                .join(Actor, Actor.id == Comment.author_id)
+                select(Argument.paper_id, Actor)
+                .join(Argument.paper)
+                .join(Actor, Actor.id == Argument.author_id)
                 .where(
-                    Comment.paper_id.in_(paper_ids),
-                    Comment.created_at >= recent_cutoff,
+                    Argument.paper_id.in_(paper_ids),
+                    Argument.created_at >= recent_cutoff,
                     public_paper_clause(),
                 )
-                .order_by(Comment.created_at.desc())
+                .order_by(Argument.created_at.desc())
             )
         ).all()
 
@@ -184,7 +181,7 @@ async def get_active_papers(
     return [
         ActivePaper(
             paper=RecentEventPaper(id=row.id, title=row.title),
-            comment_count=row.comment_count or 0,
+            argument_count=row.argument_count or 0,
             reviewer_count=row.reviewer_count or 0,
             latest_activity_at=row.latest_activity_at,
             recent_actors=actors_by_paper[row.id],

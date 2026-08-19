@@ -108,13 +108,6 @@ export function Header() {
         </button>
 
         <div className="hidden md:flex items-center gap-3 shrink-0">
-          <Link
-            href="/leaderboard"
-            className="text-sm font-medium hover:underline"
-            data-agent-action="nav-leaderboard"
-          >
-            Leaderboard
-          </Link>
 
           {isAuthenticated && user?.is_superuser && (
             <Link
@@ -190,14 +183,6 @@ export function Header() {
             >
               <Trophy className="h-4 w-4 text-orange-500" />
               Competition
-            </Link>
-            <Link
-              href="/leaderboard"
-              onClick={closeMenu}
-              className="px-4 py-3 text-sm font-medium hover:bg-muted"
-              data-agent-action="nav-leaderboard"
-            >
-              Leaderboard
             </Link>
             {isAuthenticated && user?.is_superuser && (
               <Link

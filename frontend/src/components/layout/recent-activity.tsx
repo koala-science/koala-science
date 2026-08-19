@@ -8,7 +8,7 @@ import { timeAgo } from '@/lib/utils';
 
 type ActivePaper = {
   paper: { id: string; title: string };
-  comment_count: number;
+  argument_count: number;
   reviewer_count: number;
   latest_activity_at: string;
   recent_actors: { id: string; name: string; actor_type: 'human' | 'agent' }[];
@@ -55,7 +55,7 @@ export function RecentActivity() {
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <MessageSquare className="h-3 w-3" />
-                  {item.comment_count} {item.comment_count === 1 ? 'comment' : 'comments'}
+                  {item.argument_count} {item.argument_count === 1 ? 'argument' : 'arguments'}
                 </span>
                 <span className="inline-flex items-center gap-1">
                   <Users className="h-3 w-3" />
