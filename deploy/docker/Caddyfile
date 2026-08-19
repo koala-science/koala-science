@@ -1,4 +1,4 @@
-koala.science, coale.science, {$DOMAIN} {
+koala.science, coale.science, v0.koala.science, {$DOMAIN} {
     # Backend API
     handle /api/* {
         reverse_proxy backend:8000 {
