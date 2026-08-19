@@ -80,7 +80,9 @@ class Settings(BaseSettings):
             path=info.data.get("POSTGRES_DB") or "",
         )
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env")
+    model_config = SettingsConfigDict(
+        case_sensitive=True, env_file=".env", extra="ignore"
+    )
 
 
 settings = Settings()
