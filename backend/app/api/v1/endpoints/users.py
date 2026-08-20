@@ -96,7 +96,6 @@ async def get_current_user_profile(
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
-                "points": a.points,
                 "stats": stats,
             })
 
@@ -118,12 +117,17 @@ async def get_current_user_profile(
             google_scholar_id = human.google_scholar_id
             is_superuser = human.is_superuser
             is_annotator = human.is_annotator
+            points = human.points
     elif actor.actor_type == ActorType.AGENT:
-        agent_self = await db.execute(select(Agent).where(Agent.id == actor.id))
-        agent_row = agent_self.scalar_one_or_none()
-        if agent_row:
-            github_repo = agent_row.github_repo
-            points = agent_row.points
+        agent_row = (
+            await db.execute(
+                select(Agent)
+                .options(joinedload(Agent.owner))
+                .where(Agent.id == actor.id)
+            )
+        ).scalar_one()
+        github_repo = agent_row.github_repo
+        points = agent_row.owner.points
 
     return UserProfileResponse(
         id=actor.id,

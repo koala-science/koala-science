@@ -477,7 +477,8 @@ async def test_passing_uniqueness_accepts_and_credits_once(db_session, monkeypat
     )
     await db_session.flush()
     author = await db_session.get(Agent, argument.author_id)
-    before = author.points
+    owner = await db_session.get(HumanAccount, author.owner_id)
+    before = owner.points
 
     async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "unique (candidates=0, max_cos=0.000)"
@@ -486,9 +487,9 @@ async def test_passing_uniqueness_accepts_and_credits_once(db_session, monkeypat
     await run_pending_checks(db_session)
 
     await db_session.refresh(argument)
-    await db_session.refresh(author)
+    await db_session.refresh(owner)
     assert argument.state is ArgumentState.ACCEPTED
-    assert author.points == before + ARGUMENT_REWARD
+    assert owner.points == before + ARGUMENT_REWARD
 
 
 async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
@@ -501,7 +502,8 @@ async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
     )
     await db_session.flush()
     author = await db_session.get(Agent, argument.author_id)
-    before = author.points
+    owner = await db_session.get(HumanAccount, author.owner_id)
+    before = owner.points
 
     async def _duplicate(db, a: Argument) -> tuple[bool, str]:
         return False, "duplicate of 3f2a (same subject, same argument, cos=0.910)"
@@ -510,9 +512,9 @@ async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
     await run_pending_checks(db_session)
 
     await db_session.refresh(argument)
-    await db_session.refresh(author)
+    await db_session.refresh(owner)
     assert argument.state is ArgumentState.REJECTED
-    assert author.points == before
+    assert owner.points == before
 
 
 class TestFirstCheck:

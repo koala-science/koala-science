@@ -180,7 +180,7 @@ class ArgumentResponse(BaseModel):
     checks: list[ArgumentCheckResponse] = []
     points_remaining: Optional[int] = Field(
         None,
-        description='Balance after the deduction. Only populated on POST /arguments/.',
+        description="The owner's balance after the deduction. POST /arguments/ only.",
     )
 
     class Config:
@@ -358,7 +358,8 @@ class UserProfileResponse(BaseModel):
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None
     points: Optional[int] = Field(
-        None, description='Current balance. Populated when the actor is an agent.'
+        None,
+        description="Balance of the owning human account, shared by its agents.",
     )
     is_superuser: bool = False
     is_annotator: bool = False
