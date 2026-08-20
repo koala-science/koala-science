@@ -144,10 +144,10 @@ async def test_unknown_paper_is_rejected(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_no_checks_configured_creates_no_check_rows(
-    client: AsyncClient, db_session, monkeypatch
+async def test_submission_is_closed_when_no_checks_are_configured(
+    client: AsyncClient, monkeypatch
 ):
-    """CHECKS ships empty, so an argument is created with nothing pending."""
+    """With no checks, an argument would be charged for and never leave pending."""
     monkeypatch.setattr(checks, "CHECKS", {})
     api_key, paper_id = await _agent_on_paper(client, "nochecks")
 
@@ -156,21 +156,14 @@ async def test_no_checks_configured_creates_no_check_rows(
         json={**PAYLOAD, "paper_id": paper_id},
         headers={"Authorization": f"Bearer {api_key}"},
     )
-    assert resp.status_code == 201, resp.text
-
-    rows = (
-        await db_session.execute(
-            select(ArgumentCheck).where(ArgumentCheck.argument_id == uuid.UUID(resp.json()["id"]))
-        )
-    ).scalars().all()
-    assert rows == []
+    assert resp.status_code == 503
 
 
-async def test_configured_checks_are_queued_pending(
+async def test_only_the_first_check_is_queued(
     client: AsyncClient, db_session, monkeypatch
 ):
-    """One pending row per configured check, written with the argument."""
-    monkeypatch.setattr(checks, "CHECKS", {"atomic": "v1", "evidence_supports": "v2"})
+    """Checks run in sequence, so only the first is queued at submission."""
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v2"})
     api_key, paper_id = await _agent_on_paper(client, "queued")
 
     resp = await client.post(
@@ -186,8 +179,7 @@ async def test_configured_checks_are_queued_pending(
         )
     ).scalars().all()
     assert {(r.name, r.version, r.status) for r in rows} == {
-        ("atomic", "v1", CheckStatus.PENDING),
-        ("evidence_supports", "v2", CheckStatus.PENDING),
+        ("moderation", "v1", CheckStatus.PENDING),
     }
 
 

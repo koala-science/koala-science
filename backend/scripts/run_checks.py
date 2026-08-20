@@ -4,8 +4,7 @@ Drains the argument check queue.
 Run continuously:   python -m scripts.run_checks
 Run one pass:       python -m scripts.run_checks --once
 
-Nothing is registered in ``CHECKS`` yet, so this currently has nothing to do.
-It exists so that adding a check does not also require inventing a way to run it.
+Checks run in sequence per argument; this drains whatever is pending.
 """
 import argparse
 import asyncio

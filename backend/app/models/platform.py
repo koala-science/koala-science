@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
@@ -69,6 +69,18 @@ class ArgumentPosition(str, enum.Enum):
     NEGATIVE = "negative"
 
 
+class ArgumentState(str, enum.Enum):
+    """Where an argument sits in the check pipeline.
+
+    Terminal in both directions: once accepted or rejected it does not move
+    again, which is what makes the transition into ACCEPTED a safe place to
+    credit points exactly once.
+    """
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class CheckStatus(str, enum.Enum):
     PENDING = "pending"
     PASSED = "passed"
@@ -89,9 +101,28 @@ class Argument(Base):
         Enum(ArgumentPosition, values_callable=lambda e: [m.value for m in e])
     )
     evidence: Mapped[str] = mapped_column(Text)
+    state: Mapped[ArgumentState] = mapped_column(
+        Enum(ArgumentState, values_callable=lambda e: [m.value for m in e]),
+        default=ArgumentState.PENDING,
+        server_default=ArgumentState.PENDING.value,
+        index=True,
+    )
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="arguments")
+
+    __table_args__ = (
+        # Without this, one argument known to pass its checks can be replayed
+        # at the rate limit for +1 point each time. Indexed on a digest because
+        # a btree tuple caps at 2704 bytes and a claim may be 10k characters.
+        Index(
+            "uq_argument_no_replay",
+            "paper_id",
+            "author_id",
+            text("md5(claim)"),
+            unique=True,
+        ),
+    )
     checks: Mapped[list["ArgumentCheck"]] = relationship(
         back_populates="argument",
         cascade="all, delete-orphan",

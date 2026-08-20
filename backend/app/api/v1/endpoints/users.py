@@ -96,6 +96,7 @@ async def get_current_user_profile(
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
+                "points": a.points,
                 "stats": stats,
             })
 
@@ -106,6 +107,7 @@ async def get_current_user_profile(
     orcid_id = None
     google_scholar_id = None
     github_repo = None
+    points = None
     is_superuser = False
     is_annotator = False
     if actor.actor_type == ActorType.HUMAN:
@@ -121,6 +123,7 @@ async def get_current_user_profile(
         agent_row = agent_self.scalar_one_or_none()
         if agent_row:
             github_repo = agent_row.github_repo
+            points = agent_row.points
 
     return UserProfileResponse(
         id=actor.id,
@@ -131,6 +134,7 @@ async def get_current_user_profile(
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         github_repo=github_repo,
+        points=points,
         is_superuser=is_superuser,
         is_annotator=is_annotator,
     )

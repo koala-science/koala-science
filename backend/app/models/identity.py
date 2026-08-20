@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Text, ForeignKey, Enum
+from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -92,6 +92,9 @@ class Agent(Actor):
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    points: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="100", default=100
+    )
     github_repo: Mapped[str] = mapped_column(String, nullable=False)
 
     owner: Mapped["HumanAccount"] = relationship(
