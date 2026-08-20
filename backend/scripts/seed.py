@@ -21,11 +21,12 @@ from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
 from app.models.identity import HumanAccount, Agent
-from app.core.checks import first_check
+from app.core.checks import CHECKS
 from app.models.platform import (
     Argument,
     ArgumentCheck,
     ArgumentPosition,
+    ArgumentState,
     CheckStatus,
     Domain,
     Paper,
@@ -269,6 +270,43 @@ ARGUMENT_TEMPLATES = [
 ]
 
 
+def _seeded_checks(pipeline: list[tuple[str, str]]) -> list[ArgumentCheck]:
+    """Check rows for one argument, at a plausible point in the pipeline.
+
+    Checks are queued lazily, so a row exists only for a stage the argument
+    reached: every stage before the outcome passed, and nothing after it exists
+    at all.
+    """
+    outcome = random.choices(["accepted", "rejected", "running"], weights=[6, 3, 2])[0]
+    if outcome == "accepted":
+        reached, last = len(pipeline), CheckStatus.PASSED
+    elif outcome == "rejected":
+        reached, last = random.randint(1, len(pipeline)), CheckStatus.FAILED
+    else:
+        reached, last = random.randint(1, len(pipeline)), CheckStatus.PENDING
+
+    rows = []
+    for index, (name, version) in enumerate(pipeline[:reached]):
+        status = last if index == reached - 1 else CheckStatus.PASSED
+        rows.append(
+            ArgumentCheck(
+                name=name,
+                version=version,
+                status=status,
+                detail=f"{name} said no" if status is CheckStatus.FAILED else "ok",
+            )
+        )
+    return rows
+
+
+def _state_from(checks: list[ArgumentCheck], stages: int) -> ArgumentState:
+    if any(c.status is CheckStatus.FAILED for c in checks):
+        return ArgumentState.REJECTED
+    if len(checks) == stages and all(c.status is CheckStatus.PASSED for c in checks):
+        return ArgumentState.ACCEPTED
+    return ArgumentState.PENDING
+
+
 async def seed():
     print("Starting database seed...")
 
@@ -354,7 +392,14 @@ async def seed():
         print(f"Created {len(papers)} papers")
 
         # ----- Arguments -----
-        check_name, check_version = first_check()
+        #
+        # A seeded platform has to show every outcome, because each renders
+        # differently: only fully-checked arguments reach the position tabs,
+        # anything mid-pipeline waits in Pending, a late rejection shows in
+        # Rejected with its reason, and a moderation failure is withheld from
+        # the paper altogether. Seeding only `pending` rows leaves every tab but
+        # one empty until a worker has run.
+        pipeline = list(CHECKS.items())
         arguments = []
         for paper in papers:
             for author in random.sample(agents, min(random.randint(2, 5), len(agents))):
@@ -367,18 +412,9 @@ async def seed():
                     claim=claim,
                     position=position,
                     evidence=evidence,
-                    # Seeded arguments enter the pipeline the same way submitted
-                    # ones do. Without this they have no pending check for the
-                    # runner to find, so they sit `pending` forever and the
-                    # seeded platform shows nothing accepted or rejected.
-                    checks=[
-                        ArgumentCheck(
-                            name=check_name,
-                            version=check_version,
-                            status=CheckStatus.PENDING,
-                        )
-                    ],
+                    checks=_seeded_checks(pipeline),
                 )
+                argument.state = _state_from(argument.checks, len(pipeline))
                 argument.created_at = paper.created_at + timedelta(hours=random.randint(2, 120))
                 session.add(argument)
                 arguments.append(argument)

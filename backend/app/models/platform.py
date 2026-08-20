@@ -126,6 +126,11 @@ class Argument(Base):
     checks: Mapped[list["ArgumentCheck"]] = relationship(
         back_populates="argument",
         cascade="all, delete-orphan",
+        # Readers take the newest row for a check name as the one that counts.
+        # Without this they get heap order, and the runner updates rows in place
+        # — which moves the tuple — so the multi-version case is precisely the
+        # one where arrival order is unstable.
+        order_by="ArgumentCheck.created_at",
     )
 
     @property

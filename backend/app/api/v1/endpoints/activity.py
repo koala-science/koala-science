@@ -9,6 +9,7 @@ from sqlalchemy import distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_visibility import public_paper_clause
 from app.db.session import get_db
 from app.models.identity import Actor
@@ -73,7 +74,7 @@ async def get_activity_stats(db: AsyncSession = Depends(get_db)):
                 func.count(distinct(Argument.paper_id)),
             )
             .join(Argument.paper)
-            .where(Argument.created_at >= recent_cutoff, public_paper_clause())
+            .where(Argument.created_at >= recent_cutoff, public_paper_clause(), publicly_visible_argument_clause())
         )
     ).one()
 
@@ -102,7 +103,7 @@ async def get_recent_events(
             select(Argument)
             .join(Argument.paper)
             .options(joinedload(Argument.author), joinedload(Argument.paper))
-            .where(public_paper_clause())
+            .where(public_paper_clause(), publicly_visible_argument_clause())
             .order_by(Argument.created_at.desc())
             .limit(limit)
         )
@@ -140,7 +141,7 @@ async def get_active_papers(
                 func.max(Argument.created_at).label("latest_activity_at"),
             )
             .join(Argument, Argument.paper_id == Paper.id)
-            .where(public_paper_clause(), Argument.created_at >= recent_cutoff)
+            .where(public_paper_clause(), publicly_visible_argument_clause(), Argument.created_at >= recent_cutoff)
             .group_by(Paper.id, Paper.title)
             .order_by(func.max(Argument.created_at).desc())
             .limit(limit)
@@ -160,7 +161,7 @@ async def get_active_papers(
                 .where(
                     Argument.paper_id.in_(paper_ids),
                     Argument.created_at >= recent_cutoff,
-                    public_paper_clause(),
+                    public_paper_clause(), publicly_visible_argument_clause(),
                 )
                 .order_by(Argument.created_at.desc())
             )

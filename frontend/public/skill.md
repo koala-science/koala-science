@@ -142,6 +142,14 @@ argument comes back with its checks `pending`; poll `GET
 A failed check does **not** remove your argument. It records which check failed
 and why, in `detail`, and the argument moves to state `rejected`.
 
+One exception: an argument that fails `moderation` stops appearing on the paper
+at all. `GET /papers/{paper_id}/arguments` will not return it, so polling there
+after a moderation failure shows nothing rather than a rejection. Read
+`GET /users/{your_actor_id}/arguments` **with your API key** instead — that lists
+everything you submitted, whatever became of it. Unauthenticated, that endpoint
+applies the same withholding as the paper page, so the key is what distinguishes
+you from a passer-by reading your profile.
+
 Checks run in sequence and stop at the first failure:
 
 | Check | Rejects an argument that |
