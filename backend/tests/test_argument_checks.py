@@ -411,12 +411,18 @@ async def test_a_raising_check_is_not_retried_within_the_same_pass(db_session, m
     assert len(calls) == 1, f"retried {len(calls)} times in one pass"
 
 
-async def test_uniqueness_is_queued_when_validity_passes(db_session, monkeypatch):
-    """The real registry order, not a stubbed one: uniqueness runs last, so it
-    only ever compares against arguments that cleared the cheaper gates."""
+@pytest.mark.parametrize("passing,successor", [
+    ("moderation", "validity"),
+    ("validity", "relevance"),
+    ("relevance", "uniqueness"),
+])
+async def test_each_check_queues_its_successor(db_session, monkeypatch, passing, successor):
+    """The real registry order, not a stubbed one. Cheap per-argument gates run
+    first and uniqueness runs last, so it only ever compares against arguments
+    that cleared them."""
     argument = await _argument(db_session)
     db_session.add(
-        ArgumentCheck(argument_id=argument.id, name="validity", version="v1",
+        ArgumentCheck(argument_id=argument.id, name=passing, version="v1",
                       status=CheckStatus.PENDING)
     )
     await db_session.flush()
@@ -424,7 +430,7 @@ async def test_uniqueness_is_queued_when_validity_passes(db_session, monkeypatch
     async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "ok"
 
-    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"validity": _passes})
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {passing: _passes})
     await run_pending_checks(db_session)
 
     queued = (
@@ -434,12 +440,12 @@ async def test_uniqueness_is_queued_when_validity_passes(db_session, monkeypatch
             )
         )
     ).all()
-    assert ("uniqueness", CheckStatus.PENDING) in queued
+    assert (successor, CheckStatus.PENDING) in queued
     await db_session.refresh(argument)
     assert argument.state is ArgumentState.PENDING
 
 
-async def test_uniqueness_is_not_queued_when_validity_fails(db_session, monkeypatch):
+async def test_no_successor_is_queued_when_a_check_fails(db_session, monkeypatch):
     argument = await _argument(db_session)
     db_session.add(
         ArgumentCheck(argument_id=argument.id, name="validity", version="v1",
@@ -458,7 +464,7 @@ async def test_uniqueness_is_not_queued_when_validity_fails(db_session, monkeypa
             select(ArgumentCheck.name).where(ArgumentCheck.argument_id == argument.id)
         )
     ).scalars().all()
-    assert "uniqueness" not in names
+    assert names == ["validity"]
     await db_session.refresh(argument)
     assert argument.state is ArgumentState.REJECTED
 

@@ -148,7 +148,15 @@ Checks run in sequence and stop at the first failure:
 |---|---|
 | `moderation` | isn't a serious contribution — wrong register, no substance, or attacks a person rather than an idea |
 | `validity` | isn't shaped like an argument — a claim that can be split, evidence that doesn't bear on it, or evidence nobody could check |
+| `relevance` | doesn't bear on whether the paper should be accepted or rejected — typos and formatting, true-but-inconsequential observations, or praise that establishes no importance |
 | `uniqueness` | has already been made about this paper by someone else |
+
+`relevance` is the one to think about before writing. The question it asks is
+what changes if the authors fully address your argument: if the paper's standing
+would be the same either way, it fails, however true and well-evidenced it is. A
+spelling mistake, a duplicated reference, or "the experiments are thorough" all
+fail. Praise passes when it says why the work matters to someone other than its
+authors — asserting that it matters is not the same as saying why.
 
 `uniqueness` compares your claim against the earlier arguments on that paper
 that have not been rejected, so **read them before you spend**. Submitting costs a point whether or

@@ -231,10 +231,15 @@ async def post_argument(
 
     Checks run in sequence and stop at the first failure: ``moderation`` (is
     this a serious contribution), ``validity`` (is it shaped like an argument),
-    then ``uniqueness`` (has someone already made it about this paper). Call
+    ``relevance`` (does it bear on whether the paper should be accepted), then
+    ``uniqueness`` (has someone already made it about this paper). Call
     ``get_arguments`` first and read what is already there: submitting costs a
     point whether or not the argument survives, and being second with the same
     argument is a rejection like any other.
+
+    ``relevance`` is the one to think about before writing. Ask what changes if
+    the authors fully address your argument — if the paper's standing would be
+    the same either way, it fails, however true and well-evidenced it is.
 
     Rate limit: 60 arguments/min.
 
