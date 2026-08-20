@@ -55,6 +55,18 @@ def _mock_openreview_profile_exists(request, monkeypatch):
     monkeypatch.setattr(auth_module, "profile_exists", _always_true)
 
 
+async def set_agent_points(agent_name: str, points: int) -> None:
+    """Force an agent's balance so tests can exercise the spend limit."""
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE agent SET points = :p WHERE id IN "
+                 "(SELECT id FROM actor WHERE name = :n)"),
+            {"p": points, "n": agent_name},
+        )
+    await engine.dispose()
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern

@@ -5,12 +5,14 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
+from app.core import checks
 from app.core.check_runner import run_pending_checks
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import (
     Argument,
     ArgumentCheck,
     ArgumentPosition,
+    ArgumentState,
     CheckStatus,
     Paper,
 )
@@ -211,3 +213,198 @@ async def test_unregistered_rows_do_not_block_registered_ones(db_session, monkey
         ).scalars().all()
     }
     assert rows == {"atomic": CheckStatus.PASSED, "retired": CheckStatus.PENDING}
+
+
+async def test_passing_queues_the_next_check(db_session, monkeypatch):
+    """Checks run in sequence: the next is queued only once the previous passes."""
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v2"})
+
+    async def _passes(a: Argument) -> tuple[bool, str]:
+        return True, "ok"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS",
+                        {"moderation": _passes, "validity": _passes})
+    await run_pending_checks(db_session, limit=1)
+
+    rows = {
+        r.name: r.status
+        for r in (
+            await db_session.execute(
+                select(ArgumentCheck).where(ArgumentCheck.argument_id == argument.id)
+            )
+        ).scalars().all()
+    }
+    assert rows == {"moderation": CheckStatus.PASSED, "validity": CheckStatus.PENDING}
+
+
+async def test_failing_queues_nothing_further(db_session, monkeypatch):
+    """A failed check ends the sequence — later checks are never run."""
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v2"})
+
+    async def _fails(a: Argument) -> tuple[bool, str]:
+        return False, "spam_or_nonsense"
+
+    async def _unexpected(a: Argument) -> tuple[bool, str]:
+        raise AssertionError("validity must not run after moderation failed")
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS",
+                        {"moderation": _fails, "validity": _unexpected})
+    await run_pending_checks(db_session)
+
+    rows = {
+        r.name: r.status
+        for r in (
+            await db_session.execute(
+                select(ArgumentCheck).where(ArgumentCheck.argument_id == argument.id)
+            )
+        ).scalars().all()
+    }
+    assert rows == {"moderation": CheckStatus.FAILED}
+
+
+async def test_state_starts_pending(db_session):
+    argument = await _argument(db_session)
+    assert argument.state is ArgumentState.PENDING
+
+
+async def test_state_becomes_accepted_when_the_last_check_passes(db_session, monkeypatch):
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1"})
+
+    async def _passes(a: Argument) -> tuple[bool, str]:
+        return True, "ok"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
+    await run_pending_checks(db_session)
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.ACCEPTED
+
+
+async def test_state_stays_pending_between_checks(db_session, monkeypatch):
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v1"})
+
+    async def _passes(a: Argument) -> tuple[bool, str]:
+        return True, "ok"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
+    await run_pending_checks(db_session, limit=1)
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.PENDING
+
+
+async def test_state_becomes_rejected_when_a_check_fails(db_session, monkeypatch):
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v1"})
+
+    async def _fails(a: Argument) -> tuple[bool, str]:
+        return False, "spam_or_nonsense"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _fails})
+    await run_pending_checks(db_session)
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.REJECTED
+
+
+async def test_a_raising_check_leaves_the_state_pending(db_session, monkeypatch):
+    """An outage is not a verdict — the argument stays in the pipeline."""
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1"})
+
+    async def _explodes(a: Argument) -> tuple[bool, str]:
+        raise RuntimeError("outage")
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _explodes})
+    await run_pending_checks(db_session)
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.PENDING
+
+
+async def test_runner_loads_the_paper_for_the_check(db_session, monkeypatch):
+    """The check reads argument.paper.title.
+
+    A stub argument hides this: under an async session a lazily-loaded
+    relationship raises MissingGreenlet, which poisons the session so even the
+    commit fails and the worker process dies. Drive the real entry point over a
+    database-loaded argument.
+    """
+    from app.core.checks_moderation import moderation_check
+
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1"})
+
+    seen = {}
+
+    async def _fake_gemini(system_prompt, schema, user_text):
+        seen["user_text"] = user_text
+        return {"verdict": "pass", "category": "ok", "reason": "fine"}
+
+    monkeypatch.setattr("app.core.checks_moderation._gemini_classify", _fake_gemini)
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS",
+                        {"moderation": moderation_check})
+
+    assert await run_pending_checks(db_session) == 1
+    assert "A paper" in seen["user_text"], "the paper title never reached the check"
+
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.ACCEPTED
+
+
+async def test_a_raising_check_is_not_retried_within_the_same_pass(db_session, monkeypatch):
+    """One outage must not become `limit` Gemini calls in a single pass."""
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="moderation", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1"})
+
+    calls = []
+
+    async def _explodes(a: Argument) -> tuple[bool, str]:
+        calls.append(1)
+        raise RuntimeError("outage")
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _explodes})
+    await run_pending_checks(db_session, limit=50)
+    assert len(calls) == 1, f"retried {len(calls)} times in one pass"

@@ -1,10 +1,10 @@
 import '@testing-library/jest-dom';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
 import { ArgumentSection } from '../src/components/paper/argument-section';
 
-const negative = {
+const base = {
   id: 'a1',
   paper_id: 'p1',
   author_id: 'agent-1',
@@ -12,127 +12,132 @@ const negative = {
   claim: 'The evaluation omits a no-retrieval baseline.',
   position: 'negative' as const,
   evidence: 'Section 4.1 compares retrieval variants only.',
+  state: 'pending' as const,
   created_at: '2026-08-19T12:00:00Z',
   checks: [],
 };
 
-const positive = {
-  ...negative,
-  id: 'a2',
-  claim: 'The chunk-size ablation is unusually thorough.',
-  position: 'positive' as const,
-  evidence: 'Appendix C sweeps 8 chunk sizes across 3 seeds.',
+const negative = { ...base, id: 'neg', claim: 'A criticism.' };
+const positive = { ...base, id: 'pos', position: 'positive' as const, claim: 'A piece of praise.' };
+const rejected = {
+  ...base,
+  id: 'rej',
+  state: 'rejected' as const,
+  claim: 'A rejected claim.',
+  checks: [{ name: 'moderation', version: 'v1', status: 'failed' as const, detail: 'low_effort' }],
+};
+const pending = {
+  ...base,
+  id: 'pend',
+  claim: 'A pending claim.',
+  checks: [{ name: 'moderation', version: 'v1', status: 'pending' as const, detail: null }],
 };
 
 describe('ArgumentSection', () => {
-  it('renders each argument with its claim and evidence', () => {
-    render(<ArgumentSection arguments={[negative, positive]} />);
+  it('opens on negative and shows only negative arguments that passed', () => {
+    render(<ArgumentSection arguments={[negative, positive, rejected]} />);
 
     expect(screen.getByText(negative.claim)).toBeInTheDocument();
-    expect(screen.getByText(negative.evidence)).toBeInTheDocument();
+    expect(screen.queryByText(positive.claim)).not.toBeInTheDocument();
+    expect(screen.queryByText(rejected.claim)).not.toBeInTheDocument();
+  });
+
+  it('switches to positive', () => {
+    render(<ArgumentSection arguments={[negative, positive, rejected]} />);
+    fireEvent.click(screen.getByRole('tab', { name: /positive/i }));
+
     expect(screen.getByText(positive.claim)).toBeInTheDocument();
-    expect(screen.getByText(positive.evidence)).toBeInTheDocument();
+    expect(screen.queryByText(negative.claim)).not.toBeInTheDocument();
   });
 
-  it('separates criticism from praise', () => {
-    render(<ArgumentSection arguments={[negative, positive]} />);
+  it('switches to rejected', () => {
+    render(<ArgumentSection arguments={[negative, positive, rejected]} />);
+    fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
 
-    const criticism = screen.getByRole('region', { name: /criticism/i });
-    expect(within(criticism).getByText(negative.claim)).toBeInTheDocument();
-    expect(within(criticism).queryByText(positive.claim)).not.toBeInTheDocument();
-
-    const praise = screen.getByRole('region', { name: /praise/i });
-    expect(within(praise).getByText(positive.claim)).toBeInTheDocument();
+    expect(screen.getByText(rejected.claim)).toBeInTheDocument();
+    expect(screen.queryByText(negative.claim)).not.toBeInTheDocument();
+    expect(screen.queryByText(positive.claim)).not.toBeInTheDocument();
   });
 
-  it('shows a pending check as pending rather than as a failure', () => {
-    render(
-      <ArgumentSection
-        arguments={[{ ...negative, checks: [{ name: 'atomic', version: 'v1', status: 'pending', detail: null }] }]}
-      />,
-    );
+  it('a rejected argument leaves its position bucket entirely', () => {
+    const rejectedPositive = { ...rejected, id: 'rp', position: 'positive' as const, claim: 'Rejected praise.' };
+    render(<ArgumentSection arguments={[positive, rejectedPositive]} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: /positive/i }));
+    expect(screen.getByText(positive.claim)).toBeInTheDocument();
+    expect(screen.queryByText(rejectedPositive.claim)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+    expect(screen.getByText(rejectedPositive.claim)).toBeInTheDocument();
+  });
+
+  it('a pending argument stays in its position bucket', () => {
+    render(<ArgumentSection arguments={[pending]} />);
+    expect(screen.getByText(pending.claim)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(pending.claim, 'i') }));
     expect(screen.getByText(/checking/i)).toBeInTheDocument();
   });
 
-  it('names the failing check and shows its reason', () => {
-    render(
-      <ArgumentSection
-        arguments={[{
-          ...negative,
-          checks: [{ name: 'atomic', version: 'v1', status: 'failed', detail: 'claim joins two points' }],
-        }]}
-      />,
-    );
-    expect(screen.getByText(/atomic/)).toBeInTheDocument();
-    expect(screen.getByText(/claim joins two points/)).toBeInTheDocument();
+  it('counts each bucket in its tab', () => {
+    render(<ArgumentSection arguments={[negative, positive, rejected, pending]} />);
+
+    expect(screen.getByRole('tab', { name: /negative/i })).toHaveTextContent('2');
+    expect(screen.getByRole('tab', { name: /positive/i })).toHaveTextContent('1');
+    expect(screen.getByRole('tab', { name: /rejected/i })).toHaveTextContent('1');
   });
 
-  it('marks an argument whose checks all passed', () => {
-    render(
-      <ArgumentSection
-        arguments={[{ ...negative, checks: [{ name: 'atomic', version: 'v1', status: 'passed', detail: null }] }]}
-      />,
-    );
-    expect(screen.getByText(/checked/i)).toBeInTheDocument();
+  it('shows why a rejected argument failed, once opened', () => {
+    render(<ArgumentSection arguments={[rejected]} />);
+    fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+
+    expect(screen.queryByText(/low_effort/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(rejected.claim, 'i') }));
+    expect(screen.getByText(/failed the moderation check/i)).toBeInTheDocument();
+    expect(screen.getByText(/low_effort/)).toBeInTheDocument();
   });
 
-  it('shows one failure badge when several checks fail', () => {
-    render(
-      <ArgumentSection
-        arguments={[{
-          ...negative,
-          checks: [
-            { name: 'atomic', version: 'v1', status: 'failed', detail: 'two points' },
-            { name: 'evidence', version: 'v1', status: 'failed', detail: 'no citation' },
-          ],
-        }]}
-      />,
-    );
-    expect(screen.getAllByText(/failed/i)).toHaveLength(1);
-    expect(screen.getByText(/atomic/)).toBeInTheDocument();
-    expect(screen.getByText(/evidence/)).toBeInTheDocument();
-  });
+  it('shows only the claim until the argument is opened', () => {
+    render(<ArgumentSection arguments={[negative]} />);
 
-  it('reports failure over pending when both are present', () => {
-    render(
-      <ArgumentSection
-        arguments={[{
-          ...negative,
-          checks: [
-            { name: 'atomic', version: 'v1', status: 'failed', detail: 'two points' },
-            { name: 'evidence', version: 'v1', status: 'pending', detail: null },
-          ],
-        }]}
-      />,
-    );
-    expect(screen.getByText(/failed/i)).toBeInTheDocument();
-    expect(screen.queryByText(/checking/i)).not.toBeInTheDocument();
-  });
-
-  it('counts one failing check even when it failed at two versions', () => {
-    render(
-      <ArgumentSection
-        arguments={[{
-          ...negative,
-          checks: [
-            { name: 'atomic', version: 'v1', status: 'failed', detail: 'old reason' },
-            { name: 'atomic', version: 'v2', status: 'failed', detail: 'new reason' },
-          ],
-        }]}
-      />,
-    );
-    expect(screen.getByText(/failed a check/i)).toBeInTheDocument();
-    expect(screen.getByText(/old reason/)).toBeInTheDocument();
-    expect(screen.getByText(/new reason/)).toBeInTheDocument();
-  });
-
-  it('shows no badge when no checks are configured', () => {
-    render(<ArgumentSection arguments={[{ ...negative, checks: [] }]} />);
     expect(screen.getByText(negative.claim)).toBeInTheDocument();
-    expect(screen.queryByText(/checking|checked|failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(negative.evidence)).not.toBeInTheDocument();
+    expect(screen.queryByText(negative.author_name)).not.toBeInTheDocument();
   });
 
-  it('renders an empty state when a paper has no arguments', () => {
+  it('reveals the evidence when clicked, and hides it again', () => {
+    render(<ArgumentSection arguments={[negative]} />);
+    const toggle = screen.getByRole('button', { name: new RegExp(negative.claim, 'i') });
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(negative.evidence)).toBeInTheDocument();
+    expect(screen.getByText(negative.author_name)).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(negative.evidence)).not.toBeInTheDocument();
+  });
+
+  it('opens each argument independently', () => {
+    const other = { ...negative, id: 'other', claim: 'Another criticism.', evidence: 'Other evidence.' };
+    render(<ArgumentSection arguments={[negative, other]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(negative.claim, 'i') }));
+    expect(screen.getByText(negative.evidence)).toBeInTheDocument();
+    expect(screen.queryByText(other.evidence)).not.toBeInTheDocument();
+  });
+
+  it('tells you an empty bucket is empty, not that the paper has nothing', () => {
+    render(<ArgumentSection arguments={[negative]} />);
+    fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+    expect(screen.getByText(/no rejected arguments/i)).toBeInTheDocument();
+  });
+
+  it('renders an empty state when a paper has no arguments at all', () => {
     render(<ArgumentSection arguments={[]} />);
     expect(screen.getByText(/no arguments yet/i)).toBeInTheDocument();
   });

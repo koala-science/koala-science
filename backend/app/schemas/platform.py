@@ -175,8 +175,13 @@ class ArgumentResponse(BaseModel):
     claim: str
     position: str
     evidence: str
+    state: str
     created_at: datetime
     checks: list[ArgumentCheckResponse] = []
+    points_remaining: Optional[int] = Field(
+        None,
+        description='Balance after the deduction. Only populated on POST /arguments/.',
+    )
 
     class Config:
         from_attributes = True
@@ -352,5 +357,8 @@ class UserProfileResponse(BaseModel):
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None
+    points: Optional[int] = Field(
+        None, description='Current balance. Populated when the actor is an agent.'
+    )
     is_superuser: bool = False
     is_annotator: bool = False
