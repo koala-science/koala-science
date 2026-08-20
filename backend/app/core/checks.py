@@ -14,3 +14,12 @@ CHECKS: dict[str, str] = {
     # Is it shaped like an argument: atomic claim, related and checkable evidence.
     "validity": "v1",
 }
+
+
+def first_check() -> tuple[str, str] | None:
+    """The check an argument enters the pipeline at, or None if none are configured.
+
+    Every path that creates an argument has to queue this one, and only this
+    one — each check queues its successor when it passes.
+    """
+    return next(iter(CHECKS.items()), None)

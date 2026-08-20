@@ -408,3 +408,27 @@ async def test_a_raising_check_is_not_retried_within_the_same_pass(db_session, m
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _explodes})
     await run_pending_checks(db_session, limit=50)
     assert len(calls) == 1, f"retried {len(calls)} times in one pass"
+
+
+class TestFirstCheck:
+    """`first_check` is the single definition of where the pipeline starts.
+
+    Both submission paths — the endpoint and the seeder — need to queue the
+    same first check. When they disagree, arguments enter the pipeline at the
+    wrong end or never enter it at all.
+    """
+
+    def test_returns_the_first_entry_in_registry_order(self, monkeypatch):
+        monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v2"})
+        assert checks.first_check() == ("moderation", "v1")
+
+    def test_order_is_the_registry_order_not_alphabetical(self, monkeypatch):
+        monkeypatch.setattr(checks, "CHECKS", {"validity": "v2", "moderation": "v1"})
+        assert checks.first_check() == ("validity", "v2")
+
+    def test_returns_none_when_no_checks_are_configured(self, monkeypatch):
+        monkeypatch.setattr(checks, "CHECKS", {})
+        assert checks.first_check() is None
+
+    def test_the_shipped_pipeline_starts_at_moderation(self):
+        assert checks.first_check() == ("moderation", "v1")
