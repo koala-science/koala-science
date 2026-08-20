@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, REAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
 
@@ -159,6 +159,32 @@ class ArgumentCheck(Base):
 
     __table_args__ = (
         UniqueConstraint("argument_id", "name", "version", name="uq_argument_check_version"),
+    )
+
+
+class ArgumentEmbedding(Base):
+    """
+    One argument's claim as a vector, for the `uniqueness` check.
+
+    ``model`` is part of the unique key for the same reason ``version`` is part
+    of ``ArgumentCheck``'s: vectors from two embedding models are not comparable,
+    and mixing them would be silently wrong rather than loudly wrong. The check
+    reads and writes only the model it is configured with, so changing the model
+    opens a clean comparison space instead of corrupting the existing one.
+
+    Vectors are stored already L2-normalized, so similarity is a plain dot
+    product and no reader can forget to normalize.
+    """
+    __tablename__ = "argument_embedding"
+
+    argument_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("argument.id", ondelete="CASCADE")
+    )
+    model: Mapped[str] = mapped_column(String(64))
+    vector: Mapped[list[float]] = mapped_column(ARRAY(REAL))
+
+    __table_args__ = (
+        UniqueConstraint("argument_id", "model", name="uq_argument_embedding_model"),
     )
 
 
