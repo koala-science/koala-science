@@ -17,8 +17,17 @@ const base = {
   checks: [],
 };
 
-const negative = { ...base, id: 'neg', claim: 'A criticism.' };
-const positive = { ...base, id: 'pos', position: 'positive' as const, claim: 'A piece of praise.' };
+const PASSED_ALL = ['moderation', 'validity', 'relevance', 'uniqueness'].map((name) => ({
+  name, version: 'v1', status: 'passed' as const, detail: 'ok',
+}));
+
+const negative = {
+  ...base, id: 'neg', claim: 'A criticism.', state: 'accepted' as const, checks: PASSED_ALL,
+};
+const positive = {
+  ...base, id: 'pos', position: 'positive' as const, claim: 'A piece of praise.',
+  state: 'accepted' as const, checks: PASSED_ALL,
+};
 const rejected = {
   ...base,
   id: 'rej',
@@ -71,19 +80,50 @@ describe('ArgumentSection', () => {
     expect(screen.getByText(rejectedPositive.claim)).toBeInTheDocument();
   });
 
-  it('a pending argument stays in its position bucket', () => {
+  it('an argument still being checked is not in a position tab', () => {
     render(<ArgumentSection arguments={[pending]} />);
-    expect(screen.getByText(pending.claim)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(pending.claim, 'i') }));
-    expect(screen.getByText(/checking/i)).toBeInTheDocument();
+    expect(screen.queryByText(pending.claim)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /pending/i }));
+    expect(screen.getByText(pending.claim)).toBeInTheDocument();
+    expect(screen.getByLabelText('moderation: checking')).toBeInTheDocument();
+  });
+
+  it('a pending positive argument waits in Pending, not Positive', () => {
+    const pendingPraise = {
+      ...pending, id: 'pp', position: 'positive' as const, claim: 'Unchecked praise.',
+    };
+    render(<ArgumentSection arguments={[positive, pendingPraise]} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: /positive/i }));
+    expect(screen.getByText(positive.claim)).toBeInTheDocument();
+    expect(screen.queryByText(pendingPraise.claim)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /pending/i }));
+    expect(screen.getByText(pendingPraise.claim)).toBeInTheDocument();
+  });
+
+  it('only fully-checked arguments make the position tabs', () => {
+    const halfway = {
+      ...base, id: 'half', claim: 'Cleared two of four.',
+      checks: [
+        { name: 'moderation', version: 'v1', status: 'passed' as const, detail: 'ok' },
+        { name: 'validity', version: 'v1', status: 'passed' as const, detail: 'ok' },
+      ],
+    };
+    render(<ArgumentSection arguments={[negative, halfway]} />);
+
+    expect(screen.getByText(negative.claim)).toBeInTheDocument();
+    expect(screen.queryByText(halfway.claim)).not.toBeInTheDocument();
   });
 
   it('counts each bucket in its tab', () => {
     render(<ArgumentSection arguments={[negative, positive, rejected, pending]} />);
 
-    expect(screen.getByRole('tab', { name: /negative/i })).toHaveTextContent('2');
+    expect(screen.getByRole('tab', { name: /negative/i })).toHaveTextContent('1');
     expect(screen.getByRole('tab', { name: /positive/i })).toHaveTextContent('1');
+    expect(screen.getByRole('tab', { name: /pending/i })).toHaveTextContent('1');
     expect(screen.getByRole('tab', { name: /rejected/i })).toHaveTextContent('1');
   });
 
@@ -94,7 +134,6 @@ describe('ArgumentSection', () => {
     expect(screen.queryByText(/low_effort/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(rejected.claim, 'i') }));
-    expect(screen.getByText(/failed the moderation check/i)).toBeInTheDocument();
     expect(screen.getByText(/low_effort/)).toBeInTheDocument();
   });
 
@@ -140,5 +179,102 @@ describe('ArgumentSection', () => {
   it('renders an empty state when a paper has no arguments at all', () => {
     render(<ArgumentSection arguments={[]} />);
     expect(screen.getByText(/no arguments yet/i)).toBeInTheDocument();
+  });
+
+  describe('the check pipeline', () => {
+    const PIPELINE = ['moderation', 'validity', 'relevance', 'uniqueness'];
+
+    it('shows every stage even when only the first has a row', () => {
+      render(<ArgumentSection arguments={[pending]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /pending/i }));
+
+      expect(screen.getByLabelText('moderation: checking')).toBeInTheDocument();
+      for (const name of ['validity', 'relevance', 'uniqueness']) {
+        expect(screen.getByLabelText(`${name}: not run`)).toBeInTheDocument();
+      }
+    });
+
+    it('renders the whole pipeline on the collapsed row', () => {
+      render(<ArgumentSection arguments={[pending]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /pending/i }));
+
+      const rail = screen.getByRole('list', { name: /check pipeline/i });
+      expect(rail).toBeInTheDocument();
+      expect(screen.getAllByRole('listitem')).toHaveLength(PIPELINE.length);
+    });
+
+    it('marks the stages an argument cleared, and the one it failed', () => {
+      const failedLate = {
+        ...base,
+        id: 'late',
+        state: 'rejected' as const,
+        claim: 'Failed at relevance.',
+        checks: [
+          { name: 'moderation', version: 'v1', status: 'passed' as const, detail: 'ok' },
+          { name: 'validity', version: 'v1', status: 'passed' as const, detail: 'ok' },
+          { name: 'relevance', version: 'v1', status: 'failed' as const, detail: 'cosmetic: a typo' },
+        ],
+      };
+      render(<ArgumentSection arguments={[failedLate]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+
+      expect(screen.getByLabelText('moderation: passed')).toBeInTheDocument();
+      expect(screen.getByLabelText('validity: passed')).toBeInTheDocument();
+      expect(screen.getByLabelText('relevance: failed')).toBeInTheDocument();
+      // never queued, because the sequence stops at the first failure
+      expect(screen.getByLabelText('uniqueness: not run')).toBeInTheDocument();
+    });
+
+    it('an accepted argument shows a check for every stage', () => {
+      const accepted = {
+        ...base,
+        id: 'acc',
+        state: 'accepted' as const,
+        claim: 'Cleared everything.',
+        checks: PIPELINE.map((name) => ({
+          name, version: 'v1', status: 'passed' as const, detail: 'ok',
+        })),
+      };
+      render(<ArgumentSection arguments={[accepted]} />);
+
+      for (const name of PIPELINE) {
+        expect(screen.getByLabelText(`${name}: passed`)).toBeInTheDocument();
+      }
+    });
+
+    it('keeps the failure reason out of the collapsed row', () => {
+      render(<ArgumentSection arguments={[rejected]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+
+      expect(screen.getByLabelText('moderation: failed')).toBeInTheDocument();
+      expect(screen.queryByText(/low_effort/)).not.toBeInTheDocument();
+    });
+
+    it('takes the newest version when a check was re-run', () => {
+      const rechecked = {
+        ...base,
+        id: 're',
+        state: 'accepted' as const,
+        claim: 'Re-run at v2.',
+        checks: [
+          { name: 'moderation', version: 'v1', status: 'failed' as const, detail: 'low_effort' },
+          { name: 'moderation', version: 'v2', status: 'passed' as const, detail: 'ok' },
+        ],
+      };
+      render(<ArgumentSection arguments={[rechecked]} />);
+
+      expect(screen.getByLabelText('moderation: passed')).toBeInTheDocument();
+      expect(screen.queryByLabelText('moderation: failed')).not.toBeInTheDocument();
+    });
+  });
+
+  it('keeps the rail out of the toggle\'s accessible name', () => {
+    // A <button> has presentational children, so a rail inside it would both
+    // lose its own labels and append "Check pipeline" to every toggle.
+    render(<ArgumentSection arguments={[negative]} />);
+
+    const toggle = screen.getByRole('button', { name: negative.claim });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).not.toHaveTextContent('Check pipeline');
   });
 });

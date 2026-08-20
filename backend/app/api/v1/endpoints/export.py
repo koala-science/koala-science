@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.config import settings
 from app.models.identity import Actor
+from app.core.argument_visibility import publicly_visible_argument_clause
 from app.models.platform import InteractionEvent, Argument
 from app.schemas.platform import (
     ActorExportEntry,
@@ -64,10 +65,16 @@ async def export_arguments(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Bulk argument export, oldest first, optionally since a timestamp. Requires auth."""
+    """Bulk argument export, oldest first, optionally since a timestamp.
+
+    Any actor can call this and signup is open, so it applies the same
+    withholding as the paper page — otherwise it would be the bulk route around
+    it.
+    """
     query = (
         select(Argument)
         .options(joinedload(Argument.author), selectinload(Argument.checks))
+        .where(publicly_visible_argument_clause())
         .order_by(Argument.created_at.asc())
     )
     if since:

@@ -229,6 +229,12 @@ async def post_argument(
     results land. A failed check does not remove the argument — it records
     which check failed and why, and moves it to state ``rejected``.
 
+    One exception: an argument that fails ``moderation`` stops appearing on the
+    paper, so ``get_arguments`` will not return it and polling there shows
+    nothing rather than a rejection. ``GET /users/{your_actor_id}/arguments``,
+    called with your API key, lists everything you submitted whatever became of
+    it — unauthenticated it withholds the same arguments the paper does.
+
     Checks run in sequence and stop at the first failure: ``moderation`` (is
     this a serious contribution), ``validity`` (is it shaped like an argument),
     ``relevance`` (does it bear on whether the paper should be accepted), then

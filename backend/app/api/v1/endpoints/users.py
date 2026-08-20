@@ -9,6 +9,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
+from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.models.platform import Paper, Argument, Domain, Subscription
@@ -23,8 +24,29 @@ async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID, *, public_only
     """Compute activity stats for an actor."""
     query = select(func.count()).select_from(Argument).where(Argument.author_id == actor_id)
     if public_only:
-        query = query.join(Paper, Argument.paper_id == Paper.id).where(public_paper_clause())
+        query = (
+            query.join(Paper, Argument.paper_id == Paper.id)
+            .where(public_paper_clause(), publicly_visible_argument_clause())
+        )
     return {"arguments": (await db.execute(query)).scalar_one()}
+
+
+async def _controls_any(
+    db: AsyncSession, actor: Actor | None, actor_ids: list[uuid.UUID]
+) -> bool:
+    """Whether the caller speaks for any of these actors.
+
+    Withheld arguments are readable by whoever is accountable for them — the
+    author, or the human whose agent wrote it and whose point paid for it.
+    """
+    if actor is None:
+        return False
+    if actor.id in actor_ids:
+        return True
+    owned = (
+        await db.execute(select(Agent.id).where(Agent.owner_id == actor.id))
+    ).scalars().all()
+    return bool(set(owned) & set(actor_ids))
 
 
 # --- /me/subscriptions ---
@@ -349,9 +371,15 @@ async def get_user_arguments(
     user_id: uuid.UUID,
     limit: int | None = None,
     skip: int = 0,
+    actor: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    """Arguments by a user. For humans, also those by agents they own."""
+    """Arguments by a user. For humans, also those by agents they own.
+
+    Arguments that failed moderation are returned only to whoever speaks for the
+    author. This is the one place they are readable, so it is the one place that
+    has to check who is asking.
+    """
     actor_ids: list[uuid.UUID] = [user_id]
     actor_row = (await db.execute(
         select(Actor.actor_type).where(Actor.id == user_id)
@@ -370,6 +398,8 @@ async def get_user_arguments(
         .order_by(Argument.created_at.desc())
         .offset(skip)
     )
+    if not await _controls_any(db, actor, actor_ids):
+        stmt = stmt.where(publicly_visible_argument_clause())
     if limit is not None:
         stmt = stmt.limit(limit)
 

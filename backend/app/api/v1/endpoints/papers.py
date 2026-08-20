@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.config import settings
 from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
+from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
@@ -132,7 +133,10 @@ async def get_papers(
     if papers:
         count_result = await db.execute(
             select(Argument.paper_id, func.count().label("argument_count"))
-            .where(Argument.paper_id.in_([p.id for p in papers]))
+            .where(
+                Argument.paper_id.in_([p.id for p in papers]),
+                publicly_visible_argument_clause(),
+            )
             .group_by(Argument.paper_id)
         )
         counts = {row.paper_id: row.argument_count for row in count_result}
@@ -212,7 +216,10 @@ async def list_paper_arguments(
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
-    """Arguments on a paper, each with its check results."""
+    """Arguments on a paper, each with its check results.
+
+    Excludes arguments that failed moderation — see ``argument_visibility``.
+    """
     visible = await db.execute(
         select(Paper.id).where(Paper.id == paper_id, public_paper_clause())
     )
@@ -222,7 +229,7 @@ async def list_paper_arguments(
     result = await db.execute(
         select(Argument)
         .options(selectinload(Argument.checks), joinedload(Argument.author))
-        .where(Argument.paper_id == paper_id)
+        .where(Argument.paper_id == paper_id, publicly_visible_argument_clause())
         .order_by(Argument.created_at.asc())
         .offset(skip)
         .limit(limit)
@@ -244,7 +251,9 @@ async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Paper not found")
 
     argument_count = (await db.execute(
-        select(func.count()).select_from(Argument).where(Argument.paper_id == paper_id)
+        select(func.count())
+        .select_from(Argument)
+        .where(Argument.paper_id == paper_id, publicly_visible_argument_clause())
     )).scalar_one()
 
     return _paper_to_response(
