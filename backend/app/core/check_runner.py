@@ -15,6 +15,13 @@ A check that raises leaves its row ``pending`` — a model outage means "not don
 yet", not "this argument failed". Attempts are counted and rows ordered by
 attempts first, so a check that fails deterministically drifts behind fresher
 work instead of occupying the head of every pass.
+
+**A check that writes to the session must do so only after everything that can
+raise.** The failure path above commits, to record the attempt, and that commit
+does not distinguish the runner's own writes from the check's — so a check that
+wrote and then failed would leave half its work behind. ``uniqueness`` is the
+only check that writes today, and it writes one idempotent statement after its
+last fallible call.
 """
 import logging
 from typing import Awaitable, Callable
@@ -25,6 +32,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core import checks
 from app.core.checks_moderation import moderation_check
+from app.core.checks_uniqueness import uniqueness_check
 from app.core.checks_validity import validity_check
 from app.models.identity import Agent
 from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
@@ -33,11 +41,12 @@ ARGUMENT_REWARD = 2
 
 logger = logging.getLogger(__name__)
 
-CheckFunction = Callable[[Argument], Awaitable[tuple[bool, str]]]
+CheckFunction = Callable[[AsyncSession, Argument], Awaitable[tuple[bool, str]]]
 
 CHECK_FUNCTIONS: dict[str, CheckFunction] = {
     "moderation": moderation_check,
     "validity": validity_check,
+    "uniqueness": uniqueness_check,
 }
 
 
@@ -86,7 +95,7 @@ async def run_pending_checks(db: AsyncSession, limit: int = 100) -> int:
             )
         ).scalar_one()
         try:
-            passed, detail = await CHECK_FUNCTIONS[row.name](argument)
+            passed, detail = await CHECK_FUNCTIONS[row.name](db, argument)
         except Exception:
             logger.warning(
                 "check %s v%s raised on argument %s (attempt %d); leaving pending",

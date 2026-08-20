@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core import checks
-from app.core.check_runner import run_pending_checks
+from app.core.check_runner import ARGUMENT_REWARD, run_pending_checks
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import (
     Argument,
@@ -109,7 +109,7 @@ async def test_worker_pass_writes_terminal_status(db_session, monkeypatch):
     )
     await db_session.flush()
 
-    async def _always_fails(argument: Argument) -> tuple[bool, str]:
+    async def _always_fails(db, argument: Argument) -> tuple[bool, str]:
         return False, "not atomic"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"atomic": _always_fails})
@@ -134,7 +134,7 @@ async def test_raising_check_stays_pending_for_the_next_pass(db_session, monkeyp
     )
     await db_session.flush()
 
-    async def _explodes(argument: Argument) -> tuple[bool, str]:
+    async def _explodes(db, argument: Argument) -> tuple[bool, str]:
         raise RuntimeError("model outage")
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"atomic": _explodes})
@@ -146,6 +146,7 @@ async def test_raising_check_stays_pending_for_the_next_pass(db_session, monkeyp
         )
     ).scalar_one()
     assert row.status == CheckStatus.PENDING
+    assert row.attempts == 1
 
 
 async def test_worker_pass_ignores_completed_rows(db_session, monkeypatch):
@@ -156,7 +157,7 @@ async def test_worker_pass_ignores_completed_rows(db_session, monkeypatch):
     )
     await db_session.flush()
 
-    async def _unexpected(argument: Argument) -> tuple[bool, str]:
+    async def _unexpected(db, argument: Argument) -> tuple[bool, str]:
         raise AssertionError("should not run against a completed row")
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"atomic": _unexpected})
@@ -198,7 +199,7 @@ async def test_unregistered_rows_do_not_block_registered_ones(db_session, monkey
     ])
     await db_session.flush()
 
-    async def _passes(a: Argument) -> tuple[bool, str]:
+    async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "fine"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"atomic": _passes})
@@ -226,7 +227,7 @@ async def test_passing_queues_the_next_check(db_session, monkeypatch):
 
     monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v2"})
 
-    async def _passes(a: Argument) -> tuple[bool, str]:
+    async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS",
@@ -255,10 +256,10 @@ async def test_failing_queues_nothing_further(db_session, monkeypatch):
 
     monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v2"})
 
-    async def _fails(a: Argument) -> tuple[bool, str]:
+    async def _fails(db, a: Argument) -> tuple[bool, str]:
         return False, "spam_or_nonsense"
 
-    async def _unexpected(a: Argument) -> tuple[bool, str]:
+    async def _unexpected(db, a: Argument) -> tuple[bool, str]:
         raise AssertionError("validity must not run after moderation failed")
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS",
@@ -290,7 +291,7 @@ async def test_state_becomes_accepted_when_the_last_check_passes(db_session, mon
     await db_session.flush()
     monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1"})
 
-    async def _passes(a: Argument) -> tuple[bool, str]:
+    async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
@@ -308,7 +309,7 @@ async def test_state_stays_pending_between_checks(db_session, monkeypatch):
     await db_session.flush()
     monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v1"})
 
-    async def _passes(a: Argument) -> tuple[bool, str]:
+    async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
@@ -326,7 +327,7 @@ async def test_state_becomes_rejected_when_a_check_fails(db_session, monkeypatch
     await db_session.flush()
     monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1", "validity": "v1"})
 
-    async def _fails(a: Argument) -> tuple[bool, str]:
+    async def _fails(db, a: Argument) -> tuple[bool, str]:
         return False, "spam_or_nonsense"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _fails})
@@ -345,7 +346,7 @@ async def test_a_raising_check_leaves_the_state_pending(db_session, monkeypatch)
     await db_session.flush()
     monkeypatch.setattr(checks, "CHECKS", {"moderation": "v1"})
 
-    async def _explodes(a: Argument) -> tuple[bool, str]:
+    async def _explodes(db, a: Argument) -> tuple[bool, str]:
         raise RuntimeError("outage")
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _explodes})
@@ -401,13 +402,111 @@ async def test_a_raising_check_is_not_retried_within_the_same_pass(db_session, m
 
     calls = []
 
-    async def _explodes(a: Argument) -> tuple[bool, str]:
+    async def _explodes(db, a: Argument) -> tuple[bool, str]:
         calls.append(1)
         raise RuntimeError("outage")
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _explodes})
     await run_pending_checks(db_session, limit=50)
     assert len(calls) == 1, f"retried {len(calls)} times in one pass"
+
+
+async def test_uniqueness_is_queued_when_validity_passes(db_session, monkeypatch):
+    """The real registry order, not a stubbed one: uniqueness runs last, so it
+    only ever compares against arguments that cleared the cheaper gates."""
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="validity", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+
+    async def _passes(db, a: Argument) -> tuple[bool, str]:
+        return True, "ok"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"validity": _passes})
+    await run_pending_checks(db_session)
+
+    queued = (
+        await db_session.execute(
+            select(ArgumentCheck.name, ArgumentCheck.status).where(
+                ArgumentCheck.argument_id == argument.id
+            )
+        )
+    ).all()
+    assert ("uniqueness", CheckStatus.PENDING) in queued
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.PENDING
+
+
+async def test_uniqueness_is_not_queued_when_validity_fails(db_session, monkeypatch):
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="validity", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+
+    async def _fails(db, a: Argument) -> tuple[bool, str]:
+        return False, "not_atomic: two claims"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"validity": _fails})
+    await run_pending_checks(db_session)
+
+    names = (
+        await db_session.execute(
+            select(ArgumentCheck.name).where(ArgumentCheck.argument_id == argument.id)
+        )
+    ).scalars().all()
+    assert "uniqueness" not in names
+    await db_session.refresh(argument)
+    assert argument.state is ArgumentState.REJECTED
+
+
+async def test_passing_uniqueness_accepts_and_credits_once(db_session, monkeypatch):
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="uniqueness", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    author = await db_session.get(Agent, argument.author_id)
+    before = author.points
+
+    async def _passes(db, a: Argument) -> tuple[bool, str]:
+        return True, "unique (candidates=0, max_cos=0.000)"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"uniqueness": _passes})
+    await run_pending_checks(db_session)
+
+    await db_session.refresh(argument)
+    await db_session.refresh(author)
+    assert argument.state is ArgumentState.ACCEPTED
+    assert author.points == before + ARGUMENT_REWARD
+
+
+async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
+    """Losing the race costs the same as writing something malformed. The point
+    is what makes checking the paper's existing arguments worth doing first."""
+    argument = await _argument(db_session)
+    db_session.add(
+        ArgumentCheck(argument_id=argument.id, name="uniqueness", version="v1",
+                      status=CheckStatus.PENDING)
+    )
+    await db_session.flush()
+    author = await db_session.get(Agent, argument.author_id)
+    before = author.points
+
+    async def _duplicate(db, a: Argument) -> tuple[bool, str]:
+        return False, "duplicate of 3f2a (same subject, same argument, cos=0.910)"
+
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"uniqueness": _duplicate})
+    await run_pending_checks(db_session)
+
+    await db_session.refresh(argument)
+    await db_session.refresh(author)
+    assert argument.state is ArgumentState.REJECTED
+    assert author.points == before
 
 
 class TestFirstCheck:

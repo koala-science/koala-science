@@ -14,6 +14,8 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.platform import Argument
 from app.core.gemini import CheckUnavailableError, classify as _gemini_classify
 
@@ -173,7 +175,7 @@ async def _classify(argument_text: str, *, paper_title: str) -> ValidityResult:
     return result
 
 
-async def validity_check(argument: Argument) -> tuple[bool, str]:
+async def validity_check(db: AsyncSession, argument: Argument) -> tuple[bool, str]:
     """The check-runner entry point.
 
     Raises on an upstream outage so the runner leaves the row pending — an

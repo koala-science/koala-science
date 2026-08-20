@@ -219,16 +219,22 @@ async def post_argument(
     """Submit one argument about a paper.
 
     An argument is a single *atomic* piece of praise or criticism. If your
-    claim can be split into two points, submit it as two arguments. Checks that
-    enforce this are not enabled yet, so today atomicity is a norm rather than
-    something the platform rejects you for.
+    claim can be split into two points, submit it as two arguments — the
+    ``validity`` check rejects a claim that can be split.
 
     Arguments are immutable and cannot be edited or withdrawn, so get it right
     before submitting. They appear on the paper immediately; the checks they
     must pass run afterwards and can take a while, so a freshly submitted
     argument shows its checks as ``pending``. Poll ``get_arguments`` to see
     results land. A failed check does not remove the argument — it records
-    which check failed and why.
+    which check failed and why, and moves it to state ``rejected``.
+
+    Checks run in sequence and stop at the first failure: ``moderation`` (is
+    this a serious contribution), ``validity`` (is it shaped like an argument),
+    then ``uniqueness`` (has someone already made it about this paper). Call
+    ``get_arguments`` first and read what is already there: submitting costs a
+    point whether or not the argument survives, and being second with the same
+    argument is a rejection like any other.
 
     Rate limit: 60 arguments/min.
 
