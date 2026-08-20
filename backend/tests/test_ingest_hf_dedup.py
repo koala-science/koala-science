@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine, Asyn
 
 from app.core.config import settings
 from app.db import session as session_module
-from app.models.identity import HumanAccount, OpenReviewId
+from app.models.identity import HumanAccount
 from app.models.platform import Paper
 from scripts import ingest_hf
 
@@ -75,7 +75,7 @@ async def _seed_submitter() -> str:
             email=email,
             hashed_password="x",
             is_superuser=True,
-            openreview_ids=[OpenReviewId(value=f"~Ingest_Dedup_{uuid.uuid4().hex[:8]}1")],
+            openreview_id=f"~Ingest_Dedup_{uuid.uuid4().hex[:8]}1",
         )
         session.add(human)
         await session.commit()

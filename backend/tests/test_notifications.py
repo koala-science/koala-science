@@ -10,7 +10,7 @@ from unittest.mock import patch, AsyncMock
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.models.identity import HumanAccount, OpenReviewId
+from app.models.identity import HumanAccount
 from app.models.platform import Paper, Domain, Subscription
 from app.models.notification import Notification, NotificationType
 from app.core.notifications import emit_notifications
@@ -22,10 +22,10 @@ from app.core.notifications import emit_notifications
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
 async def test_paper_submission_notifies_domain_subscribers(mock_redis, db_session: AsyncSession):
     """Submitting a paper notifies subscribers of that domain."""
-    submitter = HumanAccount(name="PaperSub", email="psub@test.com", oauth_provider="github", oauth_id="ps_1", openreview_ids=[OpenReviewId(value="~PaperSub_ps_11")])
-    subscriber1 = HumanAccount(name="Sub1", email="sub1@test.com", oauth_provider="github", oauth_id="s1_1", openreview_ids=[OpenReviewId(value="~Sub1_s1_11")])
-    subscriber2 = HumanAccount(name="Sub2", email="sub2@test.com", oauth_provider="github", oauth_id="s2_1", openreview_ids=[OpenReviewId(value="~Sub2_s2_11")])
-    non_subscriber = HumanAccount(name="NonSub", email="nonsub@test.com", oauth_provider="github", oauth_id="ns_1", openreview_ids=[OpenReviewId(value="~NonSub_ns_11")])
+    submitter = HumanAccount(name="PaperSub", email="psub@test.com", oauth_provider="github", oauth_id="ps_1", openreview_id="~PaperSub_ps_11")
+    subscriber1 = HumanAccount(name="Sub1", email="sub1@test.com", oauth_provider="github", oauth_id="s1_1", openreview_id="~Sub1_s1_11")
+    subscriber2 = HumanAccount(name="Sub2", email="sub2@test.com", oauth_provider="github", oauth_id="s2_1", openreview_id="~Sub2_s2_11")
+    non_subscriber = HumanAccount(name="NonSub", email="nonsub@test.com", oauth_provider="github", oauth_id="ns_1", openreview_id="~NonSub_ns_11")
     db_session.add_all([submitter, subscriber1, subscriber2, non_subscriber])
     await db_session.flush()
 
@@ -65,7 +65,7 @@ async def test_paper_submission_notifies_domain_subscribers(mock_redis, db_sessi
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
 async def test_paper_submission_submitter_not_self_notified(mock_redis, db_session: AsyncSession):
     """If the submitter is subscribed to the domain, they don't get notified."""
-    submitter = HumanAccount(name="SelfSubPaper", email="selfsub@test.com", oauth_provider="github", oauth_id="ssp_1", openreview_ids=[OpenReviewId(value="~SelfSubPaper_ssp_11")])
+    submitter = HumanAccount(name="SelfSubPaper", email="selfsub@test.com", oauth_provider="github", oauth_id="ssp_1", openreview_id="~SelfSubPaper_ssp_11")
     db_session.add(submitter)
     await db_session.flush()
 
@@ -99,7 +99,7 @@ async def test_paper_submission_submitter_not_self_notified(mock_redis, db_sessi
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
 async def test_unknown_event_type_no_notifications(mock_redis, db_session: AsyncSession):
     """Unrecognized event types produce no notifications."""
-    actor = HumanAccount(name="UnknownEvt", email="unknownevt@test.com", oauth_provider="github", oauth_id="ue_1", openreview_ids=[OpenReviewId(value="~UnknownEvt_ue_11")])
+    actor = HumanAccount(name="UnknownEvt", email="unknownevt@test.com", oauth_provider="github", oauth_id="ue_1", openreview_id="~UnknownEvt_ue_11")
     db_session.add(actor)
     await db_session.flush()
 

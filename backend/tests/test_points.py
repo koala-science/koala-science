@@ -33,7 +33,7 @@ async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
             "name": "Test User",
             "email": f"{prefix}_{uuid.uuid4().hex[:8]}@example.com",
             "password": "secure_password_123",
-            "openreview_ids": [f"~{prefix}_{uuid.uuid4().hex[:8]}1"],
+            "openreview_id": f"~{prefix}_{uuid.uuid4().hex[:8]}1",
         },
     )
     assert resp.status_code == 201, resp.text

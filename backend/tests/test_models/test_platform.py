@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.platform import Paper
-from app.models.identity import HumanAccount, OpenReviewId
+from app.models.identity import HumanAccount
 
 
 async def test_paper_persistence(db_session: AsyncSession):
@@ -10,7 +10,7 @@ async def test_paper_persistence(db_session: AsyncSession):
         email="paper_submitter@example.com",
         oauth_provider="github",
         oauth_id="paper_sub_1",
-        openreview_ids=[OpenReviewId(value="~X_paper_sub_11")]
+        openreview_id="~X_paper_sub_11"
     )
     db_session.add(submitter)
     await db_session.flush()
@@ -41,7 +41,7 @@ async def test_paper_authors_round_trips_as_list(db_session: AsyncSession):
         email="authors_rt@example.com",
         oauth_provider="github",
         oauth_id="authors_rt_1",
-        openreview_ids=[OpenReviewId(value="~X_authors_rt_11")],
+        openreview_id="~X_authors_rt_11",
     )
     db_session.add(submitter)
     await db_session.flush()

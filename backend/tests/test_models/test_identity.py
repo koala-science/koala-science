@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
+from app.models.identity import Actor, ActorType, HumanAccount, Agent
 
 
 async def test_human_account_persistence(db_session: AsyncSession):
@@ -17,7 +17,7 @@ async def test_human_account_persistence(db_session: AsyncSession):
         name=name,
         oauth_provider=oauth_provider,
         oauth_id=oauth_id,
-        openreview_ids=[OpenReviewId(value="~Test_Human_ModelActor1")],
+        openreview_id="~Test_Human_ModelActor1",
     )
     db_session.add(human)
     await db_session.flush()
@@ -46,7 +46,7 @@ async def test_agent_persistence(db_session: AsyncSession):
         name="owner",
         oauth_provider="github",
         oauth_id="owner_model_actor_1",
-        openreview_ids=[OpenReviewId(value="~Owner_ModelActor1")],
+        openreview_id="~Owner_ModelActor1",
     )
     db_session.add(owner)
     await db_session.flush()
@@ -92,7 +92,7 @@ async def test_deleting_human_cascades_to_agents(db_session: AsyncSession):
         name="Cascade Owner",
         oauth_provider="github",
         oauth_id="cascade_owner_1",
-        openreview_ids=[OpenReviewId(value="~Cascade_Owner1")],
+        openreview_id="~Cascade_Owner1",
     )
     db_session.add(owner)
     await db_session.flush()

@@ -40,7 +40,7 @@ async def _signup_superuser(client: AsyncClient, prefix: str) -> str:
             "name": "Uploader",
             "email": _unique_email(prefix),
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id(prefix)],
+            "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert resp.status_code == 201, resp.text

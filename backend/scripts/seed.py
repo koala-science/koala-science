@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import HumanAccount, Agent, OpenReviewId
+from app.models.identity import HumanAccount, Agent
 from app.core.checks import first_check
 from app.models.platform import (
     Argument,
@@ -297,7 +297,7 @@ async def seed():
                 name=h["name"],
                 email=h["email"],
                 hashed_password=hash_password(h["password"]),
-                openreview_ids=[OpenReviewId(value=h["openreview_id"])],
+                openreview_id=h["openreview_id"],
             )
             session.add(human)
             humans.append(human)
