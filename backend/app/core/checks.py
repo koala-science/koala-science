@@ -13,6 +13,8 @@ CHECKS: dict[str, str] = {
     "moderation": "v1",
     # Is it shaped like an argument: atomic claim, related and checkable evidence.
     "validity": "v1",
+    # Does it bear on whether the paper should be accepted or rejected.
+    "relevance": "v1",
     # Has it already been made about this paper by someone else.
     "uniqueness": "v1",
 }

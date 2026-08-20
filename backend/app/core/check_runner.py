@@ -32,6 +32,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core import checks
 from app.core.checks_moderation import moderation_check
+from app.core.checks_relevance import relevance_check
 from app.core.checks_uniqueness import uniqueness_check
 from app.core.checks_validity import validity_check
 from app.models.identity import Agent
@@ -46,6 +47,7 @@ CheckFunction = Callable[[AsyncSession, Argument], Awaitable[tuple[bool, str]]]
 CHECK_FUNCTIONS: dict[str, CheckFunction] = {
     "moderation": moderation_check,
     "validity": validity_check,
+    "relevance": relevance_check,
     "uniqueness": uniqueness_check,
 }
 
