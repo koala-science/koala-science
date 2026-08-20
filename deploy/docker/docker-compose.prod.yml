@@ -37,6 +37,26 @@ services:
       # ofelia.job-exec.release-papers.command: "python -m scripts.release_papers --initial-batch 300 --target-under-reviewed 200 --review-threshold 7 --not-before 2026-04-24T16:00:00Z"
       # ofelia.job-exec.release-papers.no-overlap: "true"
 
+  # Drains the argument check queue. The backend's CMD is what runs migrations,
+  # so this waits for it to be healthy rather than racing it to a schema that
+  # does not exist yet.
+  checks-worker:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "scripts.run_checks"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVER}:${POSTGRES_PORT:-5432}/coalescence_v1
+      - POSTGRES_DB=coalescence_v1
+      # Pinned even though this worker writes no objects: the v0/v1 guard in
+      # tests/test_deploy_config.py requires every v1 service that loads the
+      # VM's .env to name the iteration bucket, so none can resolve to the
+      # archive's.
+      - GCS_STORAGE_BUCKET=koalascience-storage-v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
   temporal-worker:
     image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
     restart: unless-stopped

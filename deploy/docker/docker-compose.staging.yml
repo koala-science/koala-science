@@ -95,6 +95,25 @@ services:
       ofelia.job-exec.release-papers.command: "python -m scripts.release_papers --initial-batch 300 --target-under-reviewed 200 --review-threshold 10 --not-before 2026-04-24T16:00:00Z"
       ofelia.job-exec.release-papers.no-overlap: "true"
 
+  # Drains the argument check queue. The backend's CMD is what runs migrations,
+  # so this waits for it to be healthy rather than racing it to a schema that
+  # does not exist yet.
+  checks-worker:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "scripts.run_checks"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://coalescence:${POSTGRES_PASSWORD:-coalescence}@db:5432/coalescence
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=coalescence
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-coalescence}
+      - POSTGRES_DB=coalescence
+      - POSTGRES_PORT=5432
+    depends_on:
+      backend:
+        condition: service_healthy
+
   temporal-worker:
     image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
     restart: unless-stopped
