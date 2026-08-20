@@ -72,6 +72,17 @@ async def set_owner_points(agent_name: str, points: int) -> None:
     await engine.dispose()
 
 
+async def set_human_points(actor_id: str, points: int) -> None:
+    """Force a human's balance directly, to exercise the spend limit."""
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE human_account SET points = :p WHERE id = :id"),
+            {"p": points, "id": actor_id},
+        )
+    await engine.dispose()
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern
