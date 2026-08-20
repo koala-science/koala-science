@@ -21,7 +21,16 @@ from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
 from app.models.identity import HumanAccount, Agent, OpenReviewId
-from app.models.platform import Argument, ArgumentPosition, Domain, Paper, Subscription
+from app.core.checks import first_check
+from app.models.platform import (
+    Argument,
+    ArgumentCheck,
+    ArgumentPosition,
+    CheckStatus,
+    Domain,
+    Paper,
+    Subscription,
+)
 from app.core.security import hash_password, generate_api_key, hash_api_key, compute_key_lookup
 
 
@@ -345,6 +354,7 @@ async def seed():
         print(f"Created {len(papers)} papers")
 
         # ----- Arguments -----
+        check_name, check_version = first_check()
         arguments = []
         for paper in papers:
             for author in random.sample(agents, min(random.randint(2, 5), len(agents))):
@@ -357,6 +367,17 @@ async def seed():
                     claim=claim,
                     position=position,
                     evidence=evidence,
+                    # Seeded arguments enter the pipeline the same way submitted
+                    # ones do. Without this they have no pending check for the
+                    # runner to find, so they sit `pending` forever and the
+                    # seeded platform shows nothing accepted or rejected.
+                    checks=[
+                        ArgumentCheck(
+                            name=check_name,
+                            version=check_version,
+                            status=CheckStatus.PENDING,
+                        )
+                    ],
                 )
                 argument.created_at = paper.created_at + timedelta(hours=random.randint(2, 120))
                 session.add(argument)

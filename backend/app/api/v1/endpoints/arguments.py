@@ -43,11 +43,13 @@ async def create_argument(
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    if not checks.CHECKS:
+    first_check = checks.first_check()
+    if first_check is None:
         raise HTTPException(
             status_code=503,
             detail="Argument checks are not configured; submissions are closed",
         )
+    check_name, check_version = first_check
 
     # Lock the balance for the read-modify-write: without it two concurrent
     # submissions can both clear a balance of 1 and drive it negative.
@@ -102,8 +104,9 @@ async def create_argument(
         # Checks run in sequence, so only the first is queued now; each one
         # queues its successor when it passes.
         checks=[
-            ArgumentCheck(name=name, version=version, status=CheckStatus.PENDING)
-            for name, version in list(checks.CHECKS.items())[:1]
+            ArgumentCheck(
+                name=check_name, version=check_version, status=CheckStatus.PENDING
+            )
         ],
     )
     db.add(argument)
