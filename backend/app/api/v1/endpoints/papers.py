@@ -6,6 +6,7 @@ import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,11 +14,19 @@ from app.db.session import get_db
 from app.core.config import settings
 from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
 from app.core.argument_visibility import publicly_visible_argument_clause
+from app.core.arxiv import (
+    ArxivIdInvalid,
+    ArxivPaperNotFound,
+    ArxivUnavailable,
+    extract_arxiv_id,
+    fetch_metadata,
+)
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
-from app.models.identity import Actor
+from app.models.identity import Actor, ActorType, HumanAccount
 from app.models.platform import Paper, Domain, Argument
 from app.schemas.platform import (
+    ArxivPaperCreate,
     PaperCreate,
     PaperUpdate,
     PaperResponse,
@@ -30,6 +39,8 @@ from app.core.storage import storage
 logger = logging.getLogger(__name__)
 
 _PDF_UPLOAD_CHUNK = 1024 * 1024  # 1 MiB streaming chunks
+
+PAPER_COST = 20
 
 router = APIRouter()
 
@@ -207,6 +218,157 @@ async def create_paper(
         raise HTTPException(status_code=404, detail="Paper not found after creation")
 
     return _paper_to_response(response_paper, actor.actor_type.value, actor.name)
+
+
+@router.post("/arxiv", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(PAPER_SUBMIT_RATE_LIMIT)
+async def create_paper_from_arxiv(
+    request: Request,
+    payload: ArxivPaperCreate,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit a paper by arXiv URL. Humans only, and it costs points.
+
+    Nothing is charged unless a paper is created, so the order matters: reject a
+    URL we cannot read and a paper we already have before spending anything, and
+    reach arXiv before taking the balance lock rather than holding a row while
+    waiting on someone else's server.
+    """
+    if actor.actor_type != ActorType.HUMAN:
+        raise HTTPException(status_code=403, detail="Only humans can submit papers")
+
+    try:
+        arxiv_id = extract_arxiv_id(payload.url)
+    except ArxivIdInvalid:
+        raise HTTPException(
+            status_code=422, detail="That does not look like an arXiv URL"
+        )
+
+    existing = (
+        await db.execute(select(Paper.id).where(Paper.arxiv_id == arxiv_id))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409, detail="That paper is already on the platform"
+        )
+
+    # Cheap gate before any network work: a submitter who cannot pay must not
+    # cost us an arXiv round trip, a PDF download, or a stored preview image that
+    # nothing will ever reference. The balance is read again under the lock
+    # below — this one only keeps the expensive path off the refused case.
+    affordable = (
+        await db.execute(
+            select(HumanAccount.points).where(HumanAccount.id == actor.id)
+        )
+    ).scalar_one()
+    if affordable < PAPER_COST:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient points: {PAPER_COST} required, {affordable} available",
+        )
+
+    # Hoist what the response needs, then let the connection go: fetching arXiv
+    # and rendering a preview can take a minute between them, and holding a
+    # pooled connection idle-in-transaction for that long starves every other
+    # request. Reading `actor` after the rollback would lazy-load and raise.
+    actor_id, actor_name = actor.id, actor.name
+    actor_type = actor.actor_type.value
+    await db.rollback()
+
+    try:
+        metadata = await fetch_metadata(arxiv_id)
+    except ArxivPaperNotFound:
+        raise HTTPException(status_code=422, detail="arXiv has no paper with that id")
+    except ArxivUnavailable:
+        raise HTTPException(
+            status_code=503, detail="arXiv is unavailable, please try again later"
+        )
+
+    preview_image_url = await _extract_preview(metadata.pdf_url)
+    domains = [_normalize_domain(category) for category in metadata.categories]
+
+    submitter = (
+        await db.execute(
+            select(HumanAccount)
+            .where(HumanAccount.id == actor_id)
+            .with_for_update(of=HumanAccount.__table__)
+        )
+    ).scalar_one()
+    if submitter.points < PAPER_COST:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Insufficient points: {PAPER_COST} required, "
+                f"{submitter.points} available"
+            ),
+        )
+    submitter.points -= PAPER_COST
+
+    paper = Paper(
+        title=metadata.title,
+        abstract=metadata.abstract,
+        domains=domains,
+        pdf_url=metadata.pdf_url,
+        arxiv_id=arxiv_id,
+        submitter_id=actor_id,
+        preview_image_url=preview_image_url,
+        released_at=func.now(),
+    )
+    db.add(paper)
+
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Another submission of the same id won the race between the check above
+        # and this insert. The rollback takes the deduction with it.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="That paper is already on the platform"
+        )
+
+    # arXiv's taxonomy is not the platform's, so a category almost never has a
+    # Domain row yet. Without one the badge on the paper card links to a 404,
+    # the domain filter cannot find the paper, and no subscriber is notified —
+    # the row is what makes a domain name mean anything.
+    known = set(
+        (
+            await db.execute(select(Domain.name).where(Domain.name.in_(domains)))
+        ).scalars().all()
+    )
+    for name in domains:
+        if name not in known:
+            db.add(Domain(name=name, description=f"arXiv category {name.removeprefix('d/')}"))
+    await db.flush()
+
+    domain_obj = (
+        await db.execute(select(Domain).where(Domain.name == domains[0]))
+    ).scalar_one()
+
+    await emit_event(
+        db,
+        event_type="PAPER_SUBMITTED",
+        actor_id=actor_id,
+        actor_name=actor_name,
+        target_id=paper.id,
+        target_type="PAPER",
+        domain_id=domain_obj.id,
+        payload={
+            "title": paper.title,
+            "domains": paper.domains,
+            "actor_type": actor_type,
+            "arxiv_id": arxiv_id,
+            "abstract_length": len(paper.abstract),
+        },
+    )
+    remaining = submitter.points
+    await db.commit()
+
+    response_paper = await _load_paper_for_response(db, paper.id)
+    await _trigger_paper_embedding_refresh(paper.id, metadata.abstract)
+    response = _paper_to_response(response_paper, actor_type, actor_name)
+    response.points_remaining = remaining
+    return response
 
 
 @router.get("/{paper_id}/arguments", response_model=List[ArgumentResponse])

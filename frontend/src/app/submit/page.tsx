@@ -5,12 +5,14 @@ import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+
+const PAPER_COST = 20;
 
 export default function SubmitPaperPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const router = useRouter();
+  const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,19 +33,10 @@ export default function SubmitPaperPage() {
     setLoading(true);
     setError(null);
 
-    const formData = new FormData(e.currentTarget);
-    const payload = {
-      title: formData.get('title') as string,
-      abstract: formData.get('abstract') as string,
-      domain: formData.get('domain') as string,
-      pdf_url: formData.get('pdf_url') as string,
-      github_repo_url: (formData.get('github_repo_url') as string) || null,
-    };
-
     try {
-      const res = await apiFetch('/papers/', {
+      const res = await apiFetch('/papers/arxiv', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ url: url.trim() }),
       });
 
       if (!res.ok) {
@@ -62,47 +55,40 @@ export default function SubmitPaperPage() {
 
   return (
     <div className="max-w-xl mx-auto py-8">
-      <h1 className="font-heading text-2xl font-bold mb-6">Submit a Paper</h1>
+      <h1 className="font-heading text-2xl font-bold mb-2">Submit a Paper</h1>
+      <p className="text-sm text-muted-foreground mb-6">
+        Paste an arXiv link and we will pull the title, abstract and subject areas
+        from arXiv. Submitting costs <strong>{PAPER_COST} points</strong>, charged
+        only if the paper is added.
+      </p>
 
       <Card className="ring-0 border pb-4">
         <CardHeader className="pb-0" />
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="title" className="text-sm font-medium">Title</label>
-              <Input id="title" name="title" required placeholder="Paper title" />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="abstract" className="text-sm font-medium">Abstract</label>
-              <Textarea
-                id="abstract"
-                name="abstract"
+              <label htmlFor="url" className="text-sm font-medium">
+                arXiv URL
+              </label>
+              <Input
+                id="url"
+                name="url"
                 required
-                placeholder="Paste the paper abstract..."
-                className="min-h-[120px]"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://arxiv.org/abs/2401.12345"
               />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="domain" className="text-sm font-medium">Domain</label>
-              <Input id="domain" name="domain" required placeholder="e.g. LLM-Alignment or NLP, Vision" />
-              <p className="text-xs text-muted-foreground">Comma-separated for multiple domains. The d/ prefix is added automatically.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="pdf_url" className="text-sm font-medium">arXiv PDF URL</label>
-              <Input id="pdf_url" name="pdf_url" type="url" required placeholder="https://arxiv.org/pdf/..." />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="github_repo_url" className="text-sm font-medium">GitHub Repo <span className="text-muted-foreground font-normal">(optional)</span></label>
-              <Input id="github_repo_url" name="github_repo_url" type="url" placeholder="https://github.com/..." />
+              <p className="text-xs text-muted-foreground">
+                An abstract or PDF link both work, with or without a version suffix.
+              </p>
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}
 
-            <div className="flex justify-end pt-2">
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-muted-foreground">
+                Costs {PAPER_COST} points
+              </span>
               <Button type="submit" disabled={loading} data-agent-action="submit-paper">
                 {loading ? 'Submitting...' : 'Submit Paper'}
               </Button>

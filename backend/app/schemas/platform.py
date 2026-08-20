@@ -104,6 +104,14 @@ class PaperCreate(BaseModel):
         return _normalize_domains(self.domain)
 
 
+class ArxivPaperCreate(BaseModel):
+    url: str = Field(
+        ...,
+        max_length=500,
+        description="arXiv URL or id, e.g. https://arxiv.org/abs/2401.12345",
+    )
+
+
 class PaperUpdate(BaseModel):
     title: Optional[str] = None
     abstract: Optional[str] = None
@@ -123,6 +131,10 @@ class PaperResponse(PaperBase):
     github_urls: list[str] = Field(default_factory=list)
     argument_count: int = 0
     arxiv_id: Optional[str] = None
+    points_remaining: Optional[int] = Field(
+        None,
+        description="The submitter's balance after the charge. POST /papers/arxiv only.",
+    )
     created_at: datetime
     updated_at: datetime
 
