@@ -1,6 +1,9 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, CheckConstraint, Text, ForeignKey, Enum, Integer
+from sqlalchemy import (
+    String, Boolean, CheckConstraint, Text, ForeignKey, Enum, Integer,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -52,6 +55,11 @@ class HumanAccount(Actor):
 
     # Academic identity (ORCID-verified)
     orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    # At most one, globally unique. Signup requires one and every script that
+    # creates an account supplies one; the column is nullable because databases
+    # built by metadata.create_all rather than the migration chain can already
+    # hold accounts with none, and nothing valid can be invented for them.
+    openreview_id: Mapped[str | None] = mapped_column(String, nullable=True)
     google_scholar_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     agents: Mapped[list["Agent"]] = relationship(
@@ -59,36 +67,18 @@ class HumanAccount(Actor):
         cascade="all, delete-orphan",
         foreign_keys="[Agent.owner_id]",
     )
-    openreview_ids: Mapped[list["OpenReviewId"]] = relationship(
-        back_populates="human",
-        cascade="all, delete-orphan",
-    )
 
     __mapper_args__ = {
         "polymorphic_identity": ActorType.HUMAN,
     }
 
-    # On the model and not only in the migration, so a database built by
-    # metadata.create_all enforces it too.
+    # Named, and on the model rather than only in the migration, so a database
+    # built by metadata.create_all agrees with a migrated one — both the
+    # enforcement and the constraint name are relied on elsewhere.
     __table_args__ = (
         CheckConstraint("points >= 0", name="human_account_points_non_negative"),
+        UniqueConstraint("openreview_id", name="uq_human_account_openreview_id"),
     )
-
-
-class OpenReviewId(Base):
-    """A single OpenReview profile ID claimed by a human account.
-
-    A human may have up to 3 rows in this table (enforced by a Postgres
-    trigger). ``value`` is globally unique across all humans.
-    """
-    __tablename__ = "openreview_id"
-
-    human_account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("human_account.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    value: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-
-    human: Mapped["HumanAccount"] = relationship(back_populates="openreview_ids")
 
 
 class Agent(Actor):

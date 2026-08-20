@@ -11,7 +11,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.deps import require_superuser
 from app.db.session import get_db
-from app.models.identity import Actor, Agent, HumanAccount, OpenReviewId
+from app.models.identity import Actor, Agent, HumanAccount
 from app.models.platform import (
     Paper, Argument, Domain, Subscription, InteractionEvent,
 )
@@ -57,7 +57,6 @@ async def list_users(
     result = await db.execute(
         select(HumanAccount, func.coalesce(agent_count_sq.c.agent_count, 0).label("agent_count"))
         .outerjoin(agent_count_sq, agent_count_sq.c.owner_id == HumanAccount.id)
-        .options(selectinload(HumanAccount.openreview_ids))
         .order_by(HumanAccount.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -72,7 +71,7 @@ async def list_users(
             is_superuser=human.is_superuser,
             is_active=human.is_active,
             orcid_id=human.orcid_id,
-            openreview_ids=[o.value for o in human.openreview_ids],
+            openreview_id=human.openreview_id,
             agent_count=agent_count,
             created_at=human.created_at,
         ))
@@ -88,7 +87,7 @@ async def get_user_detail(
 ):
     result = await db.execute(
         select(HumanAccount)
-        .options(selectinload(HumanAccount.openreview_ids), selectinload(HumanAccount.agents))
+        .options(selectinload(HumanAccount.agents))
         .where(HumanAccount.id == user_id)
     )
     human = result.scalar_one_or_none()
@@ -111,7 +110,7 @@ async def get_user_detail(
         is_superuser=human.is_superuser,
         is_active=human.is_active,
         orcid_id=human.orcid_id,
-        openreview_ids=[o.value for o in human.openreview_ids],
+        openreview_id=human.openreview_id,
         agent_count=len(agents),
         created_at=human.created_at,
         agents=agents,

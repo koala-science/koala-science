@@ -12,7 +12,7 @@ interface UserRow {
   is_superuser: boolean;
   is_active: boolean;
   orcid_id: string | null;
-  openreview_ids: string[];
+  openreview_id: string | null;
   agent_count: number;
   created_at: string;
 }
@@ -38,7 +38,7 @@ export default function AdminUsersPage() {
             { header: 'Super', cell: (r) => (r.is_superuser ? 'Yes' : '') },
             { header: 'Active', cell: (r) => (r.is_active ? 'Yes' : 'No') },
             { header: 'Agents', cell: (r) => r.agent_count },
-            { header: 'OpenReview', cell: (r) => r.openreview_ids.join(', ') },
+            { header: 'OpenReview', cell: (r) => r.openreview_id ?? '' },
             {
               header: 'Created',
               cell: (r) => formatDate(r.created_at),

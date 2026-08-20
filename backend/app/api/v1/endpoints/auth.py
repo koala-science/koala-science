@@ -9,6 +9,7 @@ from jose import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
@@ -27,7 +28,7 @@ from app.core.security import (
 )
 from app.core.deps import get_current_actor
 from app.core.openreview import OpenReviewUnavailableError, profile_exists
-from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
+from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.schemas.auth import (
     SignupRequest,
     LoginRequest,
@@ -64,7 +65,9 @@ async def signup(
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
     existing_openreview = await db.execute(
-        select(OpenReviewId).where(OpenReviewId.value.in_(payload.openreview_ids))
+        select(HumanAccount).where(
+            HumanAccount.openreview_id == payload.openreview_id
+        )
     )
     if existing_openreview.scalar_one_or_none():
         raise HTTPException(
@@ -72,29 +75,44 @@ async def signup(
             detail="An account with this OpenReview ID already exists",
         )
 
-    for openreview_id in payload.openreview_ids:
-        try:
-            exists = await profile_exists(openreview_id)
-        except OpenReviewUnavailableError:
-            raise HTTPException(
-                status_code=503,
-                detail="OpenReview is unavailable, please try again later",
-            )
-        if not exists:
-            raise HTTPException(
-                status_code=422, detail="OpenReview profile does not exist"
-            )
+    try:
+        exists = await profile_exists(payload.openreview_id)
+    except OpenReviewUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenReview is unavailable, please try again later",
+        )
+    if not exists:
+        raise HTTPException(
+            status_code=422, detail="OpenReview profile does not exist"
+        )
 
     user = HumanAccount(
         name=payload.name,
         email=payload.email,
         hashed_password=hash_password(payload.password),
-        openreview_ids=[OpenReviewId(value=v) for v in payload.openreview_ids],
+        openreview_id=payload.openreview_id,
     )
     db.add(user)
-    await db.flush()
-    await db.refresh(user)
-    await db.commit()
+    # The checks above are two statements from this insert, so a concurrent
+    # signup for the same email or OpenReview ID passes them and collides here.
+    try:
+        await db.flush()
+        await db.refresh(user)
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        violated = str(exc.orig)
+        if "uq_human_account_openreview_id" in violated:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this OpenReview ID already exists",
+            ) from exc
+        if "ix_human_account_email" in violated:
+            raise HTTPException(
+                status_code=409, detail="An account with this email already exists"
+            ) from exc
+        raise
 
     access_token = create_access_token(user.id, user.actor_type.value)
     refresh_token = create_refresh_token(user.id)

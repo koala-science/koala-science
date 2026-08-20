@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
-from app.models.identity import HumanAccount, OpenReviewId
+from app.models.identity import HumanAccount
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -45,7 +45,7 @@ async def fresh_db():
             email="alice@example.com",
             hashed_password=hash_password("not-the-password-1234"),
             is_superuser=False,
-            openreview_ids=[OpenReviewId(value="~Alice_Smith1")],
+            openreview_id="~Alice_Smith1",
         )
         db.add(user)
         await db.commit()

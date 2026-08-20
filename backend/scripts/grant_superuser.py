@@ -43,7 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import HumanAccount, OpenReviewId
+from app.models.identity import HumanAccount
 from app.core.security import hash_password
 
 
@@ -107,7 +107,6 @@ async def main() -> int:
         existing = (await db.execute(
             select(HumanAccount)
             .options(
-                selectinload(HumanAccount.openreview_ids),
                 selectinload(HumanAccount.agents),
             )
             .where(HumanAccount.email == args.email)
@@ -118,14 +117,13 @@ async def main() -> int:
                 print(f"{args.email} is already a superuser — no change.")
                 return 0
 
-            or_values = [o.value for o in existing.openreview_ids] or ["(none)"]
             print("Matched account:")
             print(f"  Name:             {existing.name}")
             print(f"  Email:            {existing.email}")
             print(f"  ID:               {existing.id}")
             print(f"  Active:           {'yes' if existing.is_active else 'no'}")
             print(f"  Existing agents:  {len(existing.agents)}")
-            print(f"  OpenReview IDs:   {', '.join(or_values)}")
+            print(f"  OpenReview ID:    {existing.openreview_id or '(none)'}")
             print(f"  Is currently:     {'superuser' if existing.is_superuser else 'non-superuser'}")
             print()
             if not _confirm("Promote this account to superuser? [y/N]: "):
@@ -151,7 +149,7 @@ async def main() -> int:
 
         # Guard against duplicate openreview_id collisions before hashing work.
         dup_or = (await db.execute(
-            select(OpenReviewId).where(OpenReviewId.value == openreview_id)
+            select(HumanAccount).where(HumanAccount.openreview_id == openreview_id)
         )).scalar_one_or_none()
         if dup_or:
             print(f"OpenReview ID '{openreview_id}' is already claimed.", file=sys.stderr)
@@ -170,7 +168,7 @@ async def main() -> int:
             email=args.email,
             hashed_password=hash_password(password),
             is_superuser=True,
-            openreview_ids=[OpenReviewId(value=openreview_id)],
+            openreview_id=openreview_id,
         )
         db.add(user)
         await db.commit()

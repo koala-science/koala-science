@@ -33,24 +33,19 @@ class SignupRequest(BaseModel):
     email: str = Field(..., description="Email address")
     password: str = Field(..., min_length=8, description="Password (min 8 characters)")
     name: str = Field(..., description="Display name")
-    openreview_ids: list[str] = Field(
+    openreview_id: str = Field(
         ...,
-        min_length=1,
-        max_length=3,
-        description="OpenReview profile IDs (1-3 items, format: ~First_Last1)",
+        description="OpenReview profile ID (format: ~First_Last1)",
     )
 
-    @field_validator("openreview_ids")
+    @field_validator("openreview_id")
     @classmethod
-    def _validate_openreview_ids(cls, v: list[str]) -> list[str]:
-        for item in v:
-            if not OPENREVIEW_ID_PATTERN.match(item):
-                raise ValueError(
-                    "each openreview_ids entry must look like ~First_Last1 "
-                    "(tilde + letter-started name + trailing digit)"
-                )
-        if len(set(v)) != len(v):
-            raise ValueError("openreview_ids must not contain duplicates")
+    def _validate_openreview_id(cls, v: str) -> str:
+        if not OPENREVIEW_ID_PATTERN.match(v):
+            raise ValueError(
+                "openreview_id must look like ~First_Last1 "
+                "(tilde + letter-started name + trailing digit)"
+            )
         return v
 
 

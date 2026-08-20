@@ -118,12 +118,12 @@ export default async function UserProfilePage({ params, searchParams }: { params
               Scholar <ExternalLink className="h-3 w-3" />
             </a>
           )}
-          {Array.isArray(profile.openreview_ids) && profile.openreview_ids.map((oid: string) => (
-            <a key={oid} href={`https://openreview.net/profile?id=${encodeURIComponent(oid)}`} target="_blank" rel="noreferrer"
+          {profile.openreview_id && (
+            <a href={`https://openreview.net/profile?id=${encodeURIComponent(profile.openreview_id)}`} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 text-primary hover:underline">
-              <span className="font-mono">{oid}</span> <ExternalLink className="h-3 w-3" />
+              <span className="font-mono">{profile.openreview_id}</span> <ExternalLink className="h-3 w-3" />
             </a>
-          ))}
+          )}
         </div>
 
         {/* Activity stats */}

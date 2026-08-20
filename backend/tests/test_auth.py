@@ -23,7 +23,7 @@ async def _signup(client: AsyncClient, prefix: str = "user") -> tuple[str, str]:
             "name": "Test User",
             "email": _unique_email(prefix),
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id(prefix.capitalize() or "User")],
+            "openreview_id": _unique_openreview_id(prefix.capitalize() or "User"),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -289,7 +289,7 @@ async def test_signup_and_login(client: AsyncClient):
             "name": "Auth Test User",
             "email": email,
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id("Signup")],
+            "openreview_id": _unique_openreview_id("Signup"),
         },
     )
     assert signup_resp.status_code == 201
@@ -319,7 +319,7 @@ async def test_token_response_exposes_is_superuser(client: AsyncClient):
             "name": "Super Test",
             "email": email,
             "password": password,
-            "openreview_ids": [_unique_openreview_id("Super")],
+            "openreview_id": _unique_openreview_id("Super"),
         },
     )
     assert signup.status_code == 201
@@ -345,7 +345,7 @@ async def test_login_wrong_password(client: AsyncClient):
             "name": "Wrong Pass User",
             "email": email,
             "password": "correct_password",
-            "openreview_ids": [_unique_openreview_id("WrongPass")],
+            "openreview_id": _unique_openreview_id("WrongPass"),
         },
     )
 
@@ -360,7 +360,7 @@ async def test_login_wrong_password(client: AsyncClient):
 
 
 async def test_signup_requires_openreview_id(client: AsyncClient):
-    """Missing openreview_ids → 422."""
+    """Missing openreview_id → 422."""
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
@@ -372,51 +372,24 @@ async def test_signup_requires_openreview_id(client: AsyncClient):
     assert resp.status_code == 422
 
 
-async def test_signup_rejects_empty_openreview_ids(client: AsyncClient):
-    """Empty openreview_ids list → 422."""
+async def test_signup_rejects_the_legacy_list_field(client: AsyncClient):
+    """The field was `openreview_ids`, a list of up to three. A client still
+    sending that shape must be refused rather than have it silently ignored and
+    the account created with no ID at all."""
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Empty OR",
-            "email": _unique_email("empty_or"),
+            "name": "Legacy Client",
+            "email": _unique_email("legacy_or"),
             "password": "secure_password_123",
-            "openreview_ids": [],
-        },
-    )
-    assert resp.status_code == 422
-
-
-async def test_signup_rejects_more_than_three_openreview_ids(client: AsyncClient):
-    """More than 3 openreview_ids → 422."""
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Too Many OR",
-            "email": _unique_email("toomany_or"),
-            "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id(f"TM{i}") for i in range(4)],
-        },
-    )
-    assert resp.status_code == 422
-
-
-async def test_signup_rejects_duplicate_ids_in_list(client: AsyncClient):
-    """Same ID repeated within the list → 422."""
-    openreview_id = _unique_openreview_id("DupList")
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Dup List",
-            "email": _unique_email("duplist"),
-            "password": "secure_password_123",
-            "openreview_ids": [openreview_id, openreview_id],
+            "openreview_ids": [_unique_openreview_id("L1"), _unique_openreview_id("L2")],
         },
     )
     assert resp.status_code == 422
 
 
 async def test_signup_rejects_malformed_openreview_id(client: AsyncClient):
-    """Malformed openreview_ids entries → 422."""
+    """A malformed openreview_id → 422."""
     bad_ids = ["alice", "~alice", "~Alice_Chen", "~1Alice1", "", "Alice_Chen1"]
     for bad_id in bad_ids:
         resp = await client.post(
@@ -425,7 +398,7 @@ async def test_signup_rejects_malformed_openreview_id(client: AsyncClient):
                 "name": "Bad OR",
                 "email": _unique_email("bad_or"),
                 "password": "secure_password_123",
-                "openreview_ids": [bad_id],
+                "openreview_id": bad_id,
             },
         )
         assert resp.status_code == 422, f"expected 422 for {bad_id!r}, got {resp.status_code}"
@@ -439,25 +412,7 @@ async def test_signup_accepts_hyphenated_surname(client: AsyncClient):
             "name": "Eugenio Herrera-Berg",
             "email": _unique_email("hyphen"),
             "password": "secure_password_123",
-            "openreview_ids": [f"~Eugenio_Herrera-Berg_{uuid.uuid4().hex[:6]}1"],
-        },
-    )
-    assert resp.status_code == 201, resp.text
-
-
-async def test_signup_accepts_multiple_openreview_ids(client: AsyncClient):
-    """Up to 3 openreview_ids can be supplied on signup."""
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Three IDs",
-            "email": _unique_email("three_or"),
-            "password": "secure_password_123",
-            "openreview_ids": [
-                _unique_openreview_id("TriA"),
-                _unique_openreview_id("TriB"),
-                _unique_openreview_id("TriC"),
-            ],
+            "openreview_id": f"~Eugenio_Herrera-Berg_{uuid.uuid4().hex[:6]}1",
         },
     )
     assert resp.status_code == 201, resp.text
@@ -478,7 +433,7 @@ async def test_signup_rejects_nonexistent_openreview_id(client: AsyncClient, mon
             "name": "Ghost",
             "email": _unique_email("ghost"),
             "password": "secure_password_123",
-            "openreview_ids": [f"~Ghost_User_{uuid.uuid4().hex[:6]}1"],
+            "openreview_id": f"~Ghost_User_{uuid.uuid4().hex[:6]}1",
         },
     )
     assert resp.status_code == 422
@@ -495,7 +450,7 @@ async def test_signup_rejects_duplicate_openreview_id(client: AsyncClient):
             "name": "First User",
             "email": _unique_email("dup_first"),
             "password": "secure_password_123",
-            "openreview_ids": [openreview_id],
+            "openreview_id": openreview_id,
         },
     )
     assert first.status_code == 201, first.text
@@ -506,7 +461,7 @@ async def test_signup_rejects_duplicate_openreview_id(client: AsyncClient):
             "name": "Second User",
             "email": _unique_email("dup_second"),
             "password": "secure_password_123",
-            "openreview_ids": [openreview_id],
+            "openreview_id": openreview_id,
         },
     )
     assert second.status_code == 409
@@ -528,7 +483,7 @@ async def test_signup_returns_503_when_openreview_down(client: AsyncClient, monk
             "name": "Unlucky",
             "email": _unique_email("down"),
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id("Down")],
+            "openreview_id": _unique_openreview_id("Down"),
         },
     )
     assert resp.status_code == 503
@@ -546,7 +501,7 @@ async def test_signup_returns_403_when_signups_disabled(client: AsyncClient, mon
             "name": "TooLate",
             "email": _unique_email("too_late"),
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id("TooLate")],
+            "openreview_id": _unique_openreview_id("TooLate"),
         },
     )
     assert resp.status_code == 403

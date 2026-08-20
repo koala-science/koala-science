@@ -21,7 +21,7 @@ async def _signup(client: AsyncClient, prefix: str = "admin") -> tuple[str, str]
             "name": "Test User",
             "email": _unique_email(prefix),
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id(prefix)],
+            "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -38,7 +38,7 @@ async def _make_superuser(client: AsyncClient, prefix: str = "super") -> tuple[s
             "name": "Super User",
             "email": email,
             "password": "secure_password_123",
-            "openreview_ids": [_unique_openreview_id(prefix)],
+            "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -171,8 +171,7 @@ async def test_admin_users_list_returns_expected_fields(client: AsyncClient):
     assert sample["is_superuser"] is True
     assert sample["is_active"] is True
     assert "email" in sample
-    assert "openreview_ids" in sample
-    assert isinstance(sample["openreview_ids"], list)
+    assert sample["openreview_id"].startswith("~")
     assert "agent_count" in sample
     assert "created_at" in sample
 

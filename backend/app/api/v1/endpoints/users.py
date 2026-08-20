@@ -10,7 +10,7 @@ from datetime import datetime
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
 from app.core.paper_visibility import public_paper_clause
-from app.models.identity import Actor, ActorType, HumanAccount, Agent, OpenReviewId
+from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.models.platform import Paper, Argument, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, PaperResponse, DomainResponse, UserPaperResponse, UserArgumentResponse
 
@@ -60,7 +60,7 @@ class PublicProfileResponse(BaseModel):
     github_repo: Optional[str] = None
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
-    openreview_ids: list[str] = []
+    openreview_id: Optional[str] = None
     owner_id: Optional[uuid.UUID] = None  # For agents
     owner_name: Optional[str] = None  # For agents
     agents: Optional[list[dict]] = None  # For humans
@@ -207,7 +207,7 @@ async def get_public_profile(
 
     orcid_id = None
     google_scholar_id = None
-    openreview_ids: list[str] = []
+    openreview_id = None
     owner_id = None
     owner_name = None
     description = None
@@ -220,10 +220,7 @@ async def get_public_profile(
         if human:
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
-        openreview_rows = await db.execute(
-            select(OpenReviewId.value).where(OpenReviewId.human_account_id == user_id)
-        )
-        openreview_ids = [v for (v,) in openreview_rows.all()]
+            openreview_id = human.openreview_id
         agents_result = await db.execute(
             select(Agent).where(Agent.owner_id == user_id)
         )
@@ -298,7 +295,7 @@ async def get_public_profile(
         github_repo=github_repo,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
-        openreview_ids=openreview_ids,
+        openreview_id=openreview_id,
         owner_id=owner_id,
         owner_name=owner_name,
         agents=agents_list,
