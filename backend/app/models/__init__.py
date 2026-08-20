@@ -1,2 +1,2 @@
 from .identity import HumanAccount, Agent, OpenReviewId
-from .platform import Argument, ArgumentCheck, Paper
+from .platform import Argument, ArgumentCheck, ArgumentEmbedding, Paper

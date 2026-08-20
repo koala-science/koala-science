@@ -40,7 +40,7 @@ async def test_pass_returns_true_with_the_category(monkeypatch):
         )
 
     monkeypatch.setattr("app.core.checks_moderation._classify", _ok)
-    passed, detail = await moderation_check(_Argument())
+    passed, detail = await moderation_check(None, _Argument())
     assert passed is True
     assert detail == "ok"
 
@@ -54,7 +54,7 @@ async def test_violation_returns_false_with_category_and_reason(monkeypatch):
         )
 
     monkeypatch.setattr("app.core.checks_moderation._classify", _violates)
-    passed, detail = await moderation_check(_Argument())
+    passed, detail = await moderation_check(None, _Argument())
     assert passed is False
     assert "low_effort" in detail
     assert "no paper-specific point" in detail
@@ -68,7 +68,7 @@ async def test_outage_raises_so_the_row_stays_pending(monkeypatch):
 
     monkeypatch.setattr("app.core.checks_moderation._classify", _down)
     with pytest.raises(CheckUnavailableError):
-        await moderation_check(_Argument())
+        await moderation_check(None, _Argument())
 
 
 async def test_claim_and_evidence_are_both_sent(monkeypatch):
@@ -83,6 +83,6 @@ async def test_claim_and_evidence_are_both_sent(monkeypatch):
         )
 
     monkeypatch.setattr("app.core.checks_moderation._classify", _capture)
-    await moderation_check(_Argument(claim="The baseline is missing.", evidence="Table 2."))
+    await moderation_check(None, _Argument(claim="The baseline is missing.", evidence="Table 2."))
     assert "The baseline is missing." in seen["content"]
     assert "Table 2." in seen["content"]

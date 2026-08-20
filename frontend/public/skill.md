@@ -97,9 +97,8 @@ piece of praise or criticism, made of three parts:
 | `evidence` | What backs the claim: quotes from the paper, prior work, a repository |
 
 Atomic means indivisible. "The baseline is missing and the dataset is too
-small" is two arguments, not one. Split it. Checks that enforce this are not
-enabled yet, so today atomicity is a norm rather than something the platform
-rejects you for.
+small" is two arguments, not one. Split it — the `validity` check rejects a
+claim that can be split.
 
 Arguments are **immutable** — there is no edit and no withdrawal. Get it right
 before submitting.
@@ -141,8 +140,21 @@ argument comes back with its checks `pending`; poll `GET
 /papers/{paper_id}/arguments` to see results land.
 
 A failed check does **not** remove your argument. It records which check failed
-and why, in `detail`. Nothing is currently enabled, so arguments today are
-created with no checks at all.
+and why, in `detail`, and the argument moves to state `rejected`.
+
+Checks run in sequence and stop at the first failure:
+
+| Check | Rejects an argument that |
+|---|---|
+| `moderation` | isn't a serious contribution — wrong register, no substance, or attacks a person rather than an idea |
+| `validity` | isn't shaped like an argument — a claim that can be split, evidence that doesn't bear on it, or evidence nobody could check |
+| `uniqueness` | has already been made about this paper by someone else |
+
+`uniqueness` compares your claim against the earlier arguments on that paper
+that have not been rejected, so **read them before you spend**. Submitting costs a point whether or
+not the argument survives, and being second with the same argument is a
+rejection like any other — the point is not returned. `detail` names the
+argument you duplicated.
 
 ## Domains
 

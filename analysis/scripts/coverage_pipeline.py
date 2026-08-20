@@ -15,7 +15,8 @@ Stages (checkpointed; each writes a file so expensive steps run once):
             per paper -> args.json
   embed   : embed every argument (gemini-embedding-001), list WITHIN-METHOD
             candidate pairs above --threshold -> pairs.json
-  judge   : run the CMU 4-way judge (similarity_prompts.py) on candidate
+  judge   : run the similarity judge (shared with the platform's uniqueness
+            check, see backend/app/core/similarity_judge.py) on candidate
             pairs above --judge-threshold, thinking on -> clusters.json
   plot    : per-paper distinct-argument accumulation curves, averaged
             across papers with a bootstrap 95% CI -> png
@@ -35,16 +36,12 @@ from pathlib import Path
 import psycopg
 
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(Path(__file__).parent / "judges"))
+# The similarity judge is shared with the platform's uniqueness check and lives
+# in the backend, which is the single source of truth for the prompt.
+sys.path.insert(0, str(ROOT.parent / "backend"))
 
 EMBED_MODEL = "gemini-embedding-001"
 JUDGE_MODEL = "gemini-2.5-flash"
-
-SAME_LABELS = {
-    "same subject, same argument, same evidence",
-    "same subject, same argument, different evidence",
-}
-
 
 def out_path(tag: str, name: str) -> Path:
     return ROOT / "data" / f"coverage_{tag}_{name}"
@@ -203,19 +200,6 @@ async def stage_embed(threshold: float, tag: str) -> None:
 # judge
 # --------------------------------------------------------------------------
 
-def _extract_answer(text: str) -> str | None:
-    m = re.findall(r"<answer>(.*?)</answer>", text, re.S | re.I)
-    if not m:
-        return None
-    ans = m[-1].strip().strip('"').lower()
-    for lbl in ("same subject, same argument, same evidence",
-                "same subject, same argument, different evidence",
-                "same subject, different argument", "different subject"):
-        if lbl in ans:
-            return lbl
-    return None
-
-
 JUDGE_PRICING = {"gemini-2.5-flash": {"input": 0.30, "output": 2.50}}
 
 
@@ -232,7 +216,9 @@ def _load_judge_progress(path: Path) -> dict[tuple[int, int], str | None]:
 async def stage_judge(judge_threshold: float, tag: str, concurrency: int) -> None:
     import os
     from google import genai
-    from similarity_prompts import FOURWAY_SYSTEM_PROMPT, FOURWAY_USER_PROMPT_TEMPLATE
+    from app.core.similarity_judge import (
+        SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, is_duplicate, match_label,
+    )
     from tqdm import tqdm
 
     blob = json.load(open(out_path(tag, "args.json")))
@@ -269,7 +255,7 @@ async def stage_judge(judge_threshold: float, tag: str, concurrency: int) -> Non
             async def judge(i, j):
                 nonlocal cost_usd
                 a, b = args[i], args[j]
-                user = FOURWAY_USER_PROMPT_TEMPLATE.format(
+                user = USER_PROMPT_TEMPLATE.format(
                     paper_text=titles.get(a["paper_id"], ""),
                     reviewer_a=a["source"], reviewer_b=b["source"],
                     item_a=a["text"], item_b=b["text"])
@@ -280,9 +266,9 @@ async def stage_judge(judge_threshold: float, tag: str, concurrency: int) -> Non
                             resp = await asyncio.to_thread(
                                 client.models.generate_content, model=JUDGE_MODEL,
                                 contents=[{"role": "user", "parts": [{"text": user}]}],
-                                config={"system_instruction": FOURWAY_SYSTEM_PROMPT,
+                                config={"system_instruction": SYSTEM_PROMPT,
                                         "temperature": 0.0})
-                            label = _extract_answer(resp.text or "")
+                            label = match_label(resp.text or "")
                             usage = resp.usage_metadata
                             if usage.prompt_token_count and usage.candidates_token_count:
                                 cost_usd += (usage.prompt_token_count * price["input"]
@@ -304,7 +290,8 @@ async def stage_judge(judge_threshold: float, tag: str, concurrency: int) -> Non
         print(f"this run: cost=${cost_usd:.3f}")
         done = _load_judge_progress(progress_path)
 
-    same_pairs = [[i, j] for i, j, s in all_pairs if done.get((i, j)) in SAME_LABELS]
+    same_pairs = [[i, j] for i, j, s in all_pairs
+                  if (label := done.get((i, j))) and is_duplicate(label)]
     labeled = sum(1 for i, j, s in all_pairs if done.get((i, j)) is not None)
     print(f"labeled {labeled}/{len(all_pairs)} pairs; same-argument pairs: {len(same_pairs)}")
     json.dump({"same_pairs": same_pairs,

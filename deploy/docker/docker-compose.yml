@@ -106,6 +106,31 @@ services:
         condition: service_healthy
       temporal:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); r.raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Drains the argument check queue. The backend's CMD is what runs migrations,
+  # so this waits for it to be healthy rather than racing it to a schema that
+  # does not exist yet.
+  checks-worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "scripts.run_checks"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_SERVER=db
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      backend:
+        condition: service_healthy
 
   temporal-worker:
     build:

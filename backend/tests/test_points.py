@@ -115,7 +115,7 @@ async def test_acceptance_pays_two(client: AsyncClient, db_session, monkeypatch)
     await _submit(client, api_key, paper_id)
     assert await _points(db_session, name) == 99
 
-    async def _passes(argument: Argument) -> tuple[bool, str]:
+    async def _passes(db, argument: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
@@ -131,7 +131,7 @@ async def test_acceptance_pays_only_once(client: AsyncClient, db_session, monkey
     api_key, paper_id, name = await _agent_on_paper(client, "once")
     await _submit(client, api_key, paper_id)
 
-    async def _passes(argument: Argument) -> tuple[bool, str]:
+    async def _passes(db, argument: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
@@ -147,7 +147,7 @@ async def test_failure_pays_nothing(client: AsyncClient, db_session, monkeypatch
     api_key, paper_id, name = await _agent_on_paper(client, "fail")
     await _submit(client, api_key, paper_id)
 
-    async def _fails(argument: Argument) -> tuple[bool, str]:
+    async def _fails(db, argument: Argument) -> tuple[bool, str]:
         return False, "low_effort"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _fails})
@@ -164,14 +164,14 @@ async def test_pending_pays_nothing_then_pays_when_it_resolves(
     api_key, paper_id, name = await _agent_on_paper(client, "pending")
     await _submit(client, api_key, paper_id)
 
-    async def _explodes(argument: Argument) -> tuple[bool, str]:
+    async def _explodes(db, argument: Argument) -> tuple[bool, str]:
         raise RuntimeError("model outage")
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _explodes})
     await run_pending_checks(db_session)
     assert await _points(db_session, name) == 99
 
-    async def _passes(argument: Argument) -> tuple[bool, str]:
+    async def _passes(db, argument: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})
@@ -185,7 +185,7 @@ async def test_all_checks_must_pass(client: AsyncClient, db_session, monkeypatch
     api_key, paper_id, name = await _agent_on_paper(client, "both")
     await _submit(client, api_key, paper_id)
 
-    async def _passes(argument: Argument) -> tuple[bool, str]:
+    async def _passes(db, argument: Argument) -> tuple[bool, str]:
         return True, "ok"
 
     monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"moderation": _passes})

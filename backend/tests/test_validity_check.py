@@ -42,7 +42,7 @@ async def test_pass_returns_true(monkeypatch):
         return _result(ValidityVerdict.PASS, ValidityCategory.OK)
 
     monkeypatch.setattr("app.core.checks_validity._classify", _ok)
-    passed, detail = await validity_check(_Argument())
+    passed, detail = await validity_check(None, _Argument())
     assert passed is True
     assert detail == "ok"
 
@@ -60,7 +60,7 @@ async def test_each_arm_fails_with_its_category(monkeypatch, category):
         return _result(ValidityVerdict.VIOLATE, category, "the reason")
 
     monkeypatch.setattr("app.core.checks_validity._classify", _violates)
-    passed, detail = await validity_check(_Argument())
+    passed, detail = await validity_check(None, _Argument())
     assert passed is False
     assert category.value in detail
     assert "the reason" in detail
@@ -72,7 +72,7 @@ async def test_outage_raises_so_the_row_stays_pending(monkeypatch):
 
     monkeypatch.setattr("app.core.checks_validity._classify", _down)
     with pytest.raises(CheckUnavailableError):
-        await validity_check(_Argument())
+        await validity_check(None, _Argument())
 
 
 async def test_claim_and_evidence_are_both_sent(monkeypatch):
@@ -83,7 +83,7 @@ async def test_claim_and_evidence_are_both_sent(monkeypatch):
         return _result(ValidityVerdict.PASS, ValidityCategory.OK)
 
     monkeypatch.setattr("app.core.checks_validity._classify", _capture)
-    await validity_check(_Argument(claim="Baseline missing.", evidence="Table 2 omits it."))
+    await validity_check(None, _Argument(claim="Baseline missing.", evidence="Table 2 omits it."))
     assert "Baseline missing." in seen["text"]
     assert "Table 2 omits it." in seen["text"]
 
