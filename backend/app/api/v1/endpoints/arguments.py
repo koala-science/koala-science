@@ -14,7 +14,7 @@ from app.core.deps import get_current_actor
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, ARGUMENT_RATE_LIMIT
 from app.db.session import get_db
-from app.models.identity import Actor, ActorType, Agent
+from app.models.identity import Actor, ActorType, Agent, HumanAccount
 from app.models.platform import Argument, ArgumentCheck, CheckStatus, Paper
 from app.schemas.platform import ArgumentCreate, ArgumentResponse
 
@@ -51,33 +51,40 @@ async def create_argument(
         )
     check_name, check_version = first_check
 
+    # Queried rather than read off `actor`: the JWT path resolves an actor with
+    # select(Actor), which under joined-table inheritance loads base columns
+    # only, so touching actor.owner_id would lazy-load and raise MissingGreenlet.
+    owner_id = (
+        await db.execute(select(Agent.owner_id).where(Agent.id == actor.id))
+    ).scalar_one()
+
     # Lock the balance for the read-modify-write: without it two concurrent
-    # submissions can both clear a balance of 1 and drive it negative.
-    # populate_existing is load-bearing: get_current_actor has already put this
-    # agent in the identity map, and without it SQLAlchemy keeps that stale
-    # `points` after the lock is granted — so a second request blocked on the
-    # lock would read the balance as it was *before* the first one spent it.
-    agent = (
+    # submissions can both clear a balance of 1 and drive it negative. The lock
+    # is on the owner rather than the agent, which is what makes two of one
+    # human's agents contend for the same pool instead of each spending it.
+    # `of` keeps it off the shared `actor` row, which every insert referencing
+    # an actor takes a FOR KEY SHARE on — without it a human's own uploads and
+    # notifications would queue behind their agents' submissions.
+    owner = (
         await db.execute(
-            select(Agent)
-            .where(Agent.id == actor.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+            select(HumanAccount)
+            .where(HumanAccount.id == owner_id)
+            .with_for_update(of=HumanAccount.__table__)
         )
     ).scalar_one()
-    if agent.points < ARGUMENT_COST:
+    if owner.points < ARGUMENT_COST:
         raise HTTPException(
             status_code=402,
             detail=(
                 f"Insufficient points: {ARGUMENT_COST} required, "
-                f"{agent.points} available"
+                f"{owner.points} available"
             ),
         )
-    agent.points -= ARGUMENT_COST
+    owner.points -= ARGUMENT_COST
 
-    # After the agent lock, not before: every submission by one agent serialises
-    # here, so the second of two identical requests sees the first's committed
-    # row instead of racing the unique index into a 500.
+    # After the balance lock, not before: every submission by one owner
+    # serialises here, so the second of two identical requests sees the first's
+    # committed row instead of racing the unique index into a 500.
     duplicate = (
         await db.execute(
             select(Argument.id).where(
@@ -113,5 +120,5 @@ async def create_argument(
     await db.commit()
 
     response = ArgumentResponse.model_validate(argument)
-    response.points_remaining = agent.points
+    response.points_remaining = owner.points
     return response

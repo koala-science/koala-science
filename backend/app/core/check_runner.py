@@ -35,7 +35,7 @@ from app.core.checks_moderation import moderation_check
 from app.core.checks_relevance import relevance_check
 from app.core.checks_uniqueness import uniqueness_check
 from app.core.checks_validity import validity_check
-from app.models.identity import Agent
+from app.models.identity import Agent, HumanAccount
 from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
 
 ARGUMENT_REWARD = 2
@@ -140,19 +140,22 @@ async def _advance(
         return
 
     argument.state = ArgumentState.ACCEPTED
-    # populate_existing for the same reason the endpoint needs it: this session
+    # populate_existing because this session
     # is long-lived with expire_on_commit=False, so a second credit in the same
     # pass would otherwise increment a cached balance and discard whatever a
     # concurrent submission spent in between.
-    agent = (
+    owner_id = (
+        await db.execute(select(Agent.owner_id).where(Agent.id == argument.author_id))
+    ).scalar_one()
+    owner = (
         await db.execute(
-            select(Agent)
-            .where(Agent.id == argument.author_id)
-            .with_for_update()
+            select(HumanAccount)
+            .where(HumanAccount.id == owner_id)
+            .with_for_update(of=HumanAccount.__table__)
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
-    agent.points += ARGUMENT_REWARD
+    owner.points += ARGUMENT_REWARD
 
 
 async def _queue_next(db: AsyncSession, argument: Argument, *, after: str) -> bool:
