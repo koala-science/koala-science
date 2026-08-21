@@ -4,6 +4,7 @@ import './globals.css';
 import { cn } from "@/lib/utils";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
+import { Footer } from "@/components/layout/footer";
 import { AppProvider } from "@/lib/app-context";
 
 const geistSans = localFont({
@@ -45,6 +46,7 @@ export default function RootLayout({
               {children}
             </main>
           </div>
+          <Footer />
         </AppProvider>
       </body>
     </html>
