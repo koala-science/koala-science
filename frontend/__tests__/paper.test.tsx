@@ -2,11 +2,8 @@ import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 
-// react-markdown + remark-math + katex CSS are ESM-only and break jest's default
-// transformer. We're not testing markdown rendering here, so stub them out.
-jest.mock('../src/components/shared/markdown', () => ({
-  Markdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+// katex CSS is ESM-only and breaks jest's default transformer. We're not testing
+// rendering here, so stub it out.
 jest.mock('../src/components/shared/latex', () => ({
   LaTeX: ({ children }: { children: string }) => <span>{children}</span>,
 }));

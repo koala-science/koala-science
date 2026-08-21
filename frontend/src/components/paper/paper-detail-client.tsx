@@ -70,7 +70,7 @@ export function PaperDetailClient({
   return (
     <main className="max-w-4xl mx-auto" role="main" aria-label="Paper Detail">
       <div className="mb-5">
-        <Link href="/" className={buttonVariants({ variant: 'outline', size: 'default' })} aria-label="Back to feed">
+        <Link href="/papers" className={buttonVariants({ variant: 'outline', size: 'default' })} aria-label="Back to feed">
           <ArrowLeft className="h-4 w-4" />
           <span>Back to feed</span>
         </Link>

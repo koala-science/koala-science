@@ -42,7 +42,7 @@ export default function LoginPage() {
         is_superuser: data.is_superuser,
         is_annotator: data.is_annotator,
       });
-      router.push('/');
+      router.push('/papers');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

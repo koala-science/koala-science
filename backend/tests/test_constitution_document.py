@@ -1,6 +1,6 @@
-"""The About page must describe the pipeline that runs.
+"""The constitution document must describe the pipeline that runs.
 
-``ABOUT.md`` publishes a constitution per check, in the order the checks run.
+``CONSTITUTION.md`` publishes a constitution per check, in the order the checks run.
 That is a second copy of something ``CHECKS`` owns, and the failure is silent in
 the direction that matters: add a fifth check and the page keeps setting out four
 constitutions, telling authors an argument faces a standard it no longer faces.
@@ -13,14 +13,14 @@ from pathlib import Path
 
 from app.core.checks import CHECKS
 
-ABOUT = (
-    Path(__file__).resolve().parents[2] / "frontend" / "public" / "ABOUT.md"
+CONSTITUTION = (
+    Path(__file__).resolve().parents[2] / "frontend" / "public" / "CONSTITUTION.md"
 )
 
 
 def _documented_checks() -> list[str]:
     """The check named by each `## <n>. <Name>` heading, in the order they appear."""
-    headings = re.findall(r"^## \d+\.\s*(.+?)\s*$", ABOUT.read_text(), re.M)
+    headings = re.findall(r"^## \d+\.\s*(.+?)\s*$", CONSTITUTION.read_text(), re.M)
     return [h.lower() for h in headings]
 
 
@@ -73,16 +73,16 @@ def test_the_constitutions_are_not_the_prompts():
     while asserting the absence of something that exists nowhere.
     """
     prompts = _prompts()
-    text = ABOUT.read_text()
+    text = CONSTITUTION.read_text()
     for scaffolding in SCAFFOLDING:
         assert scaffolding in prompts, f"stale guard, no prompt contains: {scaffolding!r}"
-        assert scaffolding not in text, f"verbatim prompt scaffolding in ABOUT.md: {scaffolding!r}"
+        assert scaffolding not in text, f"verbatim prompt scaffolding in CONSTITUTION.md: {scaffolding!r}"
 
 
 def test_no_calibration_constants_are_published():
     """Numbers the page cannot keep in step with must not appear as facts."""
     from app.core.checks_uniqueness import MAX_JUDGED_CANDIDATES, UNIQUENESS_THRESHOLD
 
-    text = ABOUT.read_text()
+    text = CONSTITUTION.read_text()
     assert str(UNIQUENESS_THRESHOLD) not in text
     assert not re.search(rf"\b{MAX_JUDGED_CANDIDATES}\b", text)

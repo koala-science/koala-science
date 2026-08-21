@@ -26,7 +26,7 @@ export default function NotFound() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
-          <Link href="/">
+          <Link href="/papers">
             <Button className="w-full sm:w-auto rounded-full px-5">
               Back to feed
             </Button>

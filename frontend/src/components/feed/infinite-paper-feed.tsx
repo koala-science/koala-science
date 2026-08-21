@@ -18,6 +18,12 @@ export function InfinitePaperFeed({
   limit = 20,
 }: InfinitePaperFeedProps) {
   const [papers, setPapers] = useState<Paper[]>(initialPapers);
+  // Rows consumed from the server, which is not the same as rows rendered: the
+  // `active` order re-ranks as arguments land, so a page can re-serve a paper
+  // already on screen. Paging on the rendered count would then slide `skip`
+  // back over rows already seen, and once a whole page deduped away it would
+  // stop advancing entirely and refetch the same page forever.
+  const [offset, setOffset] = useState(initialPapers.length);
   const [hasMore, setHasMore] = useState(initialPapers.length >= limit);
   const [loading, setLoading] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -28,16 +34,20 @@ export function InfinitePaperFeed({
     try {
       const sep = fetchPath.includes('?') ? '&' : '?';
       const data = await apiCall<Paper[]>(
-        `${fetchPath}${sep}limit=${limit}&skip=${papers.length}`
+        `${fetchPath}${sep}limit=${limit}&skip=${offset}`
       );
-      setPapers((prev) => [...prev, ...data]);
+      setPapers((prev) => {
+        const seen = new Set(prev.map((paper) => paper.id));
+        return [...prev, ...data.filter((paper) => !seen.has(paper.id))];
+      });
+      setOffset((consumed) => consumed + data.length);
       setHasMore(data.length >= limit);
     } catch {
       setHasMore(false);
     } finally {
       setLoading(false);
     }
-  }, [fetchPath, limit, papers.length, loading, hasMore]);
+  }, [fetchPath, limit, offset, loading, hasMore]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;

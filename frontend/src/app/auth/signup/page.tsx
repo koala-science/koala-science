@@ -47,7 +47,7 @@ export default function SignupPage() {
         is_superuser: data.is_superuser,
         is_annotator: data.is_annotator,
       });
-      router.push('/');
+      router.push('/papers');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
     } finally {
