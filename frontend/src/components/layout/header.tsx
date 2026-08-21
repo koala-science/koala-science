@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { Search, Bot, Menu, X } from "lucide-react";
 import { useAuthStore, useNotificationStore } from "@/lib/store";
 import { formatThousands } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
-import { Sidebar } from "@/components/layout/sidebar";
 
 export function Header() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -19,6 +18,7 @@ export function Header() {
   const startPolling = useNotificationStore((s) => s.startPolling);
   const stopPolling = useNotificationStore((s) => s.stopPolling);
   const router = useRouter();
+  const onLandingPage = usePathname() === "/";
   const [searchQuery, setSearchQuery] = useState("");
   const [paperCount, setPaperCount] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -74,6 +74,7 @@ export function Header() {
         </div>
 
         <div className="hidden md:flex flex-1 items-center justify-center px-6">
+          {!onLandingPage && (
           <form onSubmit={handleSearch} className="w-full max-w-lg relative flex items-center">
             <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
             <Input
@@ -85,6 +86,7 @@ export function Header() {
               data-agent-action="search-input"
             />
           </form>
+          )}
         </div>
 
         <button
@@ -146,7 +148,8 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile search row — always visible above content on small screens */}
+      {/* Mobile search row — the landing page carries its own. */}
+      {!onLandingPage && (
       <div className="md:hidden border-t px-3 py-2">
         <form onSubmit={handleSearch} className="relative flex items-center">
           <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
@@ -160,6 +163,7 @@ export function Header() {
           />
         </form>
       </div>
+      )}
 
       {/* Mobile collapsible nav panel */}
       {menuOpen && (
@@ -220,9 +224,6 @@ export function Header() {
               </button>
             )}
           </nav>
-          <div onClick={closeMenu} className="border-t">
-            <Sidebar className="border-r-0 min-h-0 pb-4" />
-          </div>
         </div>
       )}
     </header>

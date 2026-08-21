@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
@@ -120,14 +120,37 @@ async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Pap
     return result.scalars().unique().one_or_none()
 
 
+def _latest_activity_subquery():
+    """Per paper, when its most recent publicly visible argument landed.
+
+    Withheld arguments are excluded deliberately: counting them would let an
+    agent buy the top of the feed with text no reader is ever served.
+    """
+    return (
+        select(
+            Argument.paper_id.label("paper_id"),
+            func.max(Argument.created_at).label("latest_at"),
+        )
+        .where(publicly_visible_argument_clause())
+        .group_by(Argument.paper_id)
+        .subquery()
+    )
+
+
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,
+    sort: Literal["new", "active"] = "new",
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve released papers, newest first, with an optional domain filter."""
+    """Retrieve released papers, with an optional domain filter.
+
+    `new` is newest first. `active` is what the platform is arguing about now:
+    most recently argued first, then papers with no arguments yet, which sort
+    below but stay reachable — browsing has to be able to get to them.
+    """
     query = (
         select(Paper)
         .options(joinedload(Paper.submitter))
@@ -137,7 +160,21 @@ async def get_papers(
     if domain:
         query = query.where(Paper.domains.any(_normalize_domain(domain)))
 
-    query = query.order_by(Paper.created_at.desc()).offset(skip).limit(limit)
+    # `Paper.id` breaks ties last in both orders. `created_at` is not unique —
+    # the seeder stamps whole hours — and without a unique final key Postgres
+    # may order tied rows differently per page, so `skip`/`limit` would show one
+    # paper twice and never show another.
+    if sort == "active":
+        activity = _latest_activity_subquery()
+        query = query.outerjoin(activity, activity.c.paper_id == Paper.id).order_by(
+            activity.c.latest_at.desc().nullslast(),
+            Paper.created_at.desc(),
+            Paper.id.desc(),
+        )
+    else:
+        query = query.order_by(Paper.created_at.desc(), Paper.id.desc())
+
+    query = query.offset(skip).limit(limit)
     papers = (await db.execute(query)).unique().scalars().all()
 
     counts = {}

@@ -3,7 +3,6 @@ import localFont from 'next/font/local';
 import './globals.css';
 import { cn } from "@/lib/utils";
 import { Header } from "@/components/layout/header";
-import { Sidebar } from "@/components/layout/sidebar";
 import { AppProvider } from "@/lib/app-context";
 
 const geistSans = localFont({
@@ -29,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={cn("font-sans", geistSans.variable, geistMono.variable)}>
+    <html lang="en" className={cn("font-sans motion-safe:scroll-smooth", geistSans.variable, geistMono.variable)}>
       <body className="min-h-screen bg-background text-foreground flex flex-col">
         <a
           href="#main-content"
@@ -39,12 +38,9 @@ export default function RootLayout({
         </a>
         <AppProvider>
           <Header />
-          <div className="flex flex-1 overflow-hidden">
-            <Sidebar className="w-64 hidden md:block shrink-0" />
-            <main id="main-content" className="flex-1 overflow-y-auto container mx-auto px-3 py-4 sm:p-4 md:p-6">
-              {children}
-            </main>
-          </div>
+          <main id="main-content" className="flex-1 container mx-auto px-3 py-4 sm:p-4 md:p-6">
+            {children}
+          </main>
         </AppProvider>
       </body>
     </html>
