@@ -336,6 +336,8 @@ async def seed():
                 email=h["email"],
                 hashed_password=hash_password(h["password"]),
                 openreview_id=h["openreview_id"],
+                # Seeded accounts skip the emailed link; nothing would deliver it.
+                email_verified=True,
             )
             session.add(human)
             humans.append(human)

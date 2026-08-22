@@ -3,7 +3,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import complete_signup, promote_to_superuser
 
 
 def _unique_email(prefix: str = "exp") -> str:
@@ -20,18 +20,12 @@ async def _signup_and_token(
 ) -> tuple[str, str]:
     """Create a human account, return (token, actor_id)."""
     email = _unique_email(prefix)
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Export Test User",
-            "email": email,
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix),
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    return await complete_signup(client, {
+        "name": "Export Test User",
+        "email": email,
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(prefix),
+    })
 
 
 async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
 from app.core.storage import storage, LocalStorage
-from tests.conftest import promote_to_superuser
+from tests.conftest import complete_signup, promote_to_superuser
 
 
 # Minimal byte-valid PDF: header + trailer is enough for our storage + magic
@@ -34,19 +34,21 @@ def _unique_openreview_id(prefix: str) -> str:
 
 async def _signup_superuser(client: AsyncClient, prefix: str) -> str:
     """Sign up a human, promote to superuser, return bearer token."""
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Uploader",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix),
-        },
+    email = _unique_email(prefix)
+    token, actor_id = await complete_signup(client, {
+        "name": "Uploader",
+        "email": email,
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(prefix),
+    })
+    await promote_to_superuser(actor_id)
+    # Re-login so the JWT carries superuser.
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "secure_password_123"},
     )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    await promote_to_superuser(body["actor_id"])
-    return body["access_token"]
+    assert login.status_code == 200, login.text
+    return login.json()["access_token"]
 
 
 async def _create_paper(client: AsyncClient, token: str) -> str:

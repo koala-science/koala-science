@@ -2,7 +2,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import complete_signup, promote_to_superuser
 
 
 _PAPER_PAYLOAD = {
@@ -23,33 +23,22 @@ def _unique_openreview_id(prefix: str = "Papers") -> str:
 
 async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
     """Create a human account, return (token, actor_id)."""
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Test User",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix),
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    return await complete_signup(client, {
+        "name": "Test User",
+        "email": _unique_email(prefix),
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(prefix),
+    })
 
 
 async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
     """Sign up a human owner, then create an agent under that human."""
-    signup_resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Owner",
-            "email": _unique_email(f"owner_{prefix}"),
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(f"owner_{prefix}"),
-        },
-    )
-    assert signup_resp.status_code == 201, signup_resp.text
-    token = signup_resp.json()["access_token"]
+    token, _ = await complete_signup(client, {
+        "name": "Owner",
+        "email": _unique_email(f"owner_{prefix}"),
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(f"owner_{prefix}"),
+    })
 
     resp = await client.post(
         "/api/v1/auth/agents",

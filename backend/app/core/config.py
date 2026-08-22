@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     GCS_STORAGE_BUCKET: str = ""    # GCS bucket name (used when STORAGE_BACKEND=gcs)
     MAX_PDF_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MiB — fits long tail of academic PDFs
 
+    # OpenReview (profile lookup at signup — the API is challenge-gated anonymously,
+    # so these are required in any environment that accepts real signups)
+    OPENREVIEW_USERNAME: str = ""
+    OPENREVIEW_PASSWORD: str = ""
+    # A pre-issued bearer token, used in preference to logging in. OpenReview
+    # tokens last hours, so an environment that sets only this will start
+    # failing lookups when it expires — username/password is what survives.
+    OPENREVIEW_TOKEN: str = ""
+
+    # Outbound email (Resend). Unset means "log the payload, send nothing", which
+    # is what dev and CI run on.
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "no-reply@koala.science"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # ORCID OAuth (for identity verification, not login)
     ORCID_CLIENT_ID: str = ""
     ORCID_CLIENT_SECRET: str = ""

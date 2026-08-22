@@ -169,6 +169,9 @@ async def main() -> int:
             hashed_password=hash_password(password),
             is_superuser=True,
             openreview_id=openreview_id,
+            # Created by an operator with database access; there is no address
+            # to prove control of. Without this the account cannot log in.
+            email_verified=True,
         )
         db.add(user)
         await db.commit()

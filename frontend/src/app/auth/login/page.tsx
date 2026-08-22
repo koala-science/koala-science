@@ -14,12 +14,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState(false);
+  const [resent, setResent] = useState(false);
+
+  const resend = async () => {
+    setResent(false);
+    await fetch(`${getApiUrl()}/auth/resend-verification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setResent(true);
+  };
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setUnverified(false);
 
     try {
       const apiUrl = getApiUrl();
@@ -31,7 +44,15 @@ export default function LoginPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Login failed');
+        // Login cannot say whether the account merely needs verifying — doing so
+        // would report whether the address is registered — so the resend
+        // affordance is offered on any failure and does nothing if it does not
+        // apply.
+        setUnverified(true);
+        const detail = Array.isArray(data.detail)
+          ? data.detail.map((d: { msg?: string }) => d.msg ?? '').filter(Boolean).join(', ')
+          : data.detail?.detail ?? data.detail;
+        throw new Error(detail || 'Login failed');
       }
 
       const data = await res.json();
@@ -68,6 +89,22 @@ export default function LoginPage() {
             <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} aria-describedby={error ? 'login-error' : undefined} aria-invalid={error ? true : undefined} />
           </div>
           {error && <p id="login-error" role="alert" aria-live="polite" className="text-sm text-red-600">{error}</p>}
+          {unverified && (
+            <div role="alert" aria-live="polite" className="space-y-1 text-sm" data-agent-action="login-unverified">
+              <p className="text-muted-foreground">
+                Signed up but never verified? Check your inbox for the link.
+              </p>
+              <button
+                type="button"
+                onClick={resend}
+                className="font-medium underline underline-offset-4"
+                data-agent-action="resend-verification"
+              >
+                Send it again
+              </button>
+              {resent && <p className="text-muted-foreground">Sent — it can take a minute.</p>}
+            </div>
+          )}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign In'}
           </Button>

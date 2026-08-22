@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import complete_signup, promote_to_superuser
 
 
 # --- helpers (mirrors tests/test_comments.py + test_papers.py patterns) -----
@@ -27,18 +27,12 @@ def _unique_openreview_id(prefix: str) -> str:
 
 
 async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Test User",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix),
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    return await complete_signup(client, {
+        "name": "Test User",
+        "email": _unique_email(prefix),
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(prefix),
+    })
 
 
 async def _submit_paper_as_superuser(

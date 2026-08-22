@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from app.db.base import Base
 from app.core.config import settings
 from app.core.rate_limit import limiter
-from app.core.security import pwd_context
+from app.core.security import hash_password, pwd_context
 from app.main import app
 
 _SAFE_DB_NAME = "coalescence_test"
@@ -38,21 +38,102 @@ limiter.enabled = False
 pwd_context.update(bcrypt__rounds=4)
 
 
+# Every signup in the suite uses a fabricated OpenReview ID and an @example.com
+# address. The stub profile lists those domains so the institutional-domain match
+# passes; tests that exercise the rejection paths override it themselves.
+TEST_PROFILE_DOMAINS = ("example.com", "test.example")
+
+
 @pytest.fixture(autouse=True)
-def _mock_openreview_profile_exists(request, monkeypatch):
-    """Every signup in the test suite uses a fabricated OpenReview ID.
-    Short-circuit the HTTP lookup in the signup endpoint so tests never
-    hit the network. ``test_openreview.py`` exercises the real client
-    directly, so we skip the override there."""
+def _stub_openreview_profile(request, monkeypatch):
+    """Keep signup off the network.
+
+    ``test_openreview.py`` drives the real client, so it is skipped here.
+    """
     if request.node.nodeid.startswith("tests/test_openreview.py"):
         return
 
-    async def _always_true(openreview_id: str) -> bool:
-        return True
+    from app.core.openreview import OpenReviewProfile
+
+    async def _stub(openreview_id: str) -> OpenReviewProfile:
+        return OpenReviewProfile(
+            id=openreview_id,
+            name="Test Human",
+            email_domains=TEST_PROFILE_DOMAINS,
+        )
 
     import app.api.v1.endpoints.auth as auth_module
 
-    monkeypatch.setattr(auth_module, "profile_exists", _always_true)
+    monkeypatch.setattr(auth_module, "fetch_profile", _stub)
+
+
+# Signup mails a link and the account holds no credentials until it is redeemed,
+# so tests cannot shortcut verification with a flag — they have to apply the
+# pending submission. Tests that need the raw link capture it themselves; a
+# module-level outbox here is not safe, because pytest can import this file under
+# two names and each copy would get its own list.
+
+
+async def mark_email_verified(email: str, password: str) -> None:
+    """Stand in for redeeming the link: attach the claim and set a password.
+
+    Verification itself — the token, its expiry, single use, and the fact that the
+    password comes from whoever holds the mailbox — is covered directly in
+    test_email_verification.
+    """
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE human_account h SET email_verified = true, "
+                "  hashed_password = :pw, "
+                "  openreview_id = t.pending_openreview_id, "
+                "  openreview_name = t.pending_openreview_name "
+                "FROM (SELECT DISTINCT ON (human_account_id) * FROM email_verification_token "
+                "      ORDER BY human_account_id, created_at DESC) t "
+                "WHERE t.human_account_id = h.id AND h.email = :e"
+            ),
+            {"e": email, "pw": hash_password(password)},
+        )
+    await engine.dispose()
+
+
+async def _set_actor_name(email: str, name: str) -> None:
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE actor SET name = :n WHERE id = "
+                "(SELECT id FROM human_account WHERE email = :e)"
+            ),
+            {"n": name, "e": email},
+        )
+    await engine.dispose()
+
+
+async def complete_signup(client, payload: dict) -> tuple[str, str]:
+    """Sign up, verify, log in. Returns (access_token, actor_id).
+
+    Signup no longer returns tokens — an account cannot act until the address it
+    claims has been proven — so every test that needs an authenticated human goes
+    through here.
+    """
+    password = payload.pop("password")
+    name = payload.pop("name", None)
+    resp = await client.post("/api/v1/auth/signup", json=payload)
+    assert resp.status_code == 201, resp.text
+
+    await mark_email_verified(payload["email"], password)
+    if name is not None:
+        await _set_actor_name(payload["email"], name)
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": payload["email"], "password": password},
+    )
+    assert login.status_code == 200, login.text
+    body = login.json()
+    return body["access_token"], body["actor_id"]
 
 
 async def set_owner_points(agent_name: str, points: int) -> None:

@@ -2,7 +2,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import complete_signup, mark_email_verified, promote_to_superuser
 
 
 def _unique_email(prefix: str = "admin") -> str:
@@ -15,18 +15,12 @@ def _unique_openreview_id(prefix: str = "Admin") -> str:
 
 
 async def _signup(client: AsyncClient, prefix: str = "admin") -> tuple[str, str]:
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Test User",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix),
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    return await complete_signup(client, {
+        "name": "Test User",
+        "email": _unique_email(prefix),
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(prefix),
+    })
 
 
 async def _make_superuser(client: AsyncClient, prefix: str = "super") -> tuple[str, str]:
@@ -35,16 +29,22 @@ async def _make_superuser(client: AsyncClient, prefix: str = "super") -> tuple[s
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Super User",
             "email": email,
-            "password": "secure_password_123",
             "openreview_id": _unique_openreview_id(prefix),
         },
     )
     assert resp.status_code == 201, resp.text
-    actor_id = resp.json()["actor_id"]
+    await mark_email_verified(email, "secure_password_123")
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "secure_password_123"},
+    )
+    assert login.status_code == 200, login.text
+    actor_id = login.json()["actor_id"]
     await promote_to_superuser(actor_id)
 
+    # Re-login so the JWT carries superuser.
     login = await client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": "secure_password_123"},
