@@ -1,7 +1,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import mark_email_verified, complete_signup, promote_to_superuser
 
 
 def _unique_email(prefix: str = "test") -> str:
@@ -17,18 +17,12 @@ def _unique_openreview_id(prefix: str = "User") -> str:
 
 async def _signup(client: AsyncClient, prefix: str = "user") -> tuple[str, str]:
     """Sign up a human account, return (access_token, actor_id)."""
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Test User",
-            "email": _unique_email(prefix),
-            "password": "secure_password_123",
-            "openreview_id": _unique_openreview_id(prefix.capitalize() or "User"),
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    return body["access_token"], body["actor_id"]
+    return await complete_signup(client, {
+        "name": "Test User",
+        "email": _unique_email(prefix),
+        "password": "secure_password_123",
+        "openreview_id": _unique_openreview_id(prefix.capitalize() or "User"),
+    })
 
 
 async def test_health(client: AsyncClient):
@@ -286,14 +280,17 @@ async def test_signup_and_login(client: AsyncClient):
     signup_resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Auth Test User",
             "email": email,
-            "password": "secure_password_123",
             "openreview_id": _unique_openreview_id("Signup"),
         },
     )
     assert signup_resp.status_code == 201
-    assert "access_token" in signup_resp.json()
+    body = signup_resp.json()
+    assert body["verification_required"] is True
+    assert body["email"] == email
+    assert "access_token" not in body, "an unverified account must not be signed in"
+
+    await mark_email_verified(email, "secure_password_123")
 
     login_resp = await client.post(
         "/api/v1/auth/login",
@@ -316,16 +313,20 @@ async def test_token_response_exposes_is_superuser(client: AsyncClient):
     signup = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Super Test",
             "email": email,
-            "password": password,
             "openreview_id": _unique_openreview_id("Super"),
         },
     )
     assert signup.status_code == 201
-    assert signup.json()["is_superuser"] is False
+    await mark_email_verified(email, password)
 
-    await promote_to_superuser(signup.json()["actor_id"])
+    first_login = await client.post(
+        "/api/v1/auth/login", json={"email": email, "password": password}
+    )
+    assert first_login.status_code == 200
+    assert first_login.json()["is_superuser"] is False
+
+    await promote_to_superuser(first_login.json()["actor_id"])
 
     login = await client.post(
         "/api/v1/auth/login",
@@ -342,9 +343,7 @@ async def test_login_wrong_password(client: AsyncClient):
     await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Wrong Pass User",
             "email": email,
-            "password": "correct_password",
             "openreview_id": _unique_openreview_id("WrongPass"),
         },
     )
@@ -364,9 +363,7 @@ async def test_signup_requires_openreview_id(client: AsyncClient):
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "No OR",
             "email": _unique_email("no_or"),
-            "password": "secure_password_123",
         },
     )
     assert resp.status_code == 422
@@ -379,9 +376,7 @@ async def test_signup_rejects_the_legacy_list_field(client: AsyncClient):
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Legacy Client",
             "email": _unique_email("legacy_or"),
-            "password": "secure_password_123",
             "openreview_ids": [_unique_openreview_id("L1"), _unique_openreview_id("L2")],
         },
     )
@@ -395,9 +390,7 @@ async def test_signup_rejects_malformed_openreview_id(client: AsyncClient):
         resp = await client.post(
             "/api/v1/auth/signup",
             json={
-                "name": "Bad OR",
                 "email": _unique_email("bad_or"),
-                "password": "secure_password_123",
                 "openreview_id": bad_id,
             },
         )
@@ -409,9 +402,7 @@ async def test_signup_accepts_hyphenated_surname(client: AsyncClient):
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Eugenio Herrera-Berg",
             "email": _unique_email("hyphen"),
-            "password": "secure_password_123",
             "openreview_id": f"~Eugenio_Herrera-Berg_{uuid.uuid4().hex[:6]}1",
         },
     )
@@ -422,17 +413,15 @@ async def test_signup_rejects_nonexistent_openreview_id(client: AsyncClient, mon
     """A well-formed openreview_id that OpenReview doesn't know about → 422."""
     import app.api.v1.endpoints.auth as auth_module
 
-    async def _returns_false(openreview_id: str) -> bool:
-        return False
+    async def _no_profile(openreview_id: str):
+        return None
 
-    monkeypatch.setattr(auth_module, "profile_exists", _returns_false)
+    monkeypatch.setattr(auth_module, "fetch_profile", _no_profile)
 
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Ghost",
             "email": _unique_email("ghost"),
-            "password": "secure_password_123",
             "openreview_id": f"~Ghost_User_{uuid.uuid4().hex[:6]}1",
         },
     )
@@ -441,26 +430,29 @@ async def test_signup_rejects_nonexistent_openreview_id(client: AsyncClient, mon
 
 
 async def test_signup_rejects_duplicate_openreview_id(client: AsyncClient):
-    """Two signups with the same openreview_id → second returns 409."""
+    """An ID that a verified account holds → second signup returns 409.
+
+    An *unredeemed* signup holds nothing: parking someone else's identity behind
+    an unverified address would both deny it to its owner and report, through the
+    409, that the address had been used.
+    """
     openreview_id = _unique_openreview_id("Dup")
+    first_email = _unique_email("dup_first")
 
     first = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "First User",
-            "email": _unique_email("dup_first"),
-            "password": "secure_password_123",
+            "email": first_email,
             "openreview_id": openreview_id,
         },
     )
     assert first.status_code == 201, first.text
+    await mark_email_verified(first_email, "secure_password_123")
 
     second = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Second User",
             "email": _unique_email("dup_second"),
-            "password": "secure_password_123",
             "openreview_id": openreview_id,
         },
     )
@@ -472,17 +464,15 @@ async def test_signup_returns_503_when_openreview_down(client: AsyncClient, monk
     import app.api.v1.endpoints.auth as auth_module
     from app.core.openreview import OpenReviewUnavailableError
 
-    async def _boom(openreview_id: str) -> bool:
+    async def _boom(openreview_id: str):
         raise OpenReviewUnavailableError("boom")
 
-    monkeypatch.setattr(auth_module, "profile_exists", _boom)
+    monkeypatch.setattr(auth_module, "fetch_profile", _boom)
 
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "Unlucky",
             "email": _unique_email("down"),
-            "password": "secure_password_123",
             "openreview_id": _unique_openreview_id("Down"),
         },
     )
@@ -498,9 +488,7 @@ async def test_signup_returns_403_when_signups_disabled(client: AsyncClient, mon
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "name": "TooLate",
             "email": _unique_email("too_late"),
-            "password": "secure_password_123",
             "openreview_id": _unique_openreview_id("TooLate"),
         },
     )

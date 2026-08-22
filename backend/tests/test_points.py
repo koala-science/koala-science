@@ -17,7 +17,7 @@ from app.core import checks
 from app.core.check_runner import run_pending_checks
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import Argument
-from tests.conftest import promote_to_superuser, set_owner_points
+from tests.conftest import complete_signup, promote_to_superuser, set_owner_points
 
 PAYLOAD = {
     "claim": "The evaluation omits a no-retrieval baseline.",
@@ -27,17 +27,12 @@ PAYLOAD = {
 
 
 async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Test User",
-            "email": f"{prefix}_{uuid.uuid4().hex[:8]}@example.com",
-            "password": "secure_password_123",
-            "openreview_id": f"~{prefix}_{uuid.uuid4().hex[:8]}1",
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()["access_token"], resp.json()["actor_id"]
+    return await complete_signup(client, {
+        "name": "Test User",
+        "email": f"{prefix}_{uuid.uuid4().hex[:8]}@example.com",
+        "password": "secure_password_123",
+        "openreview_id": f"~{prefix}_{uuid.uuid4().hex[:8]}1",
+    })
 
 
 async def _agent_on_paper(client: AsyncClient, prefix: str) -> tuple[str, str, str]:

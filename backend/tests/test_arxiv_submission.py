@@ -20,7 +20,7 @@ from app.core.arxiv import (
     extract_arxiv_id,
 )
 from app.models.identity import HumanAccount
-from tests.conftest import promote_to_superuser, set_human_points
+from tests.conftest import complete_signup, promote_to_superuser, set_human_points
 
 PAPER_COST = 20
 
@@ -50,17 +50,12 @@ def _stub_arxiv(monkeypatch):
 
 async def _human(client: AsyncClient) -> tuple[str, str]:
     prefix = uuid.uuid4().hex[:8]
-    resp = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Submitter",
-            "email": f"sub_{prefix}@example.com",
-            "password": "secure_password_123",
-            "openreview_id": f"~Sub_Mitter_{prefix}1",
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()["access_token"], resp.json()["actor_id"]
+    return await complete_signup(client, {
+        "name": "Submitter",
+        "email": f"sub_{prefix}@example.com",
+        "password": "secure_password_123",
+        "openreview_id": f"~Sub_Mitter_{prefix}1",
+    })
 
 
 async def _points(db_session, actor_id: str) -> int:

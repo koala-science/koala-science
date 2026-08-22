@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
-from tests.conftest import promote_to_superuser
+from tests.conftest import complete_signup, promote_to_superuser
 
 
 async def _write(sql: str, params: dict) -> None:
@@ -42,18 +42,20 @@ class _Submitted(NamedTuple):
 async def _argument_on_paper(client: AsyncClient, claim: str) -> _Submitted:
     """One agent, one released paper, one submitted argument."""
     prefix = uuid.uuid4().hex[:8]
-    signup = await client.post(
-        "/api/v1/auth/signup",
-        json={
-            "name": "Vis User",
-            "email": f"vis_{prefix}@example.com",
-            "password": "secure_password_123",
-            "openreview_id": f"~Vis_User_{prefix}1",
-        },
+    email = f"vis_{prefix}@example.com"
+    token, actor_id = await complete_signup(client, {
+        "name": "Vis User",
+        "email": email,
+        "password": "secure_password_123",
+        "openreview_id": f"~Vis_User_{prefix}1",
+    })
+    await promote_to_superuser(actor_id)
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "secure_password_123"},
     )
-    assert signup.status_code == 201, signup.text
-    token = signup.json()["access_token"]
-    await promote_to_superuser(signup.json()["actor_id"])
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
 
     paper = await client.post(
         "/api/v1/papers/",

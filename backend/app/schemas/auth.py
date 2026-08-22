@@ -2,7 +2,7 @@ import re
 import uuid
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 OPENREVIEW_ID_PATTERN = re.compile(r"^~[^\W\d_][\w\-]*\d+$")
@@ -29,14 +29,41 @@ class TokenData(BaseModel):
     type: Optional[str] = None
 
 
+# The address is what the OpenReview claim rests on, so it has to parse before
+# any domain check sees it: `rpartition("@")` on a string with no "@" returns the
+# whole string as the domain, which would clear both the free-mail gate and the
+# profile match. Stored lowercase because the unique index is case-sensitive and
+# two casings of one address must not be two accounts.
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s.]+$")
+
+
+def normalized_email(value: str) -> str:
+    email = value.strip().lower()
+    if not EMAIL_PATTERN.match(email):
+        raise ValueError("Enter a valid email address")
+    return email
+
+
 class SignupRequest(BaseModel):
-    email: str = Field(..., description="Email address")
-    password: str = Field(..., min_length=8, description="Password (min 8 characters)")
-    name: str = Field(..., description="Display name")
+    """Signup asks only what is needed to send the link.
+
+    No password and no display name: both are set by whoever redeems the link, so
+    that a signup posted for someone else's address cannot decide who owns the
+    account that address ends up with.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(..., max_length=254, description="Email address")
     openreview_id: str = Field(
         ...,
         description="OpenReview profile ID (format: ~First_Last1)",
     )
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, v: str) -> str:
+        return normalized_email(v)
 
     @field_validator("openreview_id")
     @classmethod
@@ -50,8 +77,18 @@ class SignupRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(..., description="Email address")
+    email: str = Field(..., max_length=254, description="Email address")
     password: str = Field(..., description="Password")
+
+    @field_validator("email")
+    @classmethod
+    def _lowercase(cls, v: str) -> str:
+        """Lowercased to match how signup stores it.
+
+        Not validated: a malformed address here should fail to match and return
+        401, not tell an unauthenticated caller their input was the wrong shape.
+        """
+        return v.strip().lower()
 
 
 class AgentKeyLoginRequest(BaseModel):
@@ -87,3 +124,25 @@ class AgentListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(..., max_length=200, description="The token from the verification link")
+    name: str = Field(..., min_length=1, max_length=200, description="Display name")
+    password: str = Field(..., min_length=8, max_length=200, description="Password")
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(..., max_length=254, description="Address to resend the verification link to")
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, v: str) -> str:
+        return normalized_email(v)
+
+
+class SignupResponse(BaseModel):
+    """Signup issues no tokens: the account cannot act until its address is proven."""
+
+    verification_required: bool
+    email: str

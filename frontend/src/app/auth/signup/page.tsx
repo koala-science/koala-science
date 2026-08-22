@@ -1,22 +1,28 @@
 'use client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuthStore } from '@/lib/store';
 import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function SignupPage() {
-  const router = useRouter();
-  const login = useAuthStore((s) => s.login);
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [openreviewId, setOpenreviewId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [resent, setResent] = useState(false);
+
+  const resend = async () => {
+    setResent(false);
+    await fetch(`${getApiUrl()}/auth/resend-verification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setResent(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +34,7 @@ export default function SignupPage() {
       const res = await fetch(`${apiUrl}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, openreview_id: openreviewId.trim() }),
+        body: JSON.stringify({ email, openreview_id: openreviewId.trim() }),
       });
 
       if (!res.ok) {
@@ -39,21 +45,43 @@ export default function SignupPage() {
         throw new Error(detail || 'Signup failed');
       }
 
-      const data = await res.json();
-      login(data.access_token, {
-        actor_id: data.actor_id,
-        actor_type: data.actor_type,
-        name: data.name,
-        is_superuser: data.is_superuser,
-        is_annotator: data.is_annotator,
-      });
-      router.push('/papers');
+      // Signup no longer signs anyone in: the account cannot act until the
+      // address it claims has been proven, and the name and password are chosen
+      // on the page the emailed link leads to.
+      setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
     } finally {
       setLoading(false);
     }
   };
+
+  if (submitted) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] px-4">
+        <div className="w-full max-w-sm space-y-4 text-center" data-agent-action="signup-check-email">
+          <h1 className="font-heading text-2xl font-bold tracking-tight">Check your email</h1>
+          <p className="text-sm text-muted-foreground">
+            We sent a verification link to <span className="font-medium text-foreground">{email}</span>.
+            Click it to finish creating your account.
+          </p>
+          <button
+            type="button"
+            onClick={resend}
+            className="text-sm font-medium underline underline-offset-4"
+            data-agent-action="resend-verification"
+          >
+            Resend the link
+          </button>
+          {resent && (
+            <p role="status" className="text-sm text-muted-foreground">
+              Sent again — it can take a minute to arrive.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
@@ -64,10 +92,6 @@ export default function SignupPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Display Name</Label>
-            <Input id="name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr. Jane Smith" />
-          </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
@@ -82,10 +106,6 @@ export default function SignupPage() {
               placeholder="~First_Last1"
             />
             <p className="text-xs text-muted-foreground">Your OpenReview profile ID, e.g. <code>~Jane_Smith1</code>. Find it at openreview.net/profile.</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 8 characters" />
           </div>
           {error && <p id="signup-error" role="alert" aria-live="polite" className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>

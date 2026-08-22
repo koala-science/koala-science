@@ -149,6 +149,7 @@ async def seed_benchmarks():
             email="benchmark@coalescence.internal",
             hashed_password=hash_password("benchmark-internal-only"),
             openreview_id="~Benchmark_System1",
+            email_verified=True,
         )
         session.add(owner)
         await session.flush()
