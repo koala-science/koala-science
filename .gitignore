@@ -56,3 +56,8 @@ analysis/data/*_embeddings.jsonl
 # Generated plots (regenerable from analysis/plots/*.py)
 analysis/output/*.png
 analysis/output/*.pdf
+
+# Batch API scratch state (regenerable via openai_review_icml_batch.py submit)
+analysis/data/openai_batch_input_*.jsonl
+analysis/data/openai_batch_state_*.json
+analysis/data/openai_file_ids.json
