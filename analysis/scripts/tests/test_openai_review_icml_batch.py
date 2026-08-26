@@ -318,3 +318,26 @@ def test_cmd_fetch_refuses_incomplete_batch(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit):
         cmd_fetch(SimpleNamespace(model=MODEL, cleanup=False))
+
+
+def test_cmd_fetch_cleanup_deletes_output_and_error_files(tmp_path, monkeypatch):
+    """The batch's own output/error files are billed storage too -- deleting
+    only the input file leaks them on every run."""
+    batch = SimpleNamespace(status="completed", output_file_id="file-out",
+                            error_file_id="file-err")
+    client = _StubClient(batch, {"file-out": json.dumps(_ok_line()) + "\n",
+                                 "file-err": ""})
+    monkeypatch.setattr("openai_review_icml_batch.ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr("openai_review_icml_batch._client", lambda: client)
+    monkeypatch.setattr("openai_review_icml_batch.out_path",
+                        lambda _m: tmp_path / "reviews.jsonl")
+    save_state(MODEL, {"batch_id": "b", "input_file_id": "file-in",
+                       "papers": [PAPER]})
+    (tmp_path / "data" / "openai_file_ids.json").write_text(
+        json.dumps({"uuid-a": "file-pdf-a"}))
+
+    cmd_fetch(SimpleNamespace(model=MODEL, cleanup=True))
+
+    assert set(client.files.deleted) == {"file-pdf-a", "file-in", "file-out", "file-err"}
+    assert not state_path(MODEL).exists()

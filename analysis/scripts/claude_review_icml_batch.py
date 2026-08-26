@@ -1,20 +1,26 @@
-"""Generate ICML-style reviews with an OpenAI model via the Batch API (50% off).
+"""Generate ICML-style reviews with a Claude model via the Message Batches API.
 
-Batch counterpart to openai_review_icml.py. Same ICML_INSTRUCTIONS prompt, same
-ICMLReview schema, same max_output_tokens, no tools -- so the resulting dataset
-drops into the same plots as the sync-path baselines and is comparable to them.
+Batch counterpart to claude_review_icml.py, at 50% of sync pricing. Same
+ICML_INSTRUCTIONS prompt, same ICMLReview schema, no tools -- so the resulting
+dataset drops into the same plots as the sync-path baselines.
 
-Why this is a separate ingest flow rather than a --batch flag: a batch input
-JSONL is capped at 200 MB, and base64-inlining the PDF cache (1.7 GB) yields
-~2.3 GB. So each PDF is uploaded once via the Files API and referenced by
-file_id, which shrinks each request to ~5 KB.
+Two deliberate differences from the sync script:
+
+  * max_tokens is raised from 8192. Sonnet 5 runs adaptive thinking by default,
+    which overran 8192 on 6 of 30 pilot papers; a truncated response fails
+    ICMLReview validation and is lost. max_tokens is a ceiling rather than a
+    target, so raising it changes nothing for responses that already fit.
+  * output_config is built explicitly. batches.create cannot take
+    output_format=ICMLReview -- the pydantic class reaches the JSON encoder and
+    raises. It is built with the SDK's own transform_schema so the wire bytes
+    match what beta.messages.parse sends, and a test pins that equality.
 
 Run from the analysis/ directory:
-    OPENAI_API_KEY=$OPENAI_API_KEY .venv/bin/python scripts/openai_review_icml_batch.py \
-        submit --model gpt-5.2 --dry-run
-    ... submit --model gpt-5.2
-    ... status --model gpt-5.2
-    ... fetch  --model gpt-5.2 --cleanup
+    ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY .venv/bin/python \
+        scripts/claude_review_icml_batch.py submit --model claude-sonnet-5 --dry-run
+    ... submit --model claude-sonnet-5
+    ... status --model claude-sonnet-5
+    ... fetch  --model claude-sonnet-5 --cleanup
 """
 import argparse
 import json
@@ -23,11 +29,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from openai import OpenAI
+import anthropic
+from anthropic.lib._parse._transform import transform_schema
+from pydantic import TypeAdapter
 
 from icml_review_prompt import ICML_INSTRUCTIONS, ICMLReview
-from openai_review_icml import (
-    MAX_OUTPUT_TOKENS,
+from claude_review_icml import (
     PRICING,
     ROOT,
     ensure_pdf,
@@ -35,14 +42,14 @@ from openai_review_icml import (
     out_path,
 )
 
-BATCH_ENDPOINT = "/v1/responses"
-COMPLETION_WINDOW = "24h"
+BETAS = ["files-api-2025-04-14", "structured-outputs-2025-12-15"]
 BATCH_DISCOUNT = 0.5
 UPLOAD_CONCURRENCY = 8
+MAX_TOKENS = 16000
 
 
 def state_path(model: str) -> Path:
-    return ROOT / "data" / f"openai_batch_state_{model}.json"
+    return ROOT / "data" / f"anthropic_batch_state_{model}.json"
 
 
 def save_state(model: str, state: dict) -> None:
@@ -57,12 +64,12 @@ def load_state(model: str) -> dict | None:
 
 
 def other_model_states(model: str) -> list[Path]:
-    return [p for p in (ROOT / "data").glob("openai_batch_state_*.json")
+    return [p for p in (ROOT / "data").glob("anthropic_batch_state_*.json")
             if p != state_path(model)]
 
 
 def file_id_cache_path() -> Path:
-    return ROOT / "data" / "openai_file_ids.json"
+    return ROOT / "data" / "anthropic_file_ids.json"
 
 
 def load_file_ids() -> dict[str, str]:
@@ -85,70 +92,55 @@ def batch_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     return sync_cost(model, input_tokens, output_tokens) * BATCH_DISCOUNT
 
 
-def icml_json_schema() -> dict:
-    """Hand-built equivalent of what responses.parse(text_format=ICMLReview)
-    sends, since the parse helper is unavailable inside a batch request."""
-    schema = ICMLReview.model_json_schema()
-    schema["additionalProperties"] = False
-    return {
-        "type": "json_schema",
-        "name": "icml_review",
-        "strict": True,
-        "schema": schema,
-    }
+def icml_output_config() -> dict:
+    return {"format": {"type": "json_schema",
+                       "schema": transform_schema(TypeAdapter(ICMLReview).json_schema())}}
 
 
 def build_request(paper: dict, model: str, file_id: str) -> dict:
     return {
         "custom_id": paper["paper_id"],
-        "method": "POST",
-        "url": BATCH_ENDPOINT,
-        "body": {
+        "params": {
             "model": model,
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
-            "text": {"format": icml_json_schema()},
-            "input": [
-                {"role": "system", "content": ICML_INSTRUCTIONS},
-                {"role": "user", "content": [
-                    {"type": "input_file", "file_id": file_id},
-                    {"type": "input_text",
-                     "text": f"Title: {paper['title']}\n\n"
-                             f"Abstract: {paper['abstract']}"},
-                ]},
-            ],
+            "max_tokens": MAX_TOKENS,
+            "system": ICML_INSTRUCTIONS,
+            "output_config": icml_output_config(),
+            "messages": [{"role": "user", "content": [
+                {"type": "document", "source": {"type": "file", "file_id": file_id}},
+                {"type": "text", "text": f"Title: {paper['title']}\n\n"
+                                         f"Abstract: {paper['abstract']}"},
+            ]}],
         },
     }
 
 
-def _extract_review_text(body: dict) -> str:
-    for item in body["output"]:
-        if item["type"] == "message":
-            return item["content"][0]["text"]
-    raise ValueError(f"no message item in output (status={body['status']})")
+def _review_text(message) -> str:
+    for block in message.content:
+        if block.type == "text":
+            return block.text
+    raise ValueError(f"no text block (stop_reason={message.stop_reason})")
 
 
-def parse_output_line(line: dict, papers_by_id: dict, model: str) -> dict:
-    paper = papers_by_id[line["custom_id"]]
+def parse_result(custom_id: str, result, papers_by_id: dict, model: str) -> dict:
+    paper = papers_by_id[custom_id]
     base = {"paper_id": paper["paper_id"], "forum_id": paper["forum_id"],
             "title": paper["title"], "model": model}
 
-    if line["error"]:
-        return {**base, "status": "error", "error": json.dumps(line["error"])}
+    if result.type != "succeeded":
+        if result.type == "errored":
+            err = result.error.error
+            return {**base, "status": "error",
+                    "error": f"errored: {err.type}: {err.message}"}
+        return {**base, "status": "error", "error": result.type}
 
-    response = line["response"]
-    if response["status_code"] != 200:
-        return {**base, "status": "error",
-                "error": f"http {response['status_code']}: {json.dumps(response['body'])[:300]}"}
-
-    body = response["body"]
     try:
-        review = ICMLReview.model_validate_json(_extract_review_text(body))
+        review = ICMLReview.model_validate_json(_review_text(result.message))
     except Exception as exc:
         return {**base, "status": "error", "error": f"{type(exc).__name__}: {exc}"}
 
     return {**base, "status": "ok", "review": review.model_dump(),
-            "usage": {"input": body["usage"]["input_tokens"],
-                      "output": body["usage"]["output_tokens"]}}
+            "usage": {"input": result.message.usage.input_tokens,
+                      "output": result.message.usage.output_tokens}}
 
 
 def merge_into_dataset(path: Path, records: list[dict]) -> list[dict]:
@@ -168,14 +160,14 @@ def merge_into_dataset(path: Path, records: list[dict]) -> list[dict]:
     return list(existing.values())
 
 
-def _client() -> OpenAI:
-    api_key = os.environ.get("OPENAI_API_KEY")
+def _client() -> anthropic.Anthropic:
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        sys.exit("set $OPENAI_API_KEY")
-    return OpenAI(api_key=api_key)
+        sys.exit("set $ANTHROPIC_API_KEY (e.g. from backend/.env)")
+    return anthropic.Anthropic(api_key=api_key)
 
 
-def _upload_pdfs(client: OpenAI, papers: list[dict]) -> dict[str, str]:
+def _upload_pdfs(client: anthropic.Anthropic, papers: list[dict]) -> dict[str, str]:
     from tqdm import tqdm
 
     mapping = load_file_ids()
@@ -187,8 +179,9 @@ def _upload_pdfs(client: OpenAI, papers: list[dict]) -> dict[str, str]:
 
     def upload(paper: dict) -> tuple[str, str]:
         path = ensure_pdf(paper["pdf_uuid"])
-        with path.open("rb") as fh:
-            uploaded = client.files.create(file=fh, purpose="user_data")
+        uploaded = client.beta.files.upload(
+            file=(f"{paper['pdf_uuid']}.pdf", path.read_bytes(), "application/pdf"),
+            betas=BETAS)
         return paper["pdf_uuid"], uploaded.id
 
     with ThreadPoolExecutor(max_workers=UPLOAD_CONCURRENCY) as pool:
@@ -209,40 +202,26 @@ def cmd_submit(args: argparse.Namespace) -> None:
         papers = papers[:args.limit]
     print(f"papers in cohort: {len(papers)}")
 
-    jsonl_path = ROOT / "data" / f"openai_batch_input_{model}.jsonl"
-
     if args.dry_run:
         file_ids = load_file_ids()
-        lines = [build_request(p, model, file_ids.get(p["pdf_uuid"], "file-DRYRUN"))
-                 for p in papers]
-        jsonl_path.write_text("".join(json.dumps(r) + "\n" for r in lines))
-        size_mb = jsonl_path.stat().st_size / 1048576
-        print(f"dry run: wrote {jsonl_path} ({len(lines)} lines, {size_mb:.2f} MB)")
+        reqs = [build_request(p, model, file_ids.get(p["pdf_uuid"], "file_DRYRUN"))
+                for p in papers]
+        blob = json.dumps(reqs)
+        print(f"dry run: {len(reqs)} requests, {len(blob)/1048576:.2f} MB serialised")
+        print(f"  max_tokens={MAX_TOKENS}  betas={BETAS}")
         print("no network calls made")
         return
 
     client = _client()
     file_ids = _upload_pdfs(client, papers)
-    lines = [build_request(p, model, file_ids[p["pdf_uuid"]]) for p in papers]
-    jsonl_path.write_text("".join(json.dumps(r) + "\n" for r in lines))
-    size_mb = jsonl_path.stat().st_size / 1048576
-    print(f"wrote {jsonl_path} ({len(lines)} lines, {size_mb:.2f} MB)")
-
-    with jsonl_path.open("rb") as fh:
-        batch_input = client.files.create(file=fh, purpose="batch")
-    batch = client.batches.create(
-        input_file_id=batch_input.id,
-        endpoint=BATCH_ENDPOINT,
-        completion_window=COMPLETION_WINDOW,
-        metadata={"description": f"ICML 2026 reviews, {model}"},
-    )
+    reqs = [build_request(p, model, file_ids[p["pdf_uuid"]]) for p in papers]
+    batch = client.beta.messages.batches.create(requests=reqs, betas=BETAS)
     save_state(model, {
         "batch_id": batch.id,
-        "input_file_id": batch_input.id,
         "papers": [{"paper_id": p["paper_id"], "forum_id": p["forum_id"],
                     "title": p["title"]} for p in papers],
     })
-    print(f"submitted batch {batch.id}  status={batch.status}")
+    print(f"submitted batch {batch.id}  status={batch.processing_status}")
     print(f"check with: {sys.argv[0]} status --model {model}")
 
 
@@ -250,20 +229,13 @@ def cmd_status(args: argparse.Namespace) -> None:
     state = load_state(args.model)
     if not state:
         sys.exit(f"no batch state for {args.model} -- run submit first")
-    batch = _client().batches.retrieve(state["batch_id"])
-    counts = batch.request_counts
-    print(f"batch {batch.id}\n  status:    {batch.status}")
-    print(f"  requests:  {counts.completed}/{counts.total} completed, "
-          f"{counts.failed} failed")
-    if batch.status == "completed":
+    batch = _client().beta.messages.batches.retrieve(state["batch_id"], betas=BETAS)
+    c = batch.request_counts
+    print(f"batch {batch.id}\n  status:    {batch.processing_status}")
+    print(f"  requests:  {c.succeeded} succeeded, {c.processing} processing, "
+          f"{c.errored} errored, {c.canceled} canceled, {c.expired} expired")
+    if batch.processing_status == "ended":
         print(f"  fetch with: {sys.argv[0]} fetch --model {args.model}")
-
-
-def _read_result_lines(client: OpenAI, file_id: str | None) -> list[dict]:
-    if file_id is None:
-        return []
-    return [json.loads(line)
-            for line in client.files.content(file_id).text.splitlines()]
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
@@ -273,14 +245,13 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         sys.exit(f"no batch state for {model} -- run submit first")
 
     client = _client()
-    batch = client.batches.retrieve(state["batch_id"])
-    if batch.status != "completed":
-        sys.exit(f"batch is {batch.status}, not completed -- nothing to fetch yet")
+    batch = client.beta.messages.batches.retrieve(state["batch_id"], betas=BETAS)
+    if batch.processing_status != "ended":
+        sys.exit(f"batch is {batch.processing_status}, not ended -- nothing to fetch yet")
 
     submitted = {p["paper_id"]: p for p in state["papers"]}
-    lines = (_read_result_lines(client, batch.output_file_id)
-             + _read_result_lines(client, batch.error_file_id))
-    records = [parse_output_line(line, submitted, model) for line in lines]
+    records = [parse_result(r.custom_id, r.result, submitted, model)
+               for r in client.beta.messages.batches.results(state["batch_id"], betas=BETAS)]
 
     if len(records) != len(submitted):
         returned = {r["paper_id"] for r in records}
@@ -302,7 +273,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     print(f"  batch spend: ${spend:.2f}")
     if errors:
         print(f"  re-run the {len(errors)} failures through the sync script:")
-        print(f"    .venv/bin/python scripts/openai_review_icml.py --model {model}")
+        print(f"    .venv/bin/python scripts/claude_review_icml.py --model {model}")
 
     if args.cleanup:
         blocking = other_model_states(model)
@@ -314,20 +285,17 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             deleted = 0
             while mapping:
                 _, file_id = mapping.popitem()
-                client.files.delete(file_id)
+                client.beta.files.delete(file_id, betas=BETAS)
                 save_file_ids(mapping)
                 deleted += 1
             print(f"  deleted {deleted} uploaded PDFs")
-        for file_id in (state["input_file_id"], batch.output_file_id, batch.error_file_id):
-            if file_id:
-                client.files.delete(file_id)
         state_path(model).unlink()
-        print("  deleted the batch input/output files and this model's state")
+        print("  deleted this model's state")
 
 
 def cmd_smoke(args: argparse.Namespace) -> None:
-    """Fire the exact batch request body at the sync endpoint for a few papers,
-    to prove the hand-built schema works before spending on the full batch."""
+    """Fire the exact batch request params at the sync endpoint for a few
+    papers, to prove the explicit output_config works before the full batch."""
     model = args.model
     if model not in PRICING:
         sys.exit(f"no pricing entry for {model} -- add one to PRICING before running")
@@ -337,16 +305,16 @@ def cmd_smoke(args: argparse.Namespace) -> None:
 
     spend = 0.0
     for paper in papers:
-        body = build_request(paper, model, file_ids[paper["pdf_uuid"]])["body"]
-        resp = client.responses.create(**body)
-        review = ICMLReview.model_validate_json(resp.output_text)
+        params = build_request(paper, model, file_ids[paper["pdf_uuid"]])["params"]
+        resp = client.beta.messages.create(**params, betas=BETAS)
+        review = ICMLReview.model_validate_json(_review_text(resp))
         spend += sync_cost(model, resp.usage.input_tokens, resp.usage.output_tokens)
         print(f"\n{paper['title'][:60]}")
         print(f"  overall={review.overall_recommendation} conf={review.confidence} "
               f"sound={review.soundness} pres={review.presentation} "
               f"signif={review.significance} orig={review.originality}")
-        print(f"  summary: {review.summary[:100]}...")
-        print(f"  tokens: in={resp.usage.input_tokens} out={resp.usage.output_tokens}")
+        print(f"  tokens: in={resp.usage.input_tokens} out={resp.usage.output_tokens} "
+              f"(cap {MAX_TOKENS})  stop={resp.stop_reason}")
     print(f"\nsmoke check spent ~${spend:.2f} at sync rates")
 
 
