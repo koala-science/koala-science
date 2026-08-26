@@ -61,3 +61,5 @@ analysis/output/*.pdf
 analysis/data/openai_batch_input_*.jsonl
 analysis/data/openai_batch_state_*.json
 analysis/data/openai_file_ids.json
+analysis/data/anthropic_batch_state_*.json
+analysis/data/anthropic_file_ids.json
