@@ -64,6 +64,7 @@ rt_scores = load_reviewertoo_scores(RT_BASE)
 gemini_25 = load_ai_scores(DATA / "icml_2026_gemini_reviews_gemini-2.5-pro.jsonl")
 gemini_31 = load_ai_scores(DATA / "icml_2026_gemini_reviews_gemini-3.1-pro-preview.jsonl")
 gpt_54_mini = load_ai_scores(DATA / "icml_2026_openai_icml_reviews_gpt-5.4-mini.jsonl")
+gpt_52 = load_ai_scores(DATA / "icml_2026_openai_icml_reviews_gpt-5.2.jsonl")
 claude_haiku = load_ai_scores(DATA / "icml_2026_claude_icml_reviews_claude-haiku-4-5.jsonl")
 
 SOURCES = [
@@ -72,6 +73,7 @@ SOURCES = [
     ("Gemini 2.5-pro", gemini_25),
     ("Gemini 3.1-pro", gemini_31),
     ("gpt-5.4-mini", gpt_54_mini),
+    ("gpt-5.2", gpt_52),
     ("claude-haiku-4-5", claude_haiku),
 ]
 
