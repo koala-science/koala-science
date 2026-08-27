@@ -98,10 +98,14 @@ def test_build_request_matches_sync_call_params():
                     "text": f"Title: {PAPER['title']}\n\nAbstract: {PAPER['abstract']}"}
 
 
-def test_build_request_raises_max_tokens_above_the_sync_default():
-    """Sonnet 5 runs adaptive thinking, which overran the sync script's 8192 on
-    6/30 pilot papers; a truncated response fails ICMLReview validation."""
-    assert MAX_TOKENS > sync_mod.MAX_TOKENS
+def test_build_request_uses_the_same_max_tokens_as_the_sync_script():
+    """Sonnet 5's median review is 5851 output tokens and 48 of 345 exceeded
+    the original 8192, so both paths were raised. They must stay equal: batch
+    failures are repaired by re-running them through the sync script, and a
+    tighter cap there would truncate exactly the responses that already
+    overflowed. The ceiling is the SDK's 21333 non-streaming limit, which the
+    sync path hits first."""
+    assert MAX_TOKENS == sync_mod.MAX_TOKENS
     assert build_request(PAPER, MODEL, FILE_ID)["params"]["max_tokens"] == MAX_TOKENS
 
 
@@ -173,12 +177,23 @@ def test_parse_result_canceled_and_expired(kind):
     assert kind in rec["error"]
 
 
-def test_parse_result_truncated_review_is_error():
-    """max_tokens truncation yields valid JSON with fields missing."""
+def test_parse_result_missing_field_is_error():
+    """A response that parses as JSON but omits a required field."""
     partial = {k: v for k, v in REVIEW.items() if k != "overall_recommendation"}
     rec = parse_result(PAPER["paper_id"], _succeeded(text=json.dumps(partial)),
                        {PAPER["paper_id"]: PAPER}, MODEL)
     assert rec["status"] == "error"
+
+
+def test_parse_result_truncated_at_the_cap_is_error_even_when_the_json_parses():
+    """A max_tokens stop can still emit complete, valid JSON -- one sonnet-5
+    paper did, with two required text fields left empty. Only the stop reason
+    distinguishes it from a real review."""
+    result = _succeeded(usage=(60000, MAX_TOKENS))
+    result.message.stop_reason = "max_tokens"
+    rec = parse_result(PAPER["paper_id"], result, {PAPER["paper_id"]: PAPER}, MODEL)
+    assert rec["status"] == "error"
+    assert "truncated at the token cap" in rec["error"]
 
 
 def test_parse_result_unparseable_is_error():

@@ -4,12 +4,8 @@ Batch counterpart to claude_review_icml.py, at 50% of sync pricing. Same
 ICML_INSTRUCTIONS prompt, same ICMLReview schema, no tools -- so the resulting
 dataset drops into the same plots as the sync-path baselines.
 
-Two deliberate differences from the sync script:
+One deliberate difference from the sync script:
 
-  * max_tokens is raised from 8192. Sonnet 5 runs adaptive thinking by default,
-    which overran 8192 on 6 of 30 pilot papers; a truncated response fails
-    ICMLReview validation and is lost. max_tokens is a ceiling rather than a
-    target, so raising it changes nothing for responses that already fit.
   * output_config is built explicitly. batches.create cannot take
     output_format=ICMLReview -- the pydantic class reaches the JSON encoder and
     raises. It is built with the SDK's own transform_schema so the wire bytes
@@ -45,7 +41,7 @@ from claude_review_icml import (
 BETAS = ["files-api-2025-04-14", "structured-outputs-2025-12-15"]
 BATCH_DISCOUNT = 0.5
 UPLOAD_CONCURRENCY = 8
-MAX_TOKENS = 16000
+MAX_TOKENS = 20000
 
 
 def state_path(model: str) -> Path:
@@ -132,6 +128,10 @@ def parse_result(custom_id: str, result, papers_by_id: dict, model: str) -> dict
             return {**base, "status": "error",
                     "error": f"errored: {err.type}: {err.message}"}
         return {**base, "status": "error", "error": result.type}
+
+    if result.message.stop_reason == "max_tokens":
+        return {**base, "status": "error", "error":
+                f"truncated at the token cap (output={result.message.usage.output_tokens})"}
 
     try:
         review = ICMLReview.model_validate_json(_review_text(result.message))

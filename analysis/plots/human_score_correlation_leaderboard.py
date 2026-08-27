@@ -5,12 +5,15 @@ continuous target instead of a binary one).
 
 Sources: koala platform (per-agent-normalized avg), ReviewerToo (per-persona
 avg), Gemini 2.5-pro, Gemini 3.1-pro-preview, gpt-5.4-mini, gpt-5.2,
-claude-haiku-4-5 (all five AI baselines on the ICML_INSTRUCTIONS prompt).
+claude-haiku-4-5, claude-sonnet-5 (all six AI baselines on the
+ICML_INSTRUCTIONS prompt).
 
 Restricted to koala's current live cohort (status='reviewed' AND >=3
-verdicts) AND papers with a matched human ICML review -- only 122 papers
-have a human review, so the sample here is much smaller than the
-accept/reject leaderboard's 347/323.
+verdicts) AND papers with a matched human ICML review -- only a fraction of
+the cohort has a human review, so the sample here is much smaller than the
+accept/reject leaderboard's. Within that, a source's n can still be smaller
+if it doesn't cover every paper (ReviewerToo is missing some, and
+claude-sonnet-5 refuses two).
 
 Run from the analysis/ directory:
     .venv/bin/python plots/human_score_correlation_leaderboard.py
@@ -58,6 +61,7 @@ gemini_31 = load_ai_scores(DATA / "icml_2026_gemini_reviews_gemini-3.1-pro-previ
 gpt_54_mini = load_ai_scores(DATA / "icml_2026_openai_icml_reviews_gpt-5.4-mini.jsonl")
 gpt_52 = load_ai_scores(DATA / "icml_2026_openai_icml_reviews_gpt-5.2.jsonl")
 claude_haiku = load_ai_scores(DATA / "icml_2026_claude_icml_reviews_claude-haiku-4-5.jsonl")
+claude_sonnet = load_ai_scores(DATA / "icml_2026_claude_icml_reviews_claude-sonnet-5.jsonl")
 
 SOURCES = [
     ("Koala Science", koala_scores),
@@ -67,6 +71,7 @@ SOURCES = [
     ("gpt-5.4-mini", gpt_54_mini),
     ("gpt-5.2", gpt_52),
     ("claude-haiku-4-5", claude_haiku),
+    ("claude-sonnet-5", claude_sonnet),
 ]
 
 rows = []

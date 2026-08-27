@@ -43,7 +43,10 @@ ROOT = Path(__file__).parent.parent
 MATCH_FILE = ROOT / "data" / "icml_2026_paper_openreview_match.jsonl"
 PDF_CACHE = ROOT / "data" / "pdf_cache"
 MIN_VERDICTS_PER_PAPER = 3
-MAX_TOKENS = 8192
+# Sonnet 5 runs adaptive thinking by default: its median review is 5851 output
+# tokens and 48/345 exceeded the original 8192, which truncated them into
+# validation failures. The ceiling is the SDK's 21333 non-streaming limit.
+MAX_TOKENS = 20000
 
 
 def out_path(model: str) -> Path:
@@ -101,15 +104,28 @@ def already_done(path: Path) -> set[str]:
     return done
 
 
-def prune_pending_retries(path: Path, retry_ids: set[str]) -> None:
-    """Drop existing (stale) records for papers about to be retried, so the
-    append-only write below doesn't leave duplicate rows behind."""
-    if not path.exists() or not retry_ids:
+def drop_existing_records(path: Path, paper_ids: set[str]) -> None:
+    """Drop the records for papers about to be reviewed, so the append below
+    replaces them rather than duplicating them."""
+    if not path.exists():
         return
-    kept = [json.loads(l) for l in path.open() if json.loads(l)["paper_id"] not in retry_ids]
+    kept = [json.loads(l) for l in path.open() if json.loads(l)["paper_id"] not in paper_ids]
     with path.open("w") as f:
         for rec in kept:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def review_from_response(resp) -> ICMLReview:
+    """Turn a parse() response into a review, rejecting truncated output.
+    A max_tokens stop can still produce parseable JSON with required fields
+    left empty, so the stop reason decides success, not parseability."""
+    if resp.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"truncated at the token cap (output={resp.usage.output_tokens})")
+    parsed = next((b.parsed_output for b in resp.content if b.type == "text"), None)
+    if parsed is None:
+        raise RuntimeError(f"no parsed output (stop_reason={resp.stop_reason})")
+    return parsed
 
 
 async def review_one(client: anthropic.AsyncAnthropic, model: str,
@@ -141,9 +157,7 @@ async def review_one(client: anthropic.AsyncAnthropic, model: str,
                     ],
                 }],
             )
-            parsed = next((b.parsed_output for b in resp.content if b.type == "text"), None)
-            if parsed is None:
-                raise RuntimeError(f"no parsed output (stop_reason={resp.stop_reason})")
+            parsed = review_from_response(resp)
             return {**base, "status": "ok", "review": parsed.model_dump(),
                     "usage": {"input": resp.usage.input_tokens,
                               "output": resp.usage.output_tokens}}
@@ -173,8 +187,7 @@ async def run(model: str, concurrency: int, limit: int | None,
     print(f"papers: {len(papers)}  already done: {len(done)}  to review: {len(todo)}")
     if not todo:
         return
-    if not refresh:
-        prune_pending_retries(out, {p["paper_id"] for p in todo})
+    drop_existing_records(out, {p["paper_id"] for p in todo})
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
     sem = asyncio.Semaphore(concurrency)
@@ -183,8 +196,7 @@ async def run(model: str, concurrency: int, limit: int | None,
     cost_usd = 0.0
     price = PRICING[model]
 
-    mode = "a" if (out.exists() and not refresh) else "w"
-    with out.open(mode) as f, tqdm(total=len(todo), desc=model, unit="paper") as pbar:
+    with out.open("a") as f, tqdm(total=len(todo), desc=model, unit="paper") as pbar:
         async def worker(paper: dict) -> None:
             nonlocal cost_usd
             async with sem:
@@ -215,7 +227,10 @@ def main() -> None:
     p.add_argument("--limit", type=int)
     p.add_argument("--paper-ids-file", type=Path,
                    help="JSON list of paper_ids to restrict to")
-    p.add_argument("--refresh", action="store_true")
+    p.add_argument("--refresh", action="store_true",
+                   help="re-review the selected papers even if they already "
+                        "succeeded, replacing their records; records for "
+                        "papers outside the selection are left untouched")
     args = p.parse_args()
     paper_ids = json.load(args.paper_ids_file.open()) if args.paper_ids_file else None
     asyncio.run(run(args.model, args.concurrency, args.limit, paper_ids, args.refresh))
