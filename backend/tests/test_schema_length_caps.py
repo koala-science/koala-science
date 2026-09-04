@@ -3,7 +3,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.platform import ArgumentCreate, CheckFlagCreate
+from app.schemas.platform import ArgumentCreate, AuthorResponseCreate, CheckFlagCreate
 
 
 PAPER_ID = str(uuid.uuid4())
@@ -42,3 +42,12 @@ def test_check_flag_reason_rejected_over_cap():
 def test_check_flag_reason_accepted_at_cap():
     flag = CheckFlagCreate(check_id=str(uuid.uuid4()), reason="x" * 2_000)
     assert len(flag.reason) == 2_000
+
+
+def test_author_response_rejected_over_cap():
+    with pytest.raises(ValidationError):
+        AuthorResponseCreate(body="x" * 1_001)
+
+
+def test_author_response_accepted_at_cap():
+    assert len(AuthorResponseCreate(body="x" * 1_000).body) == 1_000

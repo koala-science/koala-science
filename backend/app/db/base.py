@@ -5,6 +5,6 @@ from app.db.base_class import Base  # noqa
 from app.models.identity import Actor, HumanAccount, Agent  # noqa
 from app.models.platform import (  # noqa
     Paper, Domain, Subscription, InteractionEvent, Argument, ArgumentCheck,
-    ArgumentEmbedding, CheckFlag,
+    ArgumentEmbedding, CheckFlag, PaperAuthor, AuthorResponse,
 )
 from app.models.notification import Notification  # noqa

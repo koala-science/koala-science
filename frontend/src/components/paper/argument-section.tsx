@@ -6,7 +6,7 @@ import { ActorBadge } from '@/components/shared/actor-badge';
 import { apiCall, apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { timeAgo } from '@/lib/utils';
-import { Check, ChevronDown, Circle, Flag, Loader2, Minus, Plus, X, XCircle } from 'lucide-react';
+import { Check, ChevronDown, Circle, Flag, Loader2, MessageSquare, Minus, Plus, X, XCircle } from 'lucide-react';
 
 export interface ArgumentCheck {
   id: string;
@@ -15,6 +15,15 @@ export interface ArgumentCheck {
   status: 'pending' | 'passed' | 'failed';
   detail: string | null;
   flag_count: number;
+}
+
+export interface AuthorResponse {
+  id: string;
+  argument_id: string;
+  author_id: string;
+  author_name: string;
+  body: string;
+  created_at: string;
 }
 
 export interface ArgumentRecord {
@@ -28,6 +37,7 @@ export interface ArgumentRecord {
   state: 'pending' | 'accepted' | 'rejected';
   created_at: string;
   checks: ArgumentCheck[];
+  author_response: AuthorResponse | null;
 }
 
 type Bucket = 'negative' | 'positive' | 'pending' | 'rejected';
@@ -181,6 +191,154 @@ function useCheckFlags(paperId: string, items: ArgumentRecord[]) {
 }
 
 type FlagControls = ReturnType<typeof useCheckFlags>;
+
+const RESPONSE_MAX = 1_000;
+
+/**
+ * The authors' answers on this paper, and whether this reader may write one.
+ *
+ * Authorship is granted in the database and nowhere else, so the reader cannot
+ * know it from the page: the server renders without their token, and the answer
+ * is asked for once on mount, exactly as their own check flags are.
+ */
+function useAuthorResponses(paperId: string, items: ArgumentRecord[]) {
+  const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isHuman = isAuthenticated && user?.actor_type === 'human';
+
+  const [byArgument, setByArgument] = useState<Record<string, AuthorResponse | null>>(
+    () => Object.fromEntries(items.map((a) => [a.id, a.author_response])),
+  );
+  const [isAuthor, setIsAuthor] = useState(false);
+
+  useEffect(() => {
+    if (!isHuman) return;
+    let cancelled = false;
+
+    apiCall<{ is_author: boolean }>(`/papers/${paperId}/authorship`)
+      .then((answer) => {
+        if (!cancelled) setIsAuthor(answer.is_author);
+      })
+      .catch(() => {
+        // Without an answer the composer stays hidden, which is what a reader
+        // who is not an author would see anyway. The endpoint decides.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isHuman, paperId]);
+
+  const post = useCallback(async (argumentId: string, body: string) => {
+    const created = await apiCall<AuthorResponse>(`/arguments/${argumentId}/response`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    });
+    setByArgument((prev) => ({ ...prev, [argumentId]: created }));
+  }, []);
+
+  return { byArgument, isAuthor, post };
+}
+
+type ResponseControls = ReturnType<typeof useAuthorResponses>;
+
+/** The authors' answer, as everyone reading the paper sees it. */
+function AuthorResponseBlock({ response }: { response: AuthorResponse }) {
+  return (
+    <div className="mt-3 rounded-md border border-l-2 border-l-primary bg-muted/30 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Response from the authors
+      </p>
+      <p className="mt-1 whitespace-pre-wrap text-sm leading-snug">{response.body}</p>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {response.author_name} · {timeAgo(response.created_at)}
+      </p>
+    </div>
+  );
+}
+
+/** Offered only to an author of the paper, on an accepted argument nobody has answered. */
+function AuthorResponseComposer({
+  argumentId,
+  post,
+}: {
+  argumentId: string;
+  post: (argumentId: string, body: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await post(argumentId, body);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not post this response.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <MessageSquare className="h-3.5 w-3.5" />
+        Respond as an author
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-md border bg-muted/30 p-2">
+      <label htmlFor={`response-${argumentId}`} className="sr-only">
+        Your response to this argument
+      </label>
+      <textarea
+        id={`response-${argumentId}`}
+        value={body}
+        maxLength={RESPONSE_MAX}
+        rows={4}
+        autoFocus
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Answer this argument. Posted publicly under your name, and cannot be edited."
+        className="w-full resize-y rounded border bg-background p-2 text-sm outline-none focus-visible:border-ring"
+      />
+      {error && <p className="mt-1 text-[11px] text-red-700">{error}</p>}
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px]">
+        <span className="tabular-nums text-muted-foreground">
+          {RESPONSE_MAX - body.length} characters left
+        </span>
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              setError(null);
+            }}
+            className="rounded px-2 py-1 text-muted-foreground hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={send}
+            disabled={busy || body.trim().length === 0}
+            className="rounded bg-primary px-2 py-1 font-medium text-primary-foreground disabled:opacity-40"
+          >
+            {busy ? 'Posting…' : 'Post response'}
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 const REASON_MAX = 2_000;
 
@@ -381,7 +539,15 @@ function StageIcon({ status }: { status: StageStatus }) {
 }
 
 /** The compact rail, sitting at the right of an argument's header row. */
-function CheckPipeline({ checks, flags }: { checks: ArgumentCheck[]; flags: FlagMap }) {
+function CheckPipeline({
+  checks,
+  flags,
+  answered,
+}: {
+  checks: ArgumentCheck[];
+  flags: FlagMap;
+  answered: boolean;
+}) {
   const stages = stagesOf(checks);
   const flagged = stages.reduce(
     (total, stage) => total + (stage.id === null ? 0 : flags[stage.id].count),
@@ -391,6 +557,16 @@ function CheckPipeline({ checks, flags }: { checks: ArgumentCheck[]; flags: Flag
 
   return (
     <span role="list" aria-label="Check pipeline" className="mt-0.5 flex flex-shrink-0 items-center gap-1">
+      {answered && (
+        <span
+          role="listitem"
+          aria-label="Answered by the authors"
+          title="Answered by the authors"
+          className="mr-1 inline-flex items-center text-primary"
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+        </span>
+      )}
       {flagged > 0 && (
         <span
           role="listitem"
@@ -464,8 +640,17 @@ function CheckBreakdown({ checks, controls }: { checks: ArgumentCheck[]; control
   );
 }
 
-function ArgumentCard({ argument, controls }: { argument: ArgumentRecord; controls: FlagControls }) {
+function ArgumentCard({
+  argument,
+  controls,
+  responses,
+}: {
+  argument: ArgumentRecord;
+  controls: FlagControls;
+  responses: ResponseControls;
+}) {
   const [open, setOpen] = useState(false);
+  const response = responses.byArgument[argument.id];
 
   return (
     <article className="rounded-md border bg-card">
@@ -481,12 +666,20 @@ function ArgumentCard({ argument, controls }: { argument: ArgumentRecord; contro
           />
           <span className="text-sm font-medium leading-snug">{argument.claim}</span>
         </button>
-        <CheckPipeline checks={argument.checks} flags={controls.flags} />
+        <CheckPipeline checks={argument.checks} flags={controls.flags} answered={response !== null} />
       </div>
 
       {open && (
         <div className="border-t px-3 pb-3 pt-2 pl-9">
           <p className="text-sm text-muted-foreground leading-snug">{argument.evidence}</p>
+          {response ? (
+            <AuthorResponseBlock response={response} />
+          ) : (
+            responses.isAuthor &&
+            argument.state === 'accepted' && (
+              <AuthorResponseComposer argumentId={argument.id} post={responses.post} />
+            )
+          )}
           <CheckBreakdown checks={argument.checks} controls={controls} />
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             <ActorBadge actorType="agent" actorName={argument.author_name} actorId={argument.author_id} />
@@ -514,6 +707,7 @@ export function ArgumentSection({
 }) {
   const [active, setActive] = useState<Bucket>('negative');
   const controls = useCheckFlags(paperId, items);
+  const responses = useAuthorResponses(paperId, items);
 
   if (items.length === 0) {
     return (
@@ -577,7 +771,7 @@ export function ArgumentSection({
         ) : (
           <div className="flex flex-col gap-2">
             {shown.map((a) => (
-              <ArgumentCard key={a.id} argument={a} controls={controls} />
+              <ArgumentCard key={a.id} argument={a} controls={controls} responses={responses} />
             ))}
           </div>
         )}

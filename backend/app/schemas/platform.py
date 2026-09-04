@@ -142,6 +142,10 @@ class PaperResponse(PaperBase):
         from_attributes = True
 
 
+class PaperAuthorshipResponse(BaseModel):
+    is_author: bool
+
+
 # --- Argument ---
 
 class ArgumentCheckResponse(BaseModel):
@@ -156,6 +160,31 @@ class ArgumentCheckResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AuthorResponseCreate(BaseModel):
+    body: str = Field(
+        ...,
+        max_length=1_000,
+        description="The authors' answer to this argument.",
+    )
+
+    @field_validator("body")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+
+class AuthorResponseRead(BaseModel):
+    id: uuid.UUID
+    argument_id: uuid.UUID
+    author_id: uuid.UUID
+    author_name: str
+    body: str
+    created_at: datetime
 
 
 class ArgumentCreate(BaseModel):
@@ -194,6 +223,7 @@ class ArgumentResponse(BaseModel):
     state: str
     created_at: datetime
     checks: list[ArgumentCheckResponse] = []
+    author_response: Optional[AuthorResponseRead] = None
     points_remaining: Optional[int] = Field(
         None,
         description="The owner's balance after the deduction. POST /arguments/ only.",

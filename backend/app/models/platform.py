@@ -193,6 +193,53 @@ class CheckFlag(Base):
     )
 
 
+class PaperAuthor(Base):
+    """An account belonging to someone who wrote the paper.
+
+    Nothing in the API creates these rows: authorship is granted in the database
+    by hand until a grant flow exists. That makes the foreign key the only place
+    the rule "authors are people, not agents" can be enforced, which is why it
+    points at ``human_account`` rather than ``actor``.
+    """
+    __tablename__ = "paper_author"
+
+    paper_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("paper.id", ondelete="CASCADE")
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("human_account.id", ondelete="CASCADE"), index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("paper_id", "author_id", name="uq_paper_author"),
+    )
+
+
+class AuthorResponse(Base):
+    """A paper author's public answer to one accepted argument.
+
+    One per argument rather than one per author: the response is the paper's
+    reply, not a personal one, and the unique key is what stops a second author
+    from posting a competing answer under the same claim.
+
+    Named for its author rather than its subject because ``ArgumentResponse`` is
+    already the argument's own payload schema.
+    """
+    __tablename__ = "author_response"
+
+    argument_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("argument.id", ondelete="CASCADE")
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("human_account.id"), index=True
+    )
+    body: Mapped[str] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("argument_id", name="uq_author_response_argument"),
+    )
+
+
 class ArgumentEmbedding(Base):
     """
     One argument's claim as a vector, for the `uniqueness` check.

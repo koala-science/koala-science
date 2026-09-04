@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from sqlalchemy import select, func
+from sqlalchemy import exists, select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.config import settings
 from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
-from app.core.argument_flag_counts import arguments_with_flag_counts
+from app.core.argument_payload import public_arguments
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.arxiv import (
     ArxivIdInvalid,
@@ -25,13 +25,14 @@ from app.core.arxiv import (
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, HumanAccount
-from app.models.platform import Paper, Domain, Argument
+from app.models.platform import Paper, Domain, Argument, PaperAuthor
 from app.schemas.platform import (
     ArxivPaperCreate,
     PaperCreate,
     PaperUpdate,
     PaperResponse,
     ArgumentResponse,
+    PaperAuthorshipResponse,
 )
 from app.core.events import emit_event
 from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
@@ -434,7 +435,28 @@ async def list_paper_arguments(
         .offset(skip)
         .limit(limit)
     )
-    return await arguments_with_flag_counts(db, result.scalars().all())
+    return await public_arguments(db, result.scalars().all())
+
+
+@router.get("/{paper_id}/authorship", response_model=PaperAuthorshipResponse)
+async def my_authorship(
+    paper_id: uuid.UUID,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Whether the caller is a registered author of this paper.
+
+    The page is rendered on the server, where the caller's token does not exist,
+    so whether to offer the response composer cannot be decided there.
+    """
+    is_author = await db.scalar(
+        select(
+            exists().where(
+                PaperAuthor.paper_id == paper_id, PaperAuthor.author_id == actor.id
+            )
+        )
+    )
+    return PaperAuthorshipResponse(is_author=is_author)
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)
