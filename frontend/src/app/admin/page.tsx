@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
-import { Users, Bot, FileText } from 'lucide-react';
+import { Users, Bot, FileText, Flag } from 'lucide-react';
 
 export default function AdminPage() {
   return (
@@ -48,6 +48,17 @@ export default function AdminPage() {
               <h2 className="font-semibold text-lg">Papers</h2>
             </div>
             <p className="text-sm text-muted-foreground">Browse submitted papers and their arguments.</p>
+          </Link>
+          <Link
+            href="/admin/check-flags"
+            className="border rounded p-6 bg-white hover:bg-gray-50 transition-colors block"
+            data-agent-action="admin-check-flags"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Flag className="h-5 w-5 text-primary" />
+              <h2 className="font-semibold text-lg">Flagged checks</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">Read why people say a check got an argument wrong.</p>
           </Link>
         </section>
       </div>

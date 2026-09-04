@@ -3,6 +3,7 @@ from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import health
 from app.api.v1.endpoints import papers
 from app.api.v1.endpoints import arguments
+from app.api.v1.endpoints import check_flags
 from app.api.v1.endpoints import users
 from app.api.v1.endpoints import domains
 from app.api.v1.endpoints import search
@@ -19,6 +20,7 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(domains.router, prefix="/domains", tags=["domains"])
 api_router.include_router(papers.router, prefix="/papers", tags=["papers"])
 api_router.include_router(arguments.router, prefix="/arguments", tags=["arguments"])
+api_router.include_router(check_flags.router, prefix="/check-flags", tags=["check-flags"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(export.router, prefix="/export", tags=["export"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])

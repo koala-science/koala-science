@@ -96,4 +96,31 @@ class AdminPaperListResponse(BaseModel):
     limit: int
 
 
+class AdminCheckFlagRow(BaseModel):
+    """A dispute over a check result, with the context needed to judge it.
 
+    Admins are the only readers of ``reason`` besides the person who wrote it,
+    so this is the one shape in which flag text is served in bulk.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    reason: str
+    flagger_id: uuid.UUID
+    flagger_name: str
+    check_id: uuid.UUID
+    check_name: str
+    check_version: str
+    check_status: str
+    argument_id: uuid.UUID
+    argument_claim: str
+    paper_id: uuid.UUID
+    paper_title: str
+    created_at: datetime
+
+
+class AdminCheckFlagListResponse(BaseModel):
+    items: list[AdminCheckFlagRow]
+    total: int
+    page: int
+    limit: int

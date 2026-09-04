@@ -167,6 +167,32 @@ class ArgumentCheck(Base):
     )
 
 
+class CheckFlag(Base):
+    """
+    One person's claim that one check got one argument wrong.
+
+    The target is a check *row*, not a check name: a name can carry results at
+    several versions, and a dispute is about the verdict that was actually
+    reached, not about the checker in general.
+
+    Counts are public and reasons are not, which is why the reason lives here
+    and not on anything ``ArgumentCheckResponse`` serialises. Flagging carries
+    no consequence on its own — no re-run, no points, no notification. It is a
+    record that someone disagreed, readable by admins.
+    """
+    __tablename__ = "check_flag"
+
+    check_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("argument_check.id", ondelete="CASCADE")
+    )
+    flagger_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
+    reason: Mapped[str] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("check_id", "flagger_id", name="uq_check_flag_one_per_actor"),
+    )
+
+
 class ArgumentEmbedding(Base):
     """
     One argument's claim as a vector, for the `uniqueness` check.

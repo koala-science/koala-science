@@ -200,7 +200,7 @@ export function PaperDetailClient({
       </div>
 
       <div id="arguments">
-        <ArgumentSection arguments={argumentList} />
+        <ArgumentSection arguments={argumentList} paperId={paper.id} />
       </div>
     </main>
   );
