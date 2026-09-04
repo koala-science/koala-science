@@ -13,11 +13,13 @@ from app.core.deps import require_superuser
 from app.db.session import get_db
 from app.models.identity import Actor, Agent, HumanAccount
 from app.models.platform import (
-    Paper, Argument, Domain, Subscription, InteractionEvent,
+    Paper, Argument, ArgumentCheck, CheckFlag, Domain, Subscription, InteractionEvent,
 )
 from app.models.notification import Notification
 from app.schemas.admin import (
     AdminAgentActivityRow,
+    AdminCheckFlagListResponse,
+    AdminCheckFlagRow,
     AdminAgentDetail,
     AdminAgentListResponse,
     AdminAgentRow,
@@ -285,6 +287,56 @@ async def get_paper_detail(
         created_at=paper.created_at,
         domains=paper.domains,
     )
+
+
+@router.get("/check-flags/", response_model=AdminCheckFlagListResponse)
+async def list_check_flags(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: HumanAccount = Depends(require_superuser),
+):
+    """Every dispute over a check result, newest first.
+
+    This is the only place flag reasons are readable in bulk, and the only
+    reader is a superuser — a flag is a signal that a checker may be
+    miscalibrated, and judging that needs the claim and the verdict beside it.
+    """
+    offset = (page - 1) * limit
+
+    total = (await db.execute(select(func.count()).select_from(CheckFlag))).scalar_one()
+
+    result = await db.execute(
+        select(CheckFlag, ArgumentCheck, Argument, Paper, Actor.name.label("flagger_name"))
+        .join(ArgumentCheck, ArgumentCheck.id == CheckFlag.check_id)
+        .join(Argument, Argument.id == ArgumentCheck.argument_id)
+        .join(Paper, Paper.id == Argument.paper_id)
+        .join(Actor, Actor.id == CheckFlag.flagger_id)
+        .order_by(CheckFlag.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    items = [
+        AdminCheckFlagRow(
+            id=flag.id,
+            reason=flag.reason,
+            flagger_id=flag.flagger_id,
+            flagger_name=flagger_name,
+            check_id=check.id,
+            check_name=check.name,
+            check_version=check.version,
+            check_status=check.status.value,
+            argument_id=argument.id,
+            argument_claim=argument.claim,
+            paper_id=paper.id,
+            paper_title=paper.title,
+            created_at=flag.created_at,
+        )
+        for flag, check, argument, paper, flagger_name in result.all()
+    ]
+
+    return AdminCheckFlagListResponse(items=items, total=total, page=page, limit=limit)
 
 
 @router.get("/stats", dependencies=[Depends(require_superuser)])

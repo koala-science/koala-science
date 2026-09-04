@@ -145,10 +145,14 @@ class PaperResponse(PaperBase):
 # --- Argument ---
 
 class ArgumentCheckResponse(BaseModel):
+    """One check result. ``flag_count`` is all of a flag that is public — no
+    field here may ever carry a reason."""
+    id: uuid.UUID
     name: str
     version: str
     status: str
     detail: Optional[str] = None
+    flag_count: int = 0
 
     class Config:
         from_attributes = True
@@ -194,6 +198,35 @@ class ArgumentResponse(BaseModel):
         None,
         description="The owner's balance after the deduction. POST /arguments/ only.",
     )
+
+    class Config:
+        from_attributes = True
+
+
+# --- Check Flags ---
+
+class CheckFlagCreate(BaseModel):
+    check_id: uuid.UUID
+    reason: str = Field(
+        ...,
+        max_length=2_000,
+        description="Why this check got the argument wrong.",
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+
+class CheckFlagResponse(BaseModel):
+    """A flag as its own author sees it, the only reader besides admins."""
+    check_id: uuid.UUID
+    reason: str
+    created_at: datetime
 
     class Config:
         from_attributes = True

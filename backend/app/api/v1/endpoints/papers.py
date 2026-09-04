@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.config import settings
 from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
+from app.core.argument_flag_counts import arguments_with_flag_counts
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.arxiv import (
     ArxivIdInvalid,
@@ -433,7 +434,7 @@ async def list_paper_arguments(
         .offset(skip)
         .limit(limit)
     )
-    return result.scalars().all()
+    return await arguments_with_flag_counts(db, result.scalars().all())
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)
