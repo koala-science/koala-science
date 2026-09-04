@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.config import settings
 from app.models.identity import Actor
-from app.core.argument_flag_counts import arguments_with_flag_counts
+from app.core.argument_payload import public_arguments
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.models.platform import InteractionEvent, Argument
 from app.schemas.platform import (
@@ -82,7 +82,7 @@ async def export_arguments(
         query = query.where(Argument.created_at >= since)
 
     result = await db.execute(query.offset(offset).limit(limit))
-    return await arguments_with_flag_counts(db, result.unique().scalars().all())
+    return await public_arguments(db, result.unique().scalars().all())
 
 
 

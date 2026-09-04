@@ -2,7 +2,7 @@ import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
-import { ArgumentSection } from '../src/components/paper/argument-section';
+import { ArgumentSection, type ArgumentRecord } from '../src/components/paper/argument-section';
 import { apiCall, apiFetch } from '../src/lib/api';
 import { useAuthStore } from '../src/lib/store';
 
@@ -25,6 +25,7 @@ const base = {
   state: 'pending' as const,
   created_at: '2026-08-19T12:00:00Z',
   checks: [],
+  author_response: null,
 };
 
 function checksOf(
@@ -467,6 +468,162 @@ describe('ArgumentSection', () => {
 
       expect(screen.getByLabelText(/2 people flagged this check/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /flag validity as wrong/i })).not.toBeInTheDocument();
+    });
+  });
+
+
+  describe('author responses', () => {
+    const AUTHOR = { actor_id: 'h9', actor_type: 'human', name: 'Paper Author' };
+
+    function loginAs(user: typeof AUTHOR | null) {
+      act(() => {
+        useAuthStore.setState({
+          isAuthenticated: user !== null,
+          user,
+          accessToken: user === null ? null : 'token',
+          hydrated: true,
+        });
+      });
+    }
+
+    const RESPONSE = {
+      id: 'r1',
+      argument_id: 'neg',
+      author_id: 'h9',
+      author_name: 'Paper Author',
+      body: 'Table 6 in the appendix reports exactly that baseline.',
+      created_at: '2026-08-20T12:00:00Z',
+    };
+
+    const answered = { ...negative, author_response: RESPONSE };
+
+    /** The section asks for check flags as well as authorship, so both are answered. */
+    function mockApi({ isAuthor = false, onPost = RESPONSE as unknown }: {
+      isAuthor?: boolean;
+      onPost?: unknown;
+    } = {}) {
+      mockedApiCall.mockImplementation(async (path: string) => {
+        if (path.includes('/authorship')) return { is_author: isAuthor } as never;
+        if (path.includes('/check-flags')) return [] as never;
+        if (onPost instanceof Error) throw onPost;
+        return onPost as never;
+      });
+    }
+
+    beforeEach(() => {
+      mockedApiCall.mockReset();
+      mockedApiFetch.mockReset();
+      mockApi();
+      loginAs(null);
+    });
+
+    afterEach(() => loginAs(null));
+
+    async function openCard(argument: ArgumentRecord = negative) {
+      render(<ArgumentSection paperId="p1" arguments={[argument]} />);
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(argument.claim, 'i') }));
+      await act(async () => {});
+    }
+
+    it('shows the response to a logged-out reader', async () => {
+      await openCard(answered);
+
+      expect(screen.getByText(/response from the authors/i)).toBeInTheDocument();
+      expect(screen.getByText(RESPONSE.body)).toBeInTheDocument();
+      expect(screen.getByText(/Paper Author/)).toBeInTheDocument();
+    });
+
+    it('marks an answered argument on the collapsed row', () => {
+      render(<ArgumentSection paperId="p1" arguments={[answered]} />);
+      expect(screen.getByLabelText(/answered by the authors/i)).toBeInTheDocument();
+    });
+
+    it('leaves an unanswered argument unmarked', () => {
+      render(<ArgumentSection paperId="p1" arguments={[negative]} />);
+      expect(screen.queryByLabelText(/answered by the authors/i)).not.toBeInTheDocument();
+    });
+
+    it('offers no composer to a reader who is not an author', async () => {
+      loginAs({ actor_id: 'h1', actor_type: 'human', name: 'A reader' });
+      mockApi({ isAuthor: false });
+      await openCard();
+
+      expect(screen.queryByRole('button', { name: /respond as an author/i })).not.toBeInTheDocument();
+    });
+
+    it('offers the composer to an author of the paper', async () => {
+      loginAs(AUTHOR);
+      mockApi({ isAuthor: true });
+      await openCard();
+
+      expect(screen.getByRole('button', { name: /respond as an author/i })).toBeInTheDocument();
+      expect(mockedApiCall).toHaveBeenCalledWith('/papers/p1/authorship');
+    });
+
+    it('offers no composer on an argument the authors already answered', async () => {
+      loginAs(AUTHOR);
+      mockApi({ isAuthor: true });
+      await openCard(answered);
+
+      expect(screen.queryByRole('button', { name: /respond as an author/i })).not.toBeInTheDocument();
+      expect(screen.getByText(RESPONSE.body)).toBeInTheDocument();
+    });
+
+    it('offers no composer on an argument that was not accepted', async () => {
+      loginAs(AUTHOR);
+      mockApi({ isAuthor: true });
+      render(<ArgumentSection paperId="p1" arguments={[rejected]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(rejected.claim, 'i') }));
+      await act(async () => {});
+
+      expect(screen.queryByRole('button', { name: /respond as an author/i })).not.toBeInTheDocument();
+    });
+
+    it('posts a response and shows it in place of the composer', async () => {
+      loginAs(AUTHOR);
+      mockApi({ isAuthor: true });
+      await openCard();
+
+      fireEvent.click(screen.getByRole('button', { name: /respond as an author/i }));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: RESPONSE.body } });
+      fireEvent.click(screen.getByRole('button', { name: /post response/i }));
+
+      await waitFor(() => expect(screen.getByText(/response from the authors/i)).toBeInTheDocument());
+      expect(mockedApiCall).toHaveBeenCalledWith('/arguments/neg/response', {
+        method: 'POST',
+        body: JSON.stringify({ body: RESPONSE.body }),
+      });
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it('will not post an empty response, and counts the characters left', async () => {
+      loginAs(AUTHOR);
+      mockApi({ isAuthor: true });
+      await openCard();
+
+      fireEvent.click(screen.getByRole('button', { name: /respond as an author/i }));
+      expect(screen.getByRole('button', { name: /post response/i })).toBeDisabled();
+      expect(screen.getByText('1000 characters left')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } });
+      expect(screen.getByRole('button', { name: /post response/i })).toBeDisabled();
+      expect(screen.getByText('997 characters left')).toBeInTheDocument();
+    });
+
+    it('surfaces a refused response instead of pretending it landed', async () => {
+      loginAs(AUTHOR);
+      mockApi({ isAuthor: true, onPost: new Error('This argument already has a response') });
+      await openCard();
+
+      fireEvent.click(screen.getByRole('button', { name: /respond as an author/i }));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Too late.' } });
+      fireEvent.click(screen.getByRole('button', { name: /post response/i }));
+
+      await waitFor(() =>
+        expect(screen.getByText(/already has a response/i)).toBeInTheDocument(),
+      );
+      expect(screen.queryByText(/response from the authors/i)).not.toBeInTheDocument();
     });
   });
 
