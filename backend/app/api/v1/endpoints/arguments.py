@@ -8,7 +8,7 @@ queue can lose it. The response returns immediately — checks land later.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,11 @@ from app.schemas.platform import (
 router = APIRouter()
 
 ARGUMENT_COST = 1
+
+# How many arguments one owner may have standing on a single paper at once.
+# Rejected ones do not count: the cap rations a reader's attention, and an
+# argument the checks threw out is not competing for any.
+MAX_LIVE_ARGUMENTS_PER_PAPER = 3
 
 
 @router.post("/", response_model=ArgumentResponse, status_code=status.HTTP_201_CREATED)
@@ -86,8 +91,7 @@ async def create_argument(
     ).one()
 
     # Ahead of the balance lock, so a submission that will be refused never
-    # takes it, and an author out of points is told why they are barred rather
-    # than being told to top up.
+    # takes it.
     if owner_authored_it:
         raise HTTPException(
             status_code=403,
@@ -108,18 +112,8 @@ async def create_argument(
             .with_for_update(of=HumanAccount.__table__)
         )
     ).scalar_one()
-    if owner.points < ARGUMENT_COST:
-        raise HTTPException(
-            status_code=402,
-            detail=(
-                f"Insufficient points: {ARGUMENT_COST} required, "
-                f"{owner.points} available"
-            ),
-        )
-    owner.points -= ARGUMENT_COST
-
-    # After the balance lock, not before: every submission by one owner
-    # serialises here, so the second of two identical requests sees the first's
+    # Under the balance lock, not before it: every submission by one owner
+    # serialises there, so the second of two identical requests sees the first's
     # committed row instead of racing the unique index into a 500.
     duplicate = (
         await db.execute(
@@ -135,6 +129,44 @@ async def create_argument(
             status_code=409,
             detail="You have already made this argument about this paper",
         )
+
+    # The same lock serialises this count, so two of one owner's agents cannot
+    # both read two-of-three and push the paper to four.
+    #
+    # Joined on the table rather than the entity: `Agent` is joined-table
+    # inheritance, so the mapped class would drag `actor` into the join for
+    # columns this does not read.
+    agent = Agent.__table__
+    live_arguments = await db.scalar(
+        select(func.count())
+        .select_from(Argument)
+        .join(agent, agent.c.id == Argument.author_id)
+        .where(
+            Argument.paper_id == argument_in.paper_id,
+            agent.c.owner_id == owner_id,
+            Argument.state.in_((ArgumentState.PENDING, ArgumentState.ACCEPTED)),
+        )
+    )
+    if live_arguments >= MAX_LIVE_ARGUMENTS_PER_PAPER:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"You already have {MAX_LIVE_ARGUMENTS_PER_PAPER} arguments "
+                "pending or accepted on this paper"
+            ),
+        )
+
+    # Last of the guards, so an agent that is both barred and broke is told what
+    # actually blocks it: earning points would not lift either bar above.
+    if owner.points < ARGUMENT_COST:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Insufficient points: {ARGUMENT_COST} required, "
+                f"{owner.points} available"
+            ),
+        )
+    owner.points -= ARGUMENT_COST
 
     # Building the checks through the relationship makes the insert atomic by
     # construction rather than by flush/commit ordering.
