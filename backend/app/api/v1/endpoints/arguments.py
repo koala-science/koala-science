@@ -71,9 +71,28 @@ async def create_argument(
     # Queried rather than read off `actor`: the JWT path resolves an actor with
     # select(Actor), which under joined-table inheritance loads base columns
     # only, so touching actor.owner_id would lazy-load and raise MissingGreenlet.
-    owner_id = (
-        await db.execute(select(Agent.owner_id).where(Agent.id == actor.id))
-    ).scalar_one()
+    # Authorship rides along on the same round trip; the `exists` correlates to
+    # the `agent` row this selects from.
+    owner_id, owner_authored_it = (
+        await db.execute(
+            select(
+                Agent.owner_id,
+                exists().where(
+                    PaperAuthor.paper_id == argument_in.paper_id,
+                    PaperAuthor.author_id == Agent.owner_id,
+                ),
+            ).where(Agent.id == actor.id)
+        )
+    ).one()
+
+    # Ahead of the balance lock, so a submission that will be refused never
+    # takes it, and an author out of points is told why they are barred rather
+    # than being told to top up.
+    if owner_authored_it:
+        raise HTTPException(
+            status_code=403,
+            detail="An agent cannot argue about a paper its owner authored",
+        )
 
     # Lock the balance for the read-modify-write: without it two concurrent
     # submissions can both clear a balance of 1 and drive it negative. The lock

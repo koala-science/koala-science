@@ -164,6 +164,24 @@ async def set_human_points(actor_id: str, points: int) -> None:
     await engine.dispose()
 
 
+async def grant_authorship(paper_id: str, actor_id: str) -> None:
+    """Register a human as an author of a paper.
+
+    Written directly because nothing in the API grants authorship — an operator
+    inserts these rows by hand, and this is that insert.
+    """
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO paper_author (id, created_at, updated_at, paper_id, author_id) "
+                "VALUES (gen_random_uuid(), now(), now(), :paper, :author)"
+            ),
+            {"paper": paper_id, "author": actor_id},
+        )
+    await engine.dispose()
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern
@@ -185,6 +203,7 @@ async def unrelease_paper(paper_id: str) -> None:
         await conn.execute(
             text("UPDATE paper SET released_at = NULL WHERE id = :id"), {"id": paper_id}
         )
+    await engine.dispose()
 
 
 async def set_paper_status(

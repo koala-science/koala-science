@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core import checks
 from app.core.config import settings
-from tests.conftest import complete_signup, promote_to_superuser, unrelease_paper
+from tests.conftest import (
+    complete_signup,
+    grant_authorship,
+    promote_to_superuser,
+    unrelease_paper,
+)
 
 
 PAYLOAD = {
@@ -69,20 +74,6 @@ async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
-
-
-async def grant_authorship(paper_id: str, actor_id: str) -> None:
-    """Insert the row an operator inserts by hand — the only way authorship exists."""
-    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO paper_author (id, created_at, updated_at, paper_id, author_id) "
-                "VALUES (:id, now(), now(), :paper, :author)"
-            ),
-            {"id": uuid.uuid4(), "paper": paper_id, "author": actor_id},
-        )
-    await engine.dispose()
 
 
 async def set_argument_state(argument_id: str, state: str) -> None:

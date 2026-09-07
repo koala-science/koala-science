@@ -7,7 +7,13 @@ from sqlalchemy import select
 
 from app.core import checks
 from app.models.platform import Argument, ArgumentCheck, CheckStatus
-from tests.conftest import complete_signup, promote_to_superuser, unrelease_paper
+from tests.conftest import (
+    complete_signup,
+    grant_authorship,
+    promote_to_superuser,
+    set_human_points,
+    unrelease_paper,
+)
 
 
 def _unique_email(prefix: str = "arg") -> str:
@@ -203,3 +209,139 @@ def test_no_mutating_argument_routes():
 
     methods = {m for route in arguments_module.router.routes for m in route.methods}
     assert methods == {"POST"}
+
+
+async def _points(client: AsyncClient, token: str) -> int:
+    resp = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["points"]
+
+
+async def test_an_agent_cannot_argue_about_a_paper_its_owner_authored(client: AsyncClient):
+    """Reviewing your own work is the conflict the platform exists to avoid."""
+    token, actor_id = await _signup(client, "selfreview")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "selfreview_agent")
+    await grant_authorship(paper_id, actor_id)
+
+    before = await _points(client, token)
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 403
+    assert "author" in resp.json()["detail"].lower()
+    assert await _points(client, token) == before
+
+
+async def test_the_bar_follows_the_owner_not_the_agent(client: AsyncClient):
+    """Every agent a paper's author owns is barred, not merely the first."""
+    token, actor_id = await _signup(client, "siblings")
+    paper_id = await _submit_paper(client, token, actor_id)
+    await grant_authorship(paper_id, actor_id)
+    first_key = await _create_agent_key(client, token, "siblings_first")
+    second_key = await _create_agent_key(client, token, "siblings_second")
+
+    for api_key in (first_key, second_key):
+        resp = await client.post(
+            "/api/v1/arguments/",
+            json={**PAYLOAD, "paper_id": paper_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert resp.status_code == 403
+
+
+async def test_an_author_out_of_points_is_told_they_are_barred_not_broke(
+    client: AsyncClient,
+):
+    """The bar is checked ahead of the balance, so it never takes the row lock."""
+    token, actor_id = await _signup(client, "brokeauthor")
+    paper_id = await _submit_paper(client, token, actor_id)
+    await grant_authorship(paper_id, actor_id)
+    api_key = await _create_agent_key(client, token, "brokeauthor_agent")
+    await set_human_points(actor_id, 0)
+
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_authoring_one_paper_does_not_bar_arguing_about_another(
+    client: AsyncClient,
+):
+    """The bar is paper-scoped: authors still review everything they did not write."""
+    token, actor_id = await _signup(client, "otherpaper")
+    authored = await _submit_paper(client, token, actor_id)
+    await grant_authorship(authored, actor_id)
+    unauthored = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "otherpaper_agent")
+
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": unauthored},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_someone_elses_agent_may_still_argue(client: AsyncClient):
+    """The bar is on the paper's own authors, not on the paper."""
+    author_token, author_id = await _signup(client, "authored")
+    paper_id = await _submit_paper(client, author_token, author_id)
+    await grant_authorship(paper_id, author_id)
+
+    outsider, _ = await _signup(client, "authored_outsider")
+    api_key = await _create_agent_key(client, outsider, "authored_outsider_agent")
+
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_submitting_a_paper_is_not_authoring_it(client: AsyncClient):
+    """Papers are uploaded in bulk by people who did not write them."""
+    token, actor_id = await _signup(client, "submitteronly")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "submitteronly_agent")
+
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_authorship_granted_later_leaves_existing_arguments_standing(
+    client: AsyncClient,
+):
+    """The bar is on submitting, not on what was already argued in good faith."""
+    token, actor_id = await _signup(client, "afterthefact")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "afterthefact_agent")
+
+    posted = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert posted.status_code == 201, posted.text
+    await grant_authorship(paper_id, actor_id)
+
+    listing = await client.get(f"/api/v1/papers/{paper_id}/arguments")
+    assert listing.status_code == 200, listing.text
+    assert [a["id"] for a in listing.json()] == [posted.json()["id"]]
+
+    again = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert again.status_code == 403
