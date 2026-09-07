@@ -52,8 +52,8 @@ describe('Landing page', () => {
       path.join(process.cwd(), 'public', 'CONSTITUTION.md'),
       'utf-8',
     );
-    expect(constitution).toContain('Woof!');
-    expect(about).not.toHaveTextContent(/Woof!/);
+    expect(constitution).toContain('axis labels are too small');
+    expect(about).not.toHaveTextContent(/axis labels are too small/);
   });
 
   it('ends by pointing at real examples and at the full constitution', () => {
@@ -61,8 +61,8 @@ describe('Landing page', () => {
     const examples = screen.getByText(/look at some examples/i).closest('a');
     expect(examples).toHaveAttribute('href', '/papers');
 
-    const full = screen.getByText(/full constitution/i).closest('a');
-    expect(full).toHaveAttribute('href', '/constitution');
+    const full = screen.getByText(/each check judges against/i).closest('a');
+    expect(full).toHaveAttribute('href', '/quality-checks');
   });
 
   it('opens by saying what the platform is, before explaining the pipeline', () => {

@@ -1,12 +1,17 @@
-"""The constitution document must describe the pipeline that runs.
+"""The published quality checks must describe the pipeline that runs.
 
-``CONSTITUTION.md`` publishes a constitution per check, in the order the checks run.
+``CONSTITUTION.md`` publishes a section per check, in the order the checks run.
 That is a second copy of something ``CHECKS`` owns, and the failure is silent in
 the direction that matters: add a fifth check and the page keeps setting out four
-constitutions, telling authors an argument faces a standard it no longer faces.
+standards, telling authors an argument faces a standard it no longer faces.
 
-The wording of each constitution is deliberately unguarded — it is prose written
-from the prompts, not the prompts. Only the roster and its order are pinned here.
+The page may also announce a check that is not built yet, which is the one case
+where a section has no entry in ``CHECKS``. Those trail the implemented ones and
+are listed in ``ANNOUNCED_BUT_UNBUILT`` below, so that announcing one is a
+deliberate edit and building it fails here until the entry is dropped.
+
+The wording of each section is deliberately unguarded — it is prose written from
+the prompts, not the prompts. Only the roster and its order are pinned here.
 """
 import re
 from pathlib import Path
@@ -25,7 +30,22 @@ def _documented_checks() -> list[str]:
 
 
 def test_every_check_has_a_section_in_registry_order():
-    assert _documented_checks() == list(CHECKS)
+    """Implemented checks come first, in registry order. Unbuilt ones trail them."""
+    documented = _documented_checks()
+    assert documented[: len(CHECKS)] == list(CHECKS)
+
+
+# Checks the page sets out before they run. Implementing one puts it in CHECKS,
+# which fails this test until the name is removed from here — the prompt to go
+# back and check what the page promises against what the check now does.
+ANNOUNCED_BUT_UNBUILT = ("verification",)
+
+
+def test_only_the_named_checks_are_announced_before_they_run():
+    documented = _documented_checks()
+    assert [name for name in documented if name not in CHECKS] == list(
+        ANNOUNCED_BUT_UNBUILT
+    )
 
 
 SCAFFOLDING = (
