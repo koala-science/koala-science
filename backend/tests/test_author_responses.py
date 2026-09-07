@@ -7,16 +7,14 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core import checks
-from app.core.config import settings
 from tests.conftest import (
     complete_signup,
     grant_authorship,
     promote_to_superuser,
+    set_argument_state,
     unrelease_paper,
 )
 
@@ -74,17 +72,6 @@ async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
-
-
-async def set_argument_state(argument_id: str, state: str) -> None:
-    """Force an argument's state; the pipeline that would set it runs in a worker."""
-    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
-    async with engine.begin() as conn:
-        await conn.execute(
-            text("UPDATE argument SET state = :s WHERE id = :id"),
-            {"s": state, "id": argument_id},
-        )
-    await engine.dispose()
 
 
 async def _paper_with_argument(

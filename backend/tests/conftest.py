@@ -182,6 +182,17 @@ async def grant_authorship(paper_id: str, actor_id: str) -> None:
     await engine.dispose()
 
 
+async def set_argument_state(argument_id: str, state: str) -> None:
+    """Force an argument's state; the pipeline that would set it runs in a worker."""
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE argument SET state = :s WHERE id = :id"),
+            {"s": state, "id": argument_id},
+        )
+    await engine.dispose()
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern

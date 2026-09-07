@@ -1,18 +1,20 @@
 """Tests for argument submission: agents only, immutable, checks queued on create."""
+import asyncio
 import uuid
 
 import pytest
-from httpx import AsyncClient
-from sqlalchemy import select
+from httpx import AsyncClient, Response
+from sqlalchemy import func, select
 
+from app.api.v1.endpoints.arguments import MAX_LIVE_ARGUMENTS_PER_PAPER
 from app.core import checks
-from app.models.platform import Argument, ArgumentCheck, CheckStatus
+from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
 from tests.conftest import (
     complete_signup,
     grant_authorship,
     promote_to_superuser,
+    set_argument_state,
     set_human_points,
-    unrelease_paper,
 )
 
 
@@ -345,3 +347,173 @@ async def test_authorship_granted_later_leaves_existing_arguments_standing(
         headers={"Authorization": f"Bearer {api_key}"},
     )
     assert again.status_code == 403
+
+
+async def _argue(
+    client: AsyncClient, api_key: str, paper_id: str, claim: str
+) -> Response:
+    return await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "claim": claim, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+
+async def _fill_the_cap(client: AsyncClient, api_key: str, paper_id: str) -> list[str]:
+    """Post as many live arguments as the cap allows. Returns their ids."""
+    ids = []
+    for i in range(MAX_LIVE_ARGUMENTS_PER_PAPER):
+        resp = await _argue(client, api_key, paper_id, f"Claim number {i}.")
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    return ids
+
+
+def test_the_cap_is_three():
+    """Four agent-facing docs state this number in prose and cannot follow it.
+
+    frontend/public/skill.md, the MCP tool, and both copies of the SDK's
+    post_argument say "3"; change the constant and they must change with it.
+    """
+    assert MAX_LIVE_ARGUMENTS_PER_PAPER == 3
+
+
+async def test_a_fourth_live_argument_about_one_paper_is_refused(client: AsyncClient):
+    """Three at a time is the whole point: attention is what the cap rations."""
+    api_key, paper_id = await _agent_on_paper(client, "capped")
+    await _fill_the_cap(client, api_key, paper_id)
+
+    resp = await _argue(client, api_key, paper_id, "One argument too many.")
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == (
+        "You already have 3 arguments pending or accepted on this paper"
+    )
+
+
+async def test_the_cap_pools_across_an_owners_agents(client: AsyncClient):
+    """Spinning up a second agent must not buy a second allowance."""
+    token, actor_id = await _signup(client, "pooled")
+    paper_id = await _submit_paper(client, token, actor_id)
+    first_key = await _create_agent_key(client, token, "pooled_first")
+    second_key = await _create_agent_key(client, token, "pooled_second")
+    await _fill_the_cap(client, first_key, paper_id)
+
+    resp = await _argue(client, second_key, paper_id, "From the sibling agent.")
+    assert resp.status_code == 409
+
+
+async def test_another_owners_agents_have_their_own_three(client: AsyncClient):
+    """The cap is per owner, not a budget the whole platform shares."""
+    token, actor_id = await _signup(client, "mine")
+    paper_id = await _submit_paper(client, token, actor_id)
+    mine = await _create_agent_key(client, token, "mine_agent")
+    await _fill_the_cap(client, mine, paper_id)
+
+    other_token, _ = await _signup(client, "theirs")
+    theirs = await _create_agent_key(client, other_token, "theirs_agent")
+
+    resp = await _argue(client, theirs, paper_id, "From an unrelated owner.")
+    assert resp.status_code == 201, resp.text
+
+
+async def test_a_rejected_argument_frees_a_slot(client: AsyncClient):
+    """Rejections do not count, so a refuted attempt costs no standing capacity."""
+    api_key, paper_id = await _agent_on_paper(client, "freed")
+    argument_ids = await _fill_the_cap(client, api_key, paper_id)
+    await set_argument_state(argument_ids[0], "rejected")
+
+    resp = await _argue(client, api_key, paper_id, "Taking the freed slot.")
+    assert resp.status_code == 201, resp.text
+
+
+async def test_an_accepted_argument_still_occupies_a_slot(client: AsyncClient):
+    """Accepted is live: the cap counts landed arguments, not merely queued ones."""
+    api_key, paper_id = await _agent_on_paper(client, "landed")
+    argument_ids = await _fill_the_cap(client, api_key, paper_id)
+    for argument_id in argument_ids:
+        await set_argument_state(argument_id, "accepted")
+
+    resp = await _argue(client, api_key, paper_id, "One argument too many.")
+    assert resp.status_code == 409
+
+
+async def test_the_cap_is_per_paper(client: AsyncClient):
+    """Filling one paper's allowance must not silence an agent everywhere."""
+    token, actor_id = await _signup(client, "perpaper")
+    filled = await _submit_paper(client, token, actor_id)
+    fresh = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "perpaper_agent")
+    await _fill_the_cap(client, api_key, filled)
+
+    resp = await _argue(client, api_key, fresh, "About the other paper.")
+    assert resp.status_code == 201, resp.text
+
+
+async def test_a_refused_fourth_argument_costs_no_points(client: AsyncClient):
+    """A submission the platform declines must not be charged for."""
+    token, actor_id = await _signup(client, "nocharge")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "nocharge_agent")
+    await _fill_the_cap(client, api_key, paper_id)
+
+    before = await _points(client, token)
+    resp = await _argue(client, api_key, paper_id, "One argument too many.")
+    assert resp.status_code == 409
+    assert await _points(client, token) == before
+
+
+async def _live_argument_count(db_session, paper_id: str) -> int:
+    return await db_session.scalar(
+        select(func.count())
+        .select_from(Argument)
+        .where(
+            Argument.paper_id == uuid.UUID(paper_id),
+            Argument.state.in_((ArgumentState.PENDING, ArgumentState.ACCEPTED)),
+        )
+    )
+
+
+async def test_the_cap_survives_two_sibling_agents_racing_the_last_slot(
+    client: AsyncClient, db_session
+):
+    """Both agents read two-of-three; the balance lock is what serialises them.
+
+    Repeated because the interleaving is not deterministic: whether the two
+    requests overlap in the vulnerable window is up to the event loop, so one
+    round can pass against a guard that races. Every round must land on exactly
+    the cap.
+    """
+    token, actor_id = await _signup(client, "caprace")
+    first_key = await _create_agent_key(client, token, "caprace_first")
+    second_key = await _create_agent_key(client, token, "caprace_second")
+    await set_human_points(actor_id, 1000)
+
+    for round_number in range(8):
+        paper_id = await _submit_paper(client, token, actor_id)
+        for i in range(MAX_LIVE_ARGUMENTS_PER_PAPER - 1):
+            resp = await _argue(client, first_key, paper_id, f"Claim {i}.")
+            assert resp.status_code == 201, resp.text
+
+        first, second = await asyncio.gather(
+            _argue(client, first_key, paper_id, "Racing claim from the first agent."),
+            _argue(client, second_key, paper_id, "Racing claim from the second agent."),
+        )
+        codes = sorted([first.status_code, second.status_code])
+        live = await _live_argument_count(db_session, paper_id)
+        assert codes == [201, 409], f"round {round_number}: {codes}"
+        assert live == MAX_LIVE_ARGUMENTS_PER_PAPER, f"round {round_number}: {live} live"
+
+
+async def test_an_agent_at_the_cap_and_out_of_points_is_told_about_the_cap(
+    client: AsyncClient,
+):
+    """Earning points would not lift the cap, so 402 would be the wrong advice."""
+    token, actor_id = await _signup(client, "cappedbroke")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "cappedbroke_agent")
+    await _fill_the_cap(client, api_key, paper_id)
+    await set_human_points(actor_id, 0)
+
+    resp = await _argue(client, api_key, paper_id, "One argument too many.")
+    assert resp.status_code == 409
+    assert "pending or accepted" in resp.json()["detail"]
