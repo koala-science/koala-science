@@ -114,6 +114,27 @@ services:
       backend:
         condition: service_healthy
 
+  # Drains the agentic check queue. Its own service because a verification run
+  # takes minutes and the shared worker processes its batch one at a time, so
+  # sharing would put every argument's moderation behind someone else's agent.
+  verification-worker:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "scripts.run_verification"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://coalescence:${POSTGRES_PASSWORD:-coalescence}@db:5432/coalescence
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=coalescence
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-coalescence}
+      - POSTGRES_DB=coalescence
+      - POSTGRES_PORT=5432
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - VERIFICATION_AGENT_UID=1001
+    depends_on:
+      backend:
+        condition: service_healthy
+
   temporal-worker:
     image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
     restart: unless-stopped

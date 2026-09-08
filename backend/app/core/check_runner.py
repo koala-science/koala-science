@@ -35,6 +35,8 @@ from app.core.checks_moderation import moderation_check
 from app.core.checks_relevance import relevance_check
 from app.core.checks_uniqueness import uniqueness_check
 from app.core.checks_validity import validity_check
+from app.core.gemini import CheckUnavailableError
+from app.core.checks_verification import verification_check
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
 
@@ -49,7 +51,22 @@ CHECK_FUNCTIONS: dict[str, CheckFunction] = {
     "validity": validity_check,
     "relevance": relevance_check,
     "uniqueness": uniqueness_check,
+    "verification": verification_check,
 }
+
+# Verification runs a minutes-long agent, and `run_pending_checks` works through
+# its batch one at a time. Left in the shared queue it would stall every other
+# argument's cheap checks behind it, so it is drained by its own worker.
+AGENTIC_CHECKS = frozenset({"verification"})
+FAST_CHECKS = frozenset(CHECK_FUNCTIONS) - AGENTIC_CHECKS
+
+# `CheckUnavailableError` is retried forever: it means a healthy system had
+# nothing to say, and costs nothing. Any other exception is a bug in the check,
+# and for an agentic one a bug that surfaces after the agent has spent its
+# budget would bill on every retry. After this many attempts an agentic check
+# gives up and fails the argument, which is the same answer the one-attempt rule
+# gives a run that reaches no verdict.
+MAX_AGENTIC_ATTEMPTS = 3
 
 
 def missing_check_functions() -> set[str]:
@@ -57,7 +74,9 @@ def missing_check_functions() -> set[str]:
     return set(checks.CHECKS) - set(CHECK_FUNCTIONS)
 
 
-async def _claim_next(db: AsyncSession, *, skip: set) -> ArgumentCheck | None:
+async def _claim_next(
+    db: AsyncSession, *, skip: set, runnable: frozenset[str]
+) -> ArgumentCheck | None:
     """Lock the next runnable pending row, or return None if there is none.
 
     Rows whose check has no registered function are excluded rather than
@@ -69,7 +88,7 @@ async def _claim_next(db: AsyncSession, *, skip: set) -> ArgumentCheck | None:
             select(ArgumentCheck)
             .where(
                 ArgumentCheck.status == CheckStatus.PENDING,
-                ArgumentCheck.name.in_(CHECK_FUNCTIONS),
+                ArgumentCheck.name.in_(runnable),
             )
             .where(ArgumentCheck.id.notin_(skip) if skip else sa_true())
             .order_by(ArgumentCheck.attempts, ArgumentCheck.created_at)
@@ -79,12 +98,23 @@ async def _claim_next(db: AsyncSession, *, skip: set) -> ArgumentCheck | None:
     ).scalar_one_or_none()
 
 
-async def run_pending_checks(db: AsyncSession, limit: int = 100) -> int:
-    """Run up to ``limit`` pending checks. Returns how many produced a result."""
+async def run_pending_checks(
+    db: AsyncSession, limit: int = 100, names: frozenset[str] | None = None
+) -> int:
+    """Run up to ``limit`` pending checks. Returns how many produced a result.
+
+    ``names`` restricts the worker to a subset of the registry, which is what
+    keeps the agentic check off the queue the fast ones share.
+    """
+    # Names, not functions: this only ever narrows the claim query, and the
+    # function is looked up per row from CHECK_FUNCTIONS anyway.
+    runnable = frozenset(CHECK_FUNCTIONS) if names is None else names & frozenset(
+        CHECK_FUNCTIONS
+    )
     completed = 0
     deferred: set = set()
     for _ in range(limit):
-        row = await _claim_next(db, skip=deferred)
+        row = await _claim_next(db, skip=deferred, runnable=runnable)
         if row is None:
             break
 
@@ -98,14 +128,32 @@ async def run_pending_checks(db: AsyncSession, limit: int = 100) -> int:
         ).scalar_one()
         try:
             passed, detail = await CHECK_FUNCTIONS[row.name](db, argument)
-        except Exception:
+        except CheckUnavailableError:
+            # An outage: the check never got an answer out of a healthy system,
+            # and cost nothing trying. Retried indefinitely, agentic or not —
+            # capping these would let a brief 429 or a key rotation reject every
+            # argument in flight, which is what the check raises them to avoid.
             logger.warning(
-                "check %s v%s raised on argument %s (attempt %d); leaving pending",
-                row.name, row.version, row.argument_id, row.attempts, exc_info=True,
+                "check %s v%s unavailable for argument %s (attempt %d); leaving pending",
+                row.name, row.version, row.argument_id, row.attempts,
             )
             await db.commit()
             deferred.add(row.id)
             continue
+        except Exception:
+            spent = row.name in AGENTIC_CHECKS and row.attempts >= MAX_AGENTIC_ATTEMPTS
+            logger.warning(
+                "check %s v%s raised on argument %s (attempt %d); %s",
+                row.name, row.version, row.argument_id, row.attempts,
+                "giving up" if spent else "leaving pending", exc_info=True,
+            )
+            if not spent:
+                await db.commit()
+                deferred.add(row.id)
+                continue
+            passed, detail = False, (
+                f"could not be checked after {row.attempts} attempts"
+            )
 
         row.status = CheckStatus.PASSED if passed else CheckStatus.FAILED
         row.detail = detail

@@ -63,7 +63,13 @@ function bucketOf(argument: ArgumentRecord): Bucket {
  * backend/tests/test_check_pipeline_ui.py, which fails if the two drift — the
  * rail would otherwise quietly render one stage short when a check is added.
  */
-const PIPELINE = ['moderation', 'validity', 'relevance', 'uniqueness'] as const;
+const PIPELINE = [
+  'moderation',
+  'validity',
+  'relevance',
+  'uniqueness',
+  'verification',
+] as const;
 
 type StageStatus = 'passed' | 'failed' | 'pending' | 'not_run';
 

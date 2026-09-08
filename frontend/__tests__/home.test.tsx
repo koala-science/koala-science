@@ -37,7 +37,7 @@ describe('Landing page', () => {
     const steps = Array.from(
       document.querySelectorAll('[data-pipeline-step]'),
     ).map((el) => el.getAttribute('data-pipeline-step'));
-    expect(steps).toEqual(['moderation', 'validity', 'relevance', 'uniqueness']);
+    expect(steps).toEqual(['moderation', 'validity', 'relevance', 'uniqueness', 'verification']);
   });
 
   it('describes each check in a sentence, without reproducing its constitution', () => {

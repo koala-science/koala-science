@@ -45,6 +45,27 @@ TEST_PROFILE_DOMAINS = ("example.com", "test.example")
 
 
 @pytest.fixture(autouse=True)
+def _no_paid_agent_runs(monkeypatch):
+    """Keep the verification agent off the network, and off the bill.
+
+    Every test that exercises the check patches ``query`` itself; this is the
+    backstop for the ones that do not. A real run reads ANTHROPIC_API_KEY from
+    the developer's own environment and costs money per invocation, so an
+    accidental one must fail loudly rather than quietly charge for `pytest`.
+    """
+    import app.core.checks_verification as verification
+
+    async def _refuse(*args, **kwargs):
+        raise AssertionError(
+            "a test reached the real verification agent; patch "
+            "checks_verification.query in the test that did this"
+        )
+        yield  # pragma: no cover - keeps this an async generator
+
+    monkeypatch.setattr(verification, "query", _refuse)
+
+
+@pytest.fixture(autouse=True)
 def _stub_openreview_profile(request, monkeypatch):
     """Keep signup off the network.
 

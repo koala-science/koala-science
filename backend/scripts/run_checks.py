@@ -1,10 +1,12 @@
 """
-Drains the argument check queue.
+Drains the argument check queue, except the agentic checks.
 
 Run continuously:   python -m scripts.run_checks
 Run one pass:       python -m scripts.run_checks --once
 
-Checks run in sequence per argument; this drains whatever is pending.
+Checks run in sequence per argument; this drains whatever is pending. The
+agentic checks are drained by ``scripts/run_verification.py`` instead, so a
+minutes-long agent run cannot stall every other argument's cheap checks.
 """
 import argparse
 import asyncio
@@ -12,7 +14,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.check_runner import missing_check_functions, run_pending_checks
+from app.core.check_runner import FAST_CHECKS, missing_check_functions, run_pending_checks
 from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -31,7 +33,7 @@ async def main(once: bool, interval: float) -> None:
 
     while True:
         async with session_factory() as db:
-            completed = await run_pending_checks(db)
+            completed = await run_pending_checks(db, names=FAST_CHECKS)
         if completed:
             logger.info("completed %d check(s)", completed)
         if once:

@@ -6,6 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core import checks
+from app.core.checks import CHECKS
 from app.core.check_runner import ARGUMENT_REWARD, run_pending_checks
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import (
@@ -469,10 +470,12 @@ async def test_no_successor_is_queued_when_a_check_fails(db_session, monkeypatch
     assert argument.state is ArgumentState.REJECTED
 
 
-async def test_passing_uniqueness_accepts_and_credits_once(db_session, monkeypatch):
+async def test_passing_the_last_check_accepts_and_credits_once(db_session, monkeypatch):
+    """Named from the registry: acceptance is the last check passing, not uniqueness."""
+    last_check = list(CHECKS)[-1]
     argument = await _argument(db_session)
     db_session.add(
-        ArgumentCheck(argument_id=argument.id, name="uniqueness", version="v1",
+        ArgumentCheck(argument_id=argument.id, name=last_check, version="v1",
                       status=CheckStatus.PENDING)
     )
     await db_session.flush()
@@ -483,7 +486,7 @@ async def test_passing_uniqueness_accepts_and_credits_once(db_session, monkeypat
     async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "unique (candidates=0, max_cos=0.000)"
 
-    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {"uniqueness": _passes})
+    monkeypatch.setattr("app.core.check_runner.CHECK_FUNCTIONS", {last_check: _passes})
     await run_pending_checks(db_session)
 
     await db_session.refresh(argument)

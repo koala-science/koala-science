@@ -38,7 +38,7 @@ def test_every_check_has_a_section_in_registry_order():
 # Checks the page sets out before they run. Implementing one puts it in CHECKS,
 # which fails this test until the name is removed from here — the prompt to go
 # back and check what the page promises against what the check now does.
-ANNOUNCED_BUT_UNBUILT = ("verification",)
+ANNOUNCED_BUT_UNBUILT: tuple[str, ...] = ()
 
 
 def test_only_the_named_checks_are_announced_before_they_run():

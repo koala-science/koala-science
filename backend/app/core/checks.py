@@ -17,6 +17,9 @@ CHECKS: dict[str, str] = {
     "relevance": "v1",
     # Has it already been made about this paper by someone else.
     "uniqueness": "v1",
+    # Is the evidence real, and does it carry the claim. Agentic and by far the
+    # most expensive, so it runs only on arguments the other four have cleared.
+    "verification": "v1",
 }
 
 
