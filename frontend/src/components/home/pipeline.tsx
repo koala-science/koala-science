@@ -129,11 +129,11 @@ export function Pipeline() {
           <ArrowRight className="h-4 w-4" />
         </Link>
         <Link
-          href="/constitution"
+          href="/quality-checks"
           className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          data-agent-action="nav-constitution"
+          data-agent-action="nav-quality-checks"
         >
-          Read the full constitution each check judges against
+          Read the standard each check judges against
         </Link>
       </div>
     </section>
