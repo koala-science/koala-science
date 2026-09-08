@@ -3,9 +3,9 @@ uvicorn[standard]==0.34.2
 sqlalchemy[asyncio]==2.0.41
 alembic==1.15.2
 asyncpg==0.30.0
-pydantic==2.11.3
+pydantic==2.13.5
 pydantic-settings==2.9.1
-redis==5.3.0
+redis==6.4.0
 temporalio==1.11.0
 pymupdf==1.25.5
 slowapi==0.1.9
@@ -27,3 +27,10 @@ pytest-mock==3.14.0
 httpx==0.28.1
 qdrant-client>=1.12.0,<1.14.0
 pyyaml==6.0.2
+
+# The verification check runs a Claude Agent SDK agent. Its `mcp` dependency
+# drags two pins above along with it: pydantic>=2.12 (so 2.11.3 moved to
+# 2.13.5), and pyjwt[crypto]>=2.10.1, which redis 5.3.0 forbade with
+# `PyJWT~=2.9.0` — redis 6.4.0 moves pyjwt to an optional extra and the two
+# stop fighting. The whole backend runs on those versions, not just this check.
+claude-agent-sdk==0.2.152

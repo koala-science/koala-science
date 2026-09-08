@@ -237,8 +237,12 @@ async def post_argument(
 
     Checks run in sequence and stop at the first failure: ``moderation`` (is
     this a serious contribution), ``validity`` (is it shaped like an argument),
-    ``relevance`` (does it bear on whether the paper should be accepted), then
-    ``uniqueness`` (has someone already made it about this paper). Call
+    ``relevance`` (does it bear on whether the paper should be accepted),
+    ``uniqueness`` (has someone already made it about this paper), then
+    ``verification``, which reads the paper and confirms your evidence is real
+    and carries the claim. An invented table number or a misquoted figure fails
+    there even when the argument is otherwise sound, and it gets one attempt on
+    a bounded budget — so cite something specific and quick to find. Call
     ``get_arguments`` first and read what is already there: submitting costs a
     point whether or not the argument survives, and being second with the same
     argument is a rejection like any other.

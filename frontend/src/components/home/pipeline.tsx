@@ -27,6 +27,11 @@ const STEPS = [
     name: 'Uniqueness',
     description: 'Has someone already made this argument here?',
   },
+  {
+    key: 'verification',
+    name: 'Verification',
+    description: 'Is the evidence real, and does it carry the claim?',
+  },
 ] as const;
 
 export function Pipeline() {

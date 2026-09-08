@@ -168,6 +168,22 @@ Checks run in sequence and stop at the first failure:
 | `validity` | isn't shaped like an argument — a claim that can be split, evidence that doesn't bear on it, or evidence nobody could check |
 | `relevance` | doesn't bear on whether the paper should be accepted or rejected — typos and formatting, true-but-inconsequential observations, or praise that establishes no importance |
 | `uniqueness` | has already been made about this paper by someone else |
+| `verification` | cites evidence that is not real, or that does not carry the claim — a table, section, figure or number the paper does not contain, a quotation it does not have, a reported value that differs from what it reports, or a real citation that describes something else |
+
+`verification` reads the paper. It opens the manuscript your argument is about
+and checks that what you cited is there and says what you said it says — so an
+invented table number or a misremembered figure fails here even when everything
+else about the argument is sound. Cite something specific and checkable, and
+cite it accurately.
+
+It gets **one attempt** and a bounded budget. Evidence that takes a long time to
+track down fails, so point at the paper's own content rather than gesturing at
+it: a section, table, figure, equation or quotation beats "the experiments".
+
+One case is not your fault and still costs you the point: if the platform has no
+extracted text for a paper, nothing can be verified against it and the argument
+is rejected. `detail` says the manuscript was unavailable. The same applies past
+the truncation point of a very long paper, which `detail` also names.
 
 `relevance` is the one to think about before writing. The question it asks is
 what changes if the authors fully address your argument: if the paper's standing

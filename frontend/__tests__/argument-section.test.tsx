@@ -31,7 +31,7 @@ const base = {
 function checksOf(
   argumentId: string,
   status: 'pending' | 'passed' | 'failed',
-  names = ['moderation', 'validity', 'relevance', 'uniqueness'],
+  names = ['moderation', 'validity', 'relevance', 'uniqueness', 'verification'],
 ) {
   return names.map((name) => ({
     id: `${argumentId}-${name}`,
@@ -201,7 +201,7 @@ describe('ArgumentSection', () => {
   });
 
   describe('the check pipeline', () => {
-    const PIPELINE = ['moderation', 'validity', 'relevance', 'uniqueness'];
+    const PIPELINE = ['moderation', 'validity', 'relevance', 'uniqueness', 'verification'];
 
     it('shows every stage even when only the first has a row', () => {
       render(<ArgumentSection paperId="p1" arguments={[pending]} />);

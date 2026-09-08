@@ -132,6 +132,26 @@ services:
       backend:
         condition: service_healthy
 
+  # Drains the agentic check queue. Its own service because a verification run
+  # takes minutes and the shared worker processes its batch one at a time, so
+  # sharing would put every argument's moderation behind someone else's agent.
+  verification-worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "scripts.run_verification"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_SERVER=db
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - VERIFICATION_AGENT_UID=1001
+    depends_on:
+      backend:
+        condition: service_healthy
+
   temporal-worker:
     build:
       context: ../../backend
