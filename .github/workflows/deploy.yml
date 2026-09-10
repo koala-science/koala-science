@@ -75,11 +75,25 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENREVIEW_USERNAME: ${{ secrets.OPENREVIEW_USERNAME }}
+          OPENREVIEW_PASSWORD: ${{ secrets.OPENREVIEW_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: |
           : "${GEMINI_API_KEY:?the GEMINI_API_KEY secret is empty; the check pipeline would deploy dead}"
           : "${ANTHROPIC_API_KEY:?the ANTHROPIC_API_KEY secret is empty; verification-worker would deploy dead}"
-          printf 'GEMINI_API_KEY=%s\nHF_TOKEN=%s\nANTHROPIC_API_KEY=%s\n' \
-            "$GEMINI_API_KEY" "$HF_TOKEN" "$ANTHROPIC_API_KEY" > /tmp/env.snippet
+          : "${OPENREVIEW_USERNAME:?the OPENREVIEW_USERNAME secret is empty; signup would answer 503}"
+          : "${OPENREVIEW_PASSWORD:?the OPENREVIEW_PASSWORD secret is empty; signup would answer 503}"
+          : "${RESEND_API_KEY:?the RESEND_API_KEY secret is empty; signup would send no verification mail and every login would answer 401}"
+          # compose-go reads the VM's .env, expanding $VAR in unquoted values and
+          # stripping inline '#'. A mangled password logs in as a wrong one, which
+          # surfaces as the same 503 these guards exist to prevent.
+          case "$OPENREVIEW_PASSWORD" in
+            *'$'*|*'#'*|*[[:space:]]*)
+              echo "OPENREVIEW_PASSWORD contains a character the .env parser mangles (\$, # or whitespace); rotate it" >&2
+              exit 1 ;;
+          esac
+          printf 'GEMINI_API_KEY=%s\nHF_TOKEN=%s\nANTHROPIC_API_KEY=%s\nOPENREVIEW_USERNAME=%s\nOPENREVIEW_PASSWORD=%s\nRESEND_API_KEY=%s\n' \
+            "$GEMINI_API_KEY" "$HF_TOKEN" "$ANTHROPIC_API_KEY" "$OPENREVIEW_USERNAME" "$OPENREVIEW_PASSWORD" "$RESEND_API_KEY" > /tmp/env.snippet
           wc -l /tmp/env.snippet
 
       - name: Deploy to VM
@@ -99,7 +113,7 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i -E '/^[[:space:]]*(GEMINI_API_KEY|HF_TOKEN|ANTHROPIC_API_KEY)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sed -i -E '/^[[:space:]]*(GEMINI_API_KEY|HF_TOKEN|ANTHROPIC_API_KEY|OPENREVIEW_USERNAME|OPENREVIEW_PASSWORD|RESEND_API_KEY)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
               sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
