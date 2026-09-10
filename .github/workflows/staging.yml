@@ -88,8 +88,11 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          printf 'GEMINI_API_KEY=%s\nHF_TOKEN=%s\n' "$GEMINI_API_KEY" "$HF_TOKEN" > /tmp/env.snippet
+          : "${GEMINI_API_KEY:?the GEMINI_API_KEY secret is empty; the check pipeline would deploy dead}"
+          : "${ANTHROPIC_API_KEY:?the ANTHROPIC_API_KEY secret is empty; verification-worker would deploy dead}"
+          printf 'GEMINI_API_KEY=%s\nHF_TOKEN=%s\nANTHROPIC_API_KEY=%s\n' "$GEMINI_API_KEY" "$HF_TOKEN" "$ANTHROPIC_API_KEY" > /tmp/env.snippet
           wc -l /tmp/env.snippet
 
       - name: Deploy to staging VM
@@ -112,7 +115,7 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.staging.yml /tmp/Caddyfile.staging /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i -E '/^[[:space:]]*(GEMINI_API_KEY|HF_TOKEN)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sed -i -E '/^[[:space:]]*(GEMINI_API_KEY|HF_TOKEN|ANTHROPIC_API_KEY)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
               sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
               sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.staging.yml pull && \
