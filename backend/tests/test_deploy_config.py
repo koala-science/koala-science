@@ -1,12 +1,22 @@
 """
-Guards the v0/v1 split in the production deployment config.
+Guards the deployment config, which CI otherwise never executes.
 
-The archive (`coalescence` + the `koalascience-storage` bucket) and the
-iteration platform (`coalescence_v1` + `koalascience-storage-v1`) are served by
-two stacks sharing one VM. The catastrophic failure mode is a v1 service
-resolving to archive state and writing into the evidence, so these tests parse
-the real deploy files and assert the invariants that keep the two apart.
+Two failure modes, both silent. The first is the v0/v1 split: the archive
+(`coalescence` + the `koalascience-storage` bucket) and the iteration platform
+(`coalescence_v1` + `koalascience-storage-v1`) are served by two stacks sharing
+one VM, and a v1 service resolving to archive state would write into the
+evidence.
+
+The second is an unsupplied `${VAR}`. Compose does not fail on one — it
+substitutes the empty string and warns where nobody is reading.
+`verification-worker` shipped naming `${ANTHROPIC_API_KEY}` that no workflow
+wrote to the VM's .env, and the check it powers sat pending forever while all
+seven CI checks stayed green.
+
+So these tests parse the real deploy files rather than a fixture, and assert
+what only a deploy would otherwise discover.
 """
+import re
 from pathlib import Path
 
 import pytest
@@ -186,3 +196,152 @@ def test_caddy_routes_v0_hostname_to_v0_services(caddyfile):
 def test_eval_service_is_gone(compose, caddyfile):
     assert "eval" not in compose["services"]
     assert "/eval" not in caddyfile
+
+
+# The .env keys provisioned by hand on the VM rather than by CI: the database
+# credentials, the domain, the registry. A name belongs here only if someone
+# put it on the VM — anything CI owns has to be written by the deploy workflow.
+VM_PROVISIONED = frozenset({
+    "COALESCENCE_REGISTRY", "DOMAIN", "POSTGRES_PASSWORD", "POSTGRES_SERVER",
+    "POSTGRES_USER", "TEMPORAL_ADMIN_HASH", "TEMPORAL_UI_ADDRESS",
+})
+
+# Secrets no deployed service reads, so an empty value must not block a deploy.
+# HF_TOKEN is used only by scripts/ingest_hf.py, a manual ingest that falls back
+# to anonymous access when it is unset. This cannot be derived — GEMINI_API_KEY
+# and ANTHROPIC_API_KEY carry the same empty default in `config.py`; what
+# separates them is that a running service reads those two.
+OPTIONAL_SECRETS = frozenset({"HF_TOKEN"})
+
+WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+
+DEPLOYMENTS = [
+    ("docker-compose.prod.yml", "deploy.yml"),
+    ("docker-compose.staging.yml", "staging.yml"),
+]
+
+
+def _interpolated_without_default(compose_text: str) -> set[str]:
+    """`${NAME}`, but not `${NAME:-fallback}` — a default needs no supplier."""
+    return {
+        name
+        for name, default in re.findall(r"\$\{([A-Z][A-Z0-9_]*)(:?-[^}]*)?\}", compose_text)
+        if not default
+    }
+
+
+def _env_snippet_script(workflow_text: str) -> str:
+    """
+    The one shell script that builds the .env snippet.
+
+    Each `run:` block is its own shell, so a guard in a neighbouring step —
+    or, worse, a neighbouring job — protects nothing. Everything asserted about
+    writing .env has to be asserted about this script and no other text.
+    """
+    scripts = [
+        step["run"]
+        for job in yaml.safe_load(workflow_text)["jobs"].values()
+        for step in job["steps"]
+        if "> /tmp/env.snippet" in step.get("run", "")
+    ]
+    assert len(scripts) == 1, (
+        f"expected exactly one step to build the snippet, found {len(scripts)}"
+    )
+    return scripts[0]
+
+
+def _written_by_workflow(snippet_script: str) -> set[str]:
+    """The names the deploy step appends to the VM's .env, per its printf format."""
+    return set(re.findall(r"([A-Z][A-Z0-9_]*)=%s", snippet_script))
+
+
+def _deleted_by_workflow(workflow_text: str) -> set[str]:
+    """
+    The names the deploy step strips from .env before appending.
+
+    Unscoped, unlike the helpers above, because the `sed` runs in the step that
+    ships the snippet rather than the one that builds it. Nothing is lost: a
+    misplaced strip leaves duplicate .env lines, which Compose resolves
+    last-wins, rather than a service starting without its key.
+    """
+    match = re.search(r"sed -i -E '/\^\[\[:space:\]\]\*\(([^)]+)\)", workflow_text)
+    assert match, "could not find the .env-stripping sed line; has it been reformatted?"
+    return set(match.group(1).split("|"))
+
+
+def _written(workflow_name: str) -> set[str]:
+    workflow_text = (WORKFLOWS_DIR / workflow_name).read_text()
+    return _written_by_workflow(_env_snippet_script(workflow_text))
+
+
+def _all_interpolated() -> set[str]:
+    return set().union(*(
+        _interpolated_without_default((DEPLOY_DIR / compose_name).read_text())
+        for compose_name, _ in DEPLOYMENTS
+    ))
+
+
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_every_interpolated_variable_has_a_supplier(compose_name, workflow_name):
+    compose_text = (DEPLOY_DIR / compose_name).read_text()
+    workflow_text = (WORKFLOWS_DIR / workflow_name).read_text()
+
+    referenced = _interpolated_without_default(compose_text)
+    assert referenced, f"expected {compose_name} to interpolate something"
+
+    unsupplied = referenced - _written(workflow_name) - VM_PROVISIONED
+    assert not unsupplied, (
+        f"{compose_name} interpolates {sorted(unsupplied)}, which {workflow_name} "
+        "never writes to the VM's .env and which is not provisioned by hand. "
+        "Compose will substitute the empty string and the service will start "
+        "misconfigured. Add it to the workflow's env snippet, or to VM_PROVISIONED."
+    )
+
+
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_the_workflow_strips_every_key_it_appends(compose_name, workflow_name):
+    """Otherwise each deploy appends a second copy of the key to .env."""
+    workflow_text = (WORKFLOWS_DIR / workflow_name).read_text()
+    written = _written(workflow_name)
+    assert written, f"expected {workflow_name} to write an env snippet"
+    missing = written - _deleted_by_workflow(workflow_text)
+    assert not missing, (
+        f"{workflow_name} appends {sorted(missing)} to .env without first "
+        "deleting the previous value"
+    )
+
+
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_the_workflow_refuses_to_deploy_an_empty_secret(compose_name, workflow_name):
+    """
+    An unset secret is not a build failure: `printf` writes a bare `NAME=` and
+    Compose substitutes the empty string, which is how the verification worker
+    shipped without a key. The name being in the format string proves nothing
+    about the value, so each one is asserted non-empty in the same shell that
+    writes it.
+    """
+    script = _env_snippet_script((WORKFLOWS_DIR / workflow_name).read_text())
+    for name in _written(workflow_name) - OPTIONAL_SECRETS:
+        assert f'"${{{name}:?' in script, (
+            f"{workflow_name} writes {name} to .env without first asserting it "
+            "is non-empty; a missing secret would deploy silently misconfigured"
+        )
+
+
+def test_vm_provisioned_lists_nothing_stale():
+    """
+    A name here is a standing claim that someone put it on the VM. One that no
+    compose file interpolates pre-authorises a variable nobody has checked.
+    """
+    stale = VM_PROVISIONED - _all_interpolated()
+    assert not stale, f"VM_PROVISIONED names {sorted(stale)}, which nothing interpolates"
+
+
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_optional_secrets_lists_nothing_stale(compose_name, workflow_name):
+    """An exemption for a key the workflow no longer writes exempts nothing."""
+    written = _written(workflow_name)
+    assert OPTIONAL_SECRETS <= written, (
+        f"OPTIONAL_SECRETS names {sorted(OPTIONAL_SECRETS - written)}, which "
+        f"{workflow_name} does not write to .env"
+    )
