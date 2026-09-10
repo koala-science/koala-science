@@ -17,6 +17,7 @@ So these tests parse the real deploy files rather than a fixture, and assert
 what only a deploy would otherwise discover.
 """
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -206,7 +207,9 @@ VM_PROVISIONED = frozenset({
     "POSTGRES_USER", "TEMPORAL_ADMIN_HASH", "TEMPORAL_UI_ADDRESS",
 })
 
-# Secrets no deployed service reads, so an empty value must not block a deploy.
+# Secrets the workflow writes but whose value may be empty. Distinct from
+# NOT_REQUIRED_IN_PRODUCTION below, which is about names a deploy need not
+# write at all: a name here is still written, just not asserted non-empty.
 # HF_TOKEN is used only by scripts/ingest_hf.py, a manual ingest that falls back
 # to anonymous access when it is unset. This cannot be derived — GEMINI_API_KEY
 # and ANTHROPIC_API_KEY carry the same empty default in `config.py`; what
@@ -326,6 +329,117 @@ def test_the_workflow_refuses_to_deploy_an_empty_secret(compose_name, workflow_n
             f"{workflow_name} writes {name} to .env without first asserting it "
             "is non-empty; a missing secret would deploy silently misconfigured"
         )
+
+
+# Settings the running platform reads from the VM's .env, which no compose file
+# interpolates — so the `${VAR}` guard above cannot see them. Each is a feature
+# that fails closed when unset, and each has silently shipped that way.
+# Enforced against staging too: it runs the same signup and check code.
+REQUIRED_IN_PRODUCTION = frozenset({
+    "GEMINI_API_KEY",       # moderation, validity, relevance, uniqueness
+    "ANTHROPIC_API_KEY",    # the verification check
+    "OPENREVIEW_USERNAME",  # the profile lookup every signup makes
+    "OPENREVIEW_PASSWORD",
+    # Without this, `email.py` logs the verification link instead of sending it,
+    # the account never redeems, and `auth.py` answers every subsequent login
+    # with 401 "Invalid email or password" — by design, to avoid an enumeration
+    # oracle. An unset key makes every human signup dead on arrival, silently.
+    "RESEND_API_KEY",
+})
+
+# Settings a deploy may legitimately leave empty, and why.
+NOT_REQUIRED_IN_PRODUCTION = frozenset({
+    "GCS_STORAGE_BUCKET",   # every v1 service pins it in the compose file
+    "HF_TOKEN",             # see OPTIONAL_SECRETS
+    "OPENREVIEW_TOKEN",     # short-lived alternative to the username/password
+    "ORCID_CLIENT_ID",      # a post-signup linking flow that 501s when unset
+    "ORCID_CLIENT_SECRET",
+})
+
+assert REQUIRED_IN_PRODUCTION.isdisjoint(OPTIONAL_SECRETS), (
+    "a setting cannot be both required and allowed to be empty"
+)
+
+
+def test_required_settings_are_real_settings():
+    """A renamed or misspelled setting would otherwise be guarded in name only."""
+    from app.core.config import Settings
+
+    unknown = REQUIRED_IN_PRODUCTION - set(Settings.model_fields)
+    assert not unknown, f"REQUIRED_IN_PRODUCTION names {sorted(unknown)}, absent from Settings"
+
+
+def test_every_credential_setting_is_classified():
+    """
+    The list above cannot catch what nobody adds to it — which is exactly how
+    the OpenReview pair reached production unset. Every setting that defaults to
+    empty has to be called required or explicitly not, so a new credential
+    cannot be introduced without someone deciding which it is.
+    """
+    from app.core.config import Settings
+
+    candidates = {
+        name for name, field in Settings.model_fields.items()
+        if field.annotation is str and field.default == ""
+    }
+    unclassified = candidates - REQUIRED_IN_PRODUCTION - NOT_REQUIRED_IN_PRODUCTION
+    assert not unclassified, (
+        f"{sorted(unclassified)} default to empty but are listed neither as "
+        "required in production nor as safe to leave unset"
+    )
+
+
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_the_workflow_supplies_every_setting_production_needs(compose_name, workflow_name):
+    """
+    The `${VAR}` guard only sees what Compose interpolates. Anything the app
+    reads from .env itself is invisible to it, which is how the OpenReview
+    credentials reached production unset.
+    """
+    missing = REQUIRED_IN_PRODUCTION - _written(workflow_name)
+    assert not missing, (
+        f"{workflow_name} does not write {sorted(missing)} to the VM's .env. "
+        "The setting will be empty and the feature that reads it will fail closed."
+    )
+
+
+def _password_guard(script: str) -> str:
+    """The shape check itself, so a test can run it rather than describe it."""
+    match = re.search(r'(case "\$OPENREVIEW_PASSWORD".*?esac)', script, re.DOTALL)
+    assert match, "no OPENREVIEW_PASSWORD shape guard in the snippet step"
+    return match.group(1)
+
+
+@pytest.mark.parametrize("value,accepted", [
+    ("goodpassword123", True),
+    ("Str0ng-p_ass.w0rd!", True),
+    ("has space", False),
+    ("has$dollar", False),
+    ("has#hash", False),
+    ("trailing ", False),
+])
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_the_workflow_rejects_a_value_the_env_parser_would_mangle(
+    compose_name, workflow_name, value, accepted
+):
+    """
+    The VM's .env is read by compose-go, not python-dotenv: it expands `$VAR`
+    in unquoted values and strips inline `#`. A password is the first
+    user-chosen value here, and a mangled one logs into OpenReview as a wrong
+    password — which surfaces as the same 503 this guard exists to prevent.
+
+    Runs the guard rather than matching its text: a `case` reduced to `*) ;;`
+    reads the same and protects nothing.
+    """
+    guard = _password_guard(_env_snippet_script((WORKFLOWS_DIR / workflow_name).read_text()))
+    result = subprocess.run(
+        ["bash", "-c", guard],
+        env={"OPENREVIEW_PASSWORD": value},
+        capture_output=True,
+    )
+    assert (result.returncode == 0) is accepted, (
+        f"{workflow_name} {'rejected' if accepted else 'accepted'} {value!r}"
+    )
 
 
 def test_vm_provisioned_lists_nothing_stale():
