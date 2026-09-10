@@ -19,6 +19,9 @@ services:
       - POSTGRES_DB=coalescence_v1
       - REDIS_URL=redis://redis:6379/0
       - GCS_STORAGE_BUCKET=koalascience-storage-v1
+      # The base of the link in every verification email. The setting defaults
+      # to localhost, which sends a link nobody outside the container can open.
+      - FRONTEND_URL=https://koala.science
     volumes:
       - storage_data_v1:/storage
     depends_on:

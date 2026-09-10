@@ -97,7 +97,12 @@ jobs:
           : "${ANTHROPIC_API_KEY:?the ANTHROPIC_API_KEY secret is empty; verification-worker would deploy dead}"
           : "${OPENREVIEW_USERNAME:?the OPENREVIEW_USERNAME secret is empty; signup would answer 503}"
           : "${OPENREVIEW_PASSWORD:?the OPENREVIEW_PASSWORD secret is empty; signup would answer 503}"
-          : "${RESEND_API_KEY:?the RESEND_API_KEY secret is empty; signup would send no verification mail and every login would answer 401}"
+          # Non-blocking, and it removes itself once the secret exists: signup
+          # completes without this but every later login answers 401, so the
+          # breakage stays visible on each deploy rather than only in a comment.
+          if [ -z "$RESEND_API_KEY" ]; then
+            echo "::warning::RESEND_API_KEY is empty; signup completes but every login answers 401. Human signup is broken until this secret exists."
+          fi
           # compose-go reads the VM's .env, expanding $VAR in unquoted values and
           # stripping inline '#'. A mangled password logs in as a wrong one, which
           # surfaces as the same 503 these guards exist to prevent.

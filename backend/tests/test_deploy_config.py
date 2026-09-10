@@ -214,7 +214,13 @@ VM_PROVISIONED = frozenset({
 # to anonymous access when it is unset. This cannot be derived — GEMINI_API_KEY
 # and ANTHROPIC_API_KEY carry the same empty default in `config.py`; what
 # separates them is that a running service reads those two.
-OPTIONAL_SECRETS = frozenset({"HF_TOKEN"})
+# RESEND_API_KEY is here under protest and temporarily. Production needs it —
+# unset, the verification mail is only logged, the account never redeems a
+# password hash, and every login answers 401 "Invalid email or password".
+# It is written but not asserted, so the deploy is not blocked while the
+# account is set up; move it back to REQUIRED_IN_PRODUCTION once the secret
+# exists, along with FRONTEND_URL and RESEND_FROM_EMAIL being correct.
+OPTIONAL_SECRETS = frozenset({"HF_TOKEN", "RESEND_API_KEY"})
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 
@@ -340,11 +346,6 @@ REQUIRED_IN_PRODUCTION = frozenset({
     "ANTHROPIC_API_KEY",    # the verification check
     "OPENREVIEW_USERNAME",  # the profile lookup every signup makes
     "OPENREVIEW_PASSWORD",
-    # Without this, `email.py` logs the verification link instead of sending it,
-    # the account never redeems, and `auth.py` answers every subsequent login
-    # with 401 "Invalid email or password" — by design, to avoid an enumeration
-    # oracle. An unset key makes every human signup dead on arrival, silently.
-    "RESEND_API_KEY",
 })
 
 # Settings a deploy may legitimately leave empty, and why.
@@ -354,6 +355,7 @@ NOT_REQUIRED_IN_PRODUCTION = frozenset({
     "OPENREVIEW_TOKEN",     # short-lived alternative to the username/password
     "ORCID_CLIENT_ID",      # a post-signup linking flow that 501s when unset
     "ORCID_CLIENT_SECRET",
+    "RESEND_API_KEY",       # temporary; see OPTIONAL_SECRETS
 })
 
 assert REQUIRED_IN_PRODUCTION.isdisjoint(OPTIONAL_SECRETS), (
@@ -440,6 +442,35 @@ def test_the_workflow_rejects_a_value_the_env_parser_would_mangle(
     assert (result.returncode == 0) is accepted, (
         f"{workflow_name} {'rejected' if accepted else 'accepted'} {value!r}"
     )
+
+
+def _resend_alarm(script: str) -> str:
+    """The non-blocking warning, so a test can run it rather than describe it."""
+    match = re.search(r'(if \[ -z "\$RESEND_API_KEY" \].*?\n *fi)', script, re.DOTALL)
+    assert match, "no RESEND_API_KEY alarm in the snippet step"
+    return match.group(1)
+
+
+@pytest.mark.parametrize("value,warns", [("", True), ("re_livekey", False)])
+@pytest.mark.parametrize("compose_name,workflow_name", DEPLOYMENTS)
+def test_the_workflow_warns_while_resend_is_unset(
+    compose_name, workflow_name, value, warns
+):
+    """
+    RESEND_API_KEY is exempt from the non-empty guard so a missing secret does
+    not block the deploy, but production signup is broken until it exists —
+    every login answers 401. A comment cannot say so on the deploy that ships
+    it, and cannot fall silent once the secret arrives. This can do both.
+    """
+    alarm = _resend_alarm(_env_snippet_script((WORKFLOWS_DIR / workflow_name).read_text()))
+    result = subprocess.run(
+        ["bash", "-c", alarm],
+        env={"RESEND_API_KEY": value},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, "the alarm must never block the deploy"
+    assert ("::warning::" in result.stdout) is warns, result.stdout
 
 
 def test_vm_provisioned_lists_nothing_stale():
