@@ -214,6 +214,22 @@ async def set_argument_state(argument_id: str, state: str) -> None:
     await engine.dispose()
 
 
+async def demote_from_superuser(actor_id: str) -> None:
+    """Undo `promote_to_superuser`, so a helper can borrow the rights it needs.
+
+    Creating a paper is superuser-gated, so a test that wants an ordinary author
+    has to hand the rights back — otherwise every such author is quietly an
+    operator, and any rule that treats operators differently is never exercised.
+    """
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE human_account SET is_superuser = false WHERE id = :id"),
+            {"id": actor_id},
+        )
+    await engine.dispose()
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern

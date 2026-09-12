@@ -6,11 +6,12 @@ import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import func, select
 
-from app.api.v1.endpoints.arguments import MAX_LIVE_ARGUMENTS_PER_PAPER
+from app.api.v1.endpoints.arguments import ARGUMENT_COST, MAX_LIVE_ARGUMENTS_PER_PAPER
 from app.core import checks
 from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
 from tests.conftest import (
     complete_signup,
+    demote_from_superuser,
     grant_authorship,
     promote_to_superuser,
     set_argument_state,
@@ -46,6 +47,7 @@ async def _create_agent_key(client: AsyncClient, token: str, name: str) -> str:
 
 
 async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:
+    """Create a paper as `actor_id`, who is left an ordinary human."""
     await promote_to_superuser(actor_id)
     resp = await client.post(
         "/api/v1/papers/",
@@ -57,6 +59,7 @@ async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
+    await demote_from_superuser(actor_id)
     return resp.json()["id"]
 
 
@@ -235,6 +238,85 @@ async def test_an_agent_cannot_argue_about_a_paper_its_owner_authored(client: As
     assert resp.status_code == 403
     assert "author" in resp.json()["detail"].lower()
     assert await _points(client, token) == before
+
+
+async def test_a_superusers_agent_may_argue_about_its_owners_paper(client: AsyncClient):
+    """The bar is lifted for superusers, so the platform can be exercised end to end."""
+    token, actor_id = await _signup(client, "adminself")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "adminself_agent")
+    await grant_authorship(paper_id, actor_id)
+    await promote_to_superuser(actor_id)
+
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_the_exemption_does_not_leak_to_other_owners(client: AsyncClient):
+    """A superuser on the platform must not unbar everyone else's agents."""
+    _, admin_id = await _signup(client, "adminbystander")
+    await promote_to_superuser(admin_id)
+
+    token, actor_id = await _signup(client, "bystander")
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "bystander_agent")
+    await grant_authorship(paper_id, actor_id)
+
+    resp = await client.post(
+        "/api/v1/arguments/",
+        json={**PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+async def _exempt_agent_on_own_paper(
+    client: AsyncClient, prefix: str
+) -> tuple[str, str, str, str]:
+    """A superuser's agent, on a paper that superuser authored."""
+    token, actor_id = await _signup(client, prefix)
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, f"{prefix}_agent")
+    await grant_authorship(paper_id, actor_id)
+    await promote_to_superuser(actor_id)
+    return token, actor_id, api_key, paper_id
+
+
+async def test_a_superuser_pays_the_full_price_for_every_argument(client: AsyncClient):
+    """Exact, not merely less: a balance charged once for three would also decrease."""
+    token, _, api_key, paper_id = await _exempt_agent_on_own_paper(client, "admincharged")
+
+    before = await _points(client, token)
+    await _fill_the_cap(client, api_key, paper_id)
+
+    assert await _points(client, token) == (
+        before - MAX_LIVE_ARGUMENTS_PER_PAPER * ARGUMENT_COST
+    )
+
+
+async def test_a_superuser_who_cannot_pay_is_still_refused(client: AsyncClient):
+    """The exemption lifts the authorship bar, not the price."""
+    _, actor_id, api_key, paper_id = await _exempt_agent_on_own_paper(client, "adminbroke")
+    await set_human_points(actor_id, 0)
+
+    resp = await _argue(client, api_key, paper_id, "An argument nobody can afford.")
+    assert resp.status_code == 402, resp.text
+
+
+async def test_a_superuser_is_still_capped(client: AsyncClient):
+    """And the detail says it is the cap, not the duplicate-claim 409."""
+    _, _, api_key, paper_id = await _exempt_agent_on_own_paper(client, "admincapped")
+    await _fill_the_cap(client, api_key, paper_id)
+
+    resp = await _argue(client, api_key, paper_id, "One argument too many.")
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == (
+        "You already have 3 arguments pending or accepted on this paper"
+    )
 
 
 async def test_the_bar_follows_the_owner_not_the_agent(client: AsyncClient):

@@ -78,7 +78,8 @@ async def create_argument(
     # only, so touching actor.owner_id would lazy-load and raise MissingGreenlet.
     # Authorship rides along on the same round trip; the `exists` correlates to
     # the `agent` row this selects from.
-    owner_id, owner_authored_it = (
+    human = HumanAccount.__table__
+    owner_id, owner_authored_it, owner_is_superuser = (
         await db.execute(
             select(
                 Agent.owner_id,
@@ -86,13 +87,19 @@ async def create_argument(
                     PaperAuthor.paper_id == argument_in.paper_id,
                     PaperAuthor.author_id == Agent.owner_id,
                 ),
-            ).where(Agent.id == actor.id)
+                human.c.is_superuser,
+            )
+            .join(human, human.c.id == Agent.owner_id)
+            .where(Agent.id == actor.id)
         )
     ).one()
 
     # Ahead of the balance lock, so a submission that will be refused never
     # takes it.
-    if owner_authored_it:
+    #
+    # Superusers are exempt, so the pipeline can be exercised end to end on a
+    # platform whose only papers belong to the operator.
+    if owner_authored_it and not owner_is_superuser:
         raise HTTPException(
             status_code=403,
             detail="An agent cannot argue about a paper its owner authored",
