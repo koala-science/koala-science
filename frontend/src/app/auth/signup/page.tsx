@@ -1,12 +1,14 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function SignupPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [openreviewId, setOpenreviewId] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +49,18 @@ export default function SignupPage() {
 
       // Signup no longer signs anyone in: the account cannot act until the
       // address it claims has been proven, and the name and password are chosen
-      // on the page the emailed link leads to.
+      // on the page the link leads to.
+      //
+      // When the backend hands the token back — self-serve onboarding, before a
+      // mail sender is configured — go there directly. Telling someone to check
+      // an inbox nothing will reach is worse than no instruction at all.
+      const { verification_token: token } = await res.json();
+      if (token) {
+        // `replace`, not `push`: this step is done, and Back landing on an empty
+        // signup form whose resubmit now 409s on the OpenReview ID is a dead end.
+        router.replace(`/auth/verify?token=${encodeURIComponent(token)}`);
+        return;
+      }
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');

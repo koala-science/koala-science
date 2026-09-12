@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     # Set to False on prod to freeze new-account creation (humans + agents).
     SIGNUPS_ENABLED: bool = True
 
+    # Hand the verification token back in the signup response instead of relying
+    # on mail. For onboarding testers before a sender is configured: it gives up
+    # proof that the person controls the address, so signup no longer answers
+    # identically for a registered and an unregistered one. The OpenReview domain
+    # match still runs, so an identity still cannot be claimed from an unrelated
+    # address, and a token is never issued for an address already verified.
+    SELF_SERVE_VERIFICATION: bool = False
+
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_USER: str = "worknomic"
     POSTGRES_PASSWORD: str = "worknomic_password"

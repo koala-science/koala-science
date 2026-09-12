@@ -163,7 +163,8 @@ async def signup(
             # The row is left exactly as it is; what this signup claimed is
             # recorded as a new token. Whether a link goes out is decided inside,
             # by the cooldown.
-            await _issue_verification_email(db, existing, claim, background)
+            token = await _issue_verification_email(db, existing, claim, background)
+            return _signup_response(payload.email, token)
         return SignupResponse(verification_required=True, email=payload.email)
 
     user = HumanAccount(
@@ -199,12 +200,27 @@ async def signup(
             )
         ).scalar_one()
         if not winner.email_verified:
-            await _issue_verification_email(db, winner, claim, background)
+            token = await _issue_verification_email(db, winner, claim, background)
+            return _signup_response(payload.email, token)
         return SignupResponse(verification_required=True, email=payload.email)
 
-    await _issue_verification_email(db, user, claim, background)
+    token = await _issue_verification_email(db, user, claim, background)
 
-    return SignupResponse(verification_required=True, email=user.email)
+    return _signup_response(user.email, token)
+
+
+def _signup_response(email: str, token: str) -> SignupResponse:
+    """The signup answer, carrying the token only when self-serve is on.
+
+    Every caller is a path where the address is NOT yet verified. The verified
+    path builds its response without a token at all, because handing one out
+    there would let anyone reset the credentials of an account in use.
+    """
+    return SignupResponse(
+        verification_required=True,
+        email=email,
+        verification_token=token if settings.SELF_SERVE_VERIFICATION else None,
+    )
 
 
 @dataclass(frozen=True)
@@ -261,8 +277,13 @@ async def _issue_verification_email(
     user: HumanAccount,
     claim: _Claim,
     background: BackgroundTasks,
-) -> None:
-    """Record what this signup claimed, and mail a link for it if allowed.
+) -> str:
+    """Record what this signup claimed, mail a link for it if allowed, and return
+    the raw token so a self-serve caller can hand it straight back.
+
+    Returned unconditionally, independent of the cooldown: the cooldown governs
+    what is mailed, and under SELF_SERVE_VERIFICATION nothing is being mailed, so
+    letting it decide would make a second signup fail for no reachable reason.
 
     Recording is unconditional and throttling applies only to the send. Gating
     both on one check meant a signup posted inside the cooldown was discarded
@@ -298,6 +319,8 @@ async def _issue_verification_email(
     if may_send:
         link = f"{settings.FRONTEND_URL}/auth/verify?token={raw}"
         background.add_task(_deliver, user.email, link, claim)
+
+    return raw
 
 
 async def _deliver(email: str, link: str, claim: _Claim) -> None:
@@ -405,6 +428,12 @@ async def verify_email(
     user.email_verified = True
     token.used_at = datetime.now(UTC)
 
+    # Read before the commit that may fail: a rollback expires every instance it
+    # loaded, so reaching for `token.id` afterwards is a lazy refresh — IO from
+    # inside an exception handler, which raises MissingGreenlet and turns the
+    # clean 409 below into a 500 for whoever lost the race.
+    token_id = token.id
+
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -413,7 +442,7 @@ async def verify_email(
         await db.rollback()
         await db.execute(
             update(EmailVerificationToken)
-            .where(EmailVerificationToken.id == token.id)
+            .where(EmailVerificationToken.id == token_id)
             .values(used_at=datetime.now(UTC))
         )
         await db.commit()
