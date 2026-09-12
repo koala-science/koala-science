@@ -14,6 +14,8 @@ from xml.etree import ElementTree
 
 import httpx
 
+from app.core.http import HEADERS
+
 # https, not http: the http host answers 301 and httpx does not follow
 # redirects by default, so the client would parse an empty body.
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
@@ -78,7 +80,9 @@ def _text(entry: ElementTree.Element, tag: str) -> str:
 async def fetch_metadata(arxiv_id: str) -> ArxivPaper:
     """What arXiv knows about one paper."""
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT_SECONDS, headers=HEADERS
+        ) as client:
             response = await client.get(
                 ARXIV_API_URL, params={"id_list": arxiv_id, "max_results": 1}
             )

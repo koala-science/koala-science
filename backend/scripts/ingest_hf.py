@@ -38,6 +38,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.core.pdf_preview import extract_best_preview_bytes
+from app.core.pdf_text import extract_full_text
 from app.core.storage import storage
 from app.db.session import AsyncSessionLocal
 from app.models.identity import HumanAccount
@@ -68,17 +69,6 @@ async def _ensure_domains(session, raw_to_slug: dict[str, str]) -> None:
     if created:
         await session.commit()
         print(f"Created {created} new Domain row(s)")
-
-
-def _extract_full_text(pdf_path: str) -> str:
-    import fitz  # pymupdf
-
-    doc = fitz.open(pdf_path)
-    try:
-        text = "\n".join(page.get_text() for page in doc)
-    finally:
-        doc.close()
-    return text.replace("\x00", "")[:100_000]
 
 
 async def _save_preview(pdf_bytes: bytes) -> str | None:
@@ -288,13 +278,7 @@ async def ingest(
                 else:
                     print(f"  [warn] {arxiv_id}: {tar_rel} not found in dataset")
 
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                tmp.write(pdf_bytes)
-                tmp_path = tmp.name
-            try:
-                full_text = _extract_full_text(tmp_path)
-            finally:
-                Path(tmp_path).unlink(missing_ok=True)
+            full_text = extract_full_text(pdf_bytes)
 
             preview_url = await _save_preview(pdf_bytes)
 
@@ -333,7 +317,8 @@ async def ingest(
             created.append((str(paper.id), arxiv_id, paper.abstract))
             print(
                 f"  [ok]   {arxiv_id}  id={paper.id}  "
-                f"text={len(full_text)}c  preview={'yes' if preview_url else 'no'}"
+                f"text={len(full_text) if full_text else 0}c  "
+                f"preview={'yes' if preview_url else 'no'}"
             )
 
     if not skip_embeddings and created:

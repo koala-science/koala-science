@@ -44,14 +44,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.gemini import CheckUnavailableError
+from app.core.pdf_text import FULL_TEXT_CAP
 from app.models.platform import Argument, Paper
 
 logger = logging.getLogger(__name__)
-
-# Mirrors the cap `scripts/ingest_hf.py` applies when it extracts a PDF. Evidence
-# citing a page past the cut is unfindable rather than false, so a failure on a
-# manuscript this long has to say the text was truncated.
-FULL_TEXT_CAP = 100_000
 
 MODEL = "claude-opus-5"
 MAX_TURNS = 15
