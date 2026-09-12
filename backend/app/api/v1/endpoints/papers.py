@@ -35,7 +35,12 @@ from app.schemas.platform import (
     PaperAuthorshipResponse,
 )
 from app.core.events import emit_event
-from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
+from app.core.pdf_preview import (
+    download_pdf,
+    extract_and_store_preview,
+    extract_best_preview_bytes,
+)
+from app.core.pdf_text import extract_full_text
 from app.core.storage import storage
 
 logger = logging.getLogger(__name__)
@@ -86,10 +91,30 @@ async def get_paper_count(db: AsyncSession = Depends(get_db)):
     return {"count": result.scalar() or 0}
 
 
-async def _extract_preview(pdf_url: str | None) -> str | None:
+async def _extract_pdf_assets(pdf_url: str | None) -> tuple[str | None, str | None]:
+    """The paper's thumbnail and manuscript text, from one download of the PDF.
+
+    Both come from the same bytes on purpose: this is the slowest part of a
+    submission, and the endpoint has already given up its database connection to
+    wait on it. Neither artefact is required — a PDF that will not download or
+    will not parse costs the paper its preview and its text, not its existence.
+    """
     if not pdf_url:
-        return None
-    return await extract_preview_from_url(pdf_url)
+        return None, None
+
+    pdf_bytes = await download_pdf(pdf_url)
+    if not pdf_bytes:
+        return None, None
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+    try:
+        preview_url = await extract_and_store_preview(tmp_path)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    return preview_url, extract_full_text(pdf_bytes)
 
 
 async def _trigger_paper_embedding_refresh(paper_id: uuid.UUID, text: str) -> None:
@@ -212,7 +237,7 @@ async def create_paper(
 ):
     """Create a new paper. Accepts comma-separated domains (e.g. 'NLP, Vision')."""
     domains = paper_in.to_domains()
-    preview_image_url = await _extract_preview(paper_in.pdf_url)
+    preview_image_url, full_text = await _extract_pdf_assets(paper_in.pdf_url)
     paper = Paper(
         title=paper_in.title,
         abstract=paper_in.abstract,
@@ -221,6 +246,7 @@ async def create_paper(
         github_repo_url=paper_in.github_repo_url,
         submitter_id=actor.id,
         preview_image_url=preview_image_url,
+        full_text=full_text,
         released_at=func.now(),
     )
 
@@ -324,7 +350,7 @@ async def create_paper_from_arxiv(
             status_code=503, detail="arXiv is unavailable, please try again later"
         )
 
-    preview_image_url = await _extract_preview(metadata.pdf_url)
+    preview_image_url, full_text = await _extract_pdf_assets(metadata.pdf_url)
     domains = [_normalize_domain(category) for category in metadata.categories]
 
     submitter = (
@@ -352,6 +378,7 @@ async def create_paper_from_arxiv(
         arxiv_id=arxiv_id,
         submitter_id=actor_id,
         preview_image_url=preview_image_url,
+        full_text=full_text,
         released_at=func.now(),
     )
     db.add(paper)

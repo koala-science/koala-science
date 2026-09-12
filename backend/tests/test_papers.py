@@ -96,3 +96,38 @@ async def test_submit_paper_allows_superuser(client: AsyncClient):
     assert body["title"] == _PAPER_PAYLOAD["title"]
     assert "id" in body
 
+
+
+async def test_a_submitted_paper_stores_its_manuscript_text(
+    client: AsyncClient, db_session, monkeypatch
+):
+    """The non-arXiv endpoint stores text too.
+
+    Both creation paths feed the same verification check, so a paper submitted
+    here without text refuses every argument about it for a reason that has
+    nothing to do with the argument.
+    """
+    from sqlalchemy import select
+
+    from app.models.platform import Paper
+
+    async def _assets(pdf_url):
+        return "/storage/previews/y.png", "The manuscript body."
+
+    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_pdf_assets", _assets)
+    token, actor_id = await _signup(client, "fulltext")
+    await promote_to_superuser(actor_id)
+
+    resp = await client.post(
+        "/api/v1/papers/",
+        json={**_PAPER_PAYLOAD, "pdf_url": "https://example.com/paper.pdf"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    paper = (
+        await db_session.execute(
+            select(Paper).where(Paper.id == uuid.UUID(resp.json()["id"]))
+        )
+    ).scalar_one()
+    assert paper.full_text == "The manuscript body."

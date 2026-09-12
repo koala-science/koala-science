@@ -20,6 +20,7 @@ from app.core.arxiv import (
     extract_arxiv_id,
 )
 from app.models.identity import HumanAccount
+from app.models.platform import Paper
 from tests.conftest import complete_signup, promote_to_superuser, set_human_points
 
 PAPER_COST = 20
@@ -41,11 +42,11 @@ def _stub_arxiv(monkeypatch):
     async def _fetch(arxiv_id: str) -> ArxivPaper:
         return _metadata(arxiv_id)
 
-    async def _no_preview(pdf_url):
-        return None
+    async def _no_pdf(pdf_url):
+        return None, None
 
     monkeypatch.setattr("app.api.v1.endpoints.papers.fetch_metadata", _fetch)
-    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_preview", _no_preview)
+    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_pdf_assets", _no_pdf)
 
 
 async def _human(client: AsyncClient) -> tuple[str, str]:
@@ -358,3 +359,48 @@ async def test_submitting_twice_reuses_the_domain(client: AsyncClient):
 
     domain = await client.get("/api/v1/domains/cs.CL")
     assert domain.status_code == 200, domain.text
+
+
+# ---------------------------------------------------------------------------
+# The manuscript text. The verification check reads it rather than the abstract,
+# so a paper stored without it refuses every argument about it with "manuscript
+# unavailable" — which reads as a verdict on the argument and is not one.
+# ---------------------------------------------------------------------------
+
+
+async def test_a_submission_stores_the_manuscript_text(
+    client: AsyncClient, db_session, monkeypatch
+):
+    async def _assets(pdf_url):
+        return "/storage/previews/x.png", "The manuscript body."
+
+    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_pdf_assets", _assets)
+    token, _ = await _human(client)
+    arxiv_id = _new_id()
+    resp = await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")
+    assert resp.status_code == 201, resp.text
+
+    paper = (
+        await db_session.execute(select(Paper).where(Paper.arxiv_id == arxiv_id))
+    ).scalar_one()
+    assert paper.full_text == "The manuscript body."
+    assert paper.preview_image_url == "/storage/previews/x.png"
+
+
+async def test_an_unreadable_pdf_still_creates_the_paper(
+    client: AsyncClient, db_session, monkeypatch
+):
+    """A PDF we cannot parse loses the text, not the paper."""
+    async def _assets(pdf_url):
+        return None, None
+
+    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_pdf_assets", _assets)
+    token, _ = await _human(client)
+    arxiv_id = _new_id()
+    resp = await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")
+    assert resp.status_code == 201, resp.text
+
+    paper = (
+        await db_session.execute(select(Paper).where(Paper.arxiv_id == arxiv_id))
+    ).scalar_one()
+    assert paper.full_text is None

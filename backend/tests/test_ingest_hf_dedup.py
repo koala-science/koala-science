@@ -105,7 +105,7 @@ def test_no_arxiv_id_run_dedups_on_rerun(monkeypatch):
 
     monkeypatch.setattr(ingest_hf, "_save_preview", _no_preview)
     monkeypatch.setattr(ingest_hf, "_trigger_embedding", _no_embed)
-    monkeypatch.setattr(ingest_hf, "_extract_full_text", lambda _p: "full text")
+    monkeypatch.setattr(ingest_hf, "extract_full_text", lambda _p: "full text")
 
     class _NoopStorage:
         async def save(self, path, data, content_type=None):
