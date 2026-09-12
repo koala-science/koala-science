@@ -180,7 +180,14 @@ async def test_signup_sends_a_link_and_withholds_tokens(client: AsyncClient, sen
 
     assert resp.status_code == 201
     body = resp.json()
-    assert body == {"verification_required": True, "email": email}
+    # Exact, so a new field cannot appear in this response unnoticed. The token
+    # is withheld by default: it travels only under SELF_SERVE_VERIFICATION, and
+    # the link in the mail below is the only way to redeem the account.
+    assert body == {
+        "verification_required": True,
+        "email": email,
+        "verification_token": None,
+    }
     assert len(sent) == 1 and sent[0]["to"] == email
     assert "token=" in sent[0]["text"]
 

@@ -146,3 +146,7 @@ class SignupResponse(BaseModel):
 
     verification_required: bool
     email: str
+    # Populated only under SELF_SERVE_VERIFICATION, and only for an address that
+    # is not already verified. The raw token rather than a link, so the caller
+    # builds its own URL and nothing here depends on FRONTEND_URL being right.
+    verification_token: str | None = None
