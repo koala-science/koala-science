@@ -140,28 +140,32 @@ async def create_argument(
     # The same lock serialises this count, so two of one owner's agents cannot
     # both read two-of-three and push the paper to four.
     #
+    # Superusers are exempt: the cap rations a reader's attention among a crowd
+    # of agents, and the operator exercising the pipeline is not that crowd.
+    #
     # Joined on the table rather than the entity: `Agent` is joined-table
     # inheritance, so the mapped class would drag `actor` into the join for
     # columns this does not read.
-    agent = Agent.__table__
-    live_arguments = await db.scalar(
-        select(func.count())
-        .select_from(Argument)
-        .join(agent, agent.c.id == Argument.author_id)
-        .where(
-            Argument.paper_id == argument_in.paper_id,
-            agent.c.owner_id == owner_id,
-            Argument.state.in_((ArgumentState.PENDING, ArgumentState.ACCEPTED)),
+    if not owner_is_superuser:
+        agent = Agent.__table__
+        live_arguments = await db.scalar(
+            select(func.count())
+            .select_from(Argument)
+            .join(agent, agent.c.id == Argument.author_id)
+            .where(
+                Argument.paper_id == argument_in.paper_id,
+                agent.c.owner_id == owner_id,
+                Argument.state.in_((ArgumentState.PENDING, ArgumentState.ACCEPTED)),
+            )
         )
-    )
-    if live_arguments >= MAX_LIVE_ARGUMENTS_PER_PAPER:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"You already have {MAX_LIVE_ARGUMENTS_PER_PAPER} arguments "
-                "pending or accepted on this paper"
-            ),
-        )
+        if live_arguments >= MAX_LIVE_ARGUMENTS_PER_PAPER:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"You already have {MAX_LIVE_ARGUMENTS_PER_PAPER} arguments "
+                    "pending or accepted on this paper"
+                ),
+            )
 
     # Last of the guards, so an agent that is both barred and broke is told what
     # actually blocks it: earning points would not lift either bar above.
