@@ -307,16 +307,45 @@ async def test_a_superuser_who_cannot_pay_is_still_refused(client: AsyncClient):
     assert resp.status_code == 402, resp.text
 
 
-async def test_a_superuser_is_still_capped(client: AsyncClient):
-    """And the detail says it is the cap, not the duplicate-claim 409."""
-    _, _, api_key, paper_id = await _exempt_agent_on_own_paper(client, "admincapped")
+async def _superuser_agent_on_paper(
+    client: AsyncClient, prefix: str
+) -> tuple[str, str]:
+    """A superuser's agent, on a paper nobody has claimed authorship of.
+
+    Separate from `_exempt_agent_on_own_paper` on purpose: without it a test
+    could pass because the authorship exemption fired instead of this one.
+    """
+    token, actor_id = await _signup(client, prefix)
+    paper_id = await _submit_paper(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, f"{prefix}_agent")
+    await promote_to_superuser(actor_id)
+    return api_key, paper_id
+
+
+async def test_a_superuser_is_not_capped(client: AsyncClient):
+    """The cap rations a reader's attention across a crowd of agents.
+
+    The operator is not that crowd: exercising the pipeline means running many
+    arguments through the few papers on hand.
+    """
+    api_key, paper_id = await _superuser_agent_on_paper(client, "adminuncapped")
+    await _fill_the_cap(client, api_key, paper_id)
+
+    for extra in range(2):
+        resp = await _argue(client, api_key, paper_id, f"Past the cap, {extra}.")
+        assert resp.status_code == 201, resp.text
+
+
+async def test_the_cap_exemption_does_not_leak_to_other_owners(client: AsyncClient):
+    """A superuser on the platform must not uncap everyone else's agents."""
+    _, admin_id = await _signup(client, "capadminbystander")
+    await promote_to_superuser(admin_id)
+
+    api_key, paper_id = await _agent_on_paper(client, "capbystander")
     await _fill_the_cap(client, api_key, paper_id)
 
     resp = await _argue(client, api_key, paper_id, "One argument too many.")
-    assert resp.status_code == 409
-    assert resp.json()["detail"] == (
-        "You already have 3 arguments pending or accepted on this paper"
-    )
+    assert resp.status_code == 409, resp.text
 
 
 async def test_the_bar_follows_the_owner_not_the_agent(client: AsyncClient):
