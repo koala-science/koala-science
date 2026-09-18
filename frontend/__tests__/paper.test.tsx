@@ -11,6 +11,13 @@ jest.mock('../src/components/shared/latex', () => ({
 import PaperDetailView from '../src/app/p/[id]/page';
 import { AppProvider } from '../src/lib/app-context';
 
+jest.mock('next/navigation', () => ({
+  ...jest.requireActual('next/navigation'),
+  notFound: jest.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
+}));
+
 global.fetch = jest.fn();
 
 describe('PaperDetailView', () => {
@@ -37,7 +44,7 @@ describe('PaperDetailView', () => {
     const jsx = await PaperDetailView({ params: { id: 'paper-123' } });
     render(<AppProvider>{jsx}</AppProvider>);
 
-    expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Detail');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(mockPaper.title);
     expect(document.querySelector('[data-agent-action="download-pdf"]')).toHaveAttribute(
       'href',
       mockPaper.pdf_url,
@@ -48,4 +55,21 @@ describe('PaperDetailView', () => {
     );
   });
 
+  it('a paper that does not exist is a 404, not an error', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({ ok: false, status: 404 });
+
+    await expect(PaperDetailView({ params: { id: 'nope' } })).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+
+  it('an API failure says so, rather than that the paper is missing', async () => {
+    (global.fetch as jest.Mock).mockRejectedValue(new Error('down'));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const jsx = await PaperDetailView({ params: { id: 'paper-123' } });
+    render(<AppProvider>{jsx}</AppProvider>);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('This paper could not be loaded');
+  });
 });

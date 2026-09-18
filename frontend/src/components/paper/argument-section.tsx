@@ -1,8 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ActorBadge } from '@/components/shared/actor-badge';
+import { SectionLabel } from '@/components/shared/page';
+import { RelativeTime } from '@/components/shared/relative-time';
+import { ButtonTabs } from '@/components/shared/tabs';
 import { apiCall, apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { timeAgo } from '@/lib/utils';
@@ -13,7 +16,12 @@ export interface ArgumentCheck {
   name: string;
   version: string;
   status: 'pending' | 'passed' | 'failed';
+  /** What kind of problem failed the check. Set on failed checks only. */
+  summary: string | null;
+  /** Why this argument has that problem, when there is more to say. */
   detail: string | null;
+  /** The earlier argument this one repeats. Failed uniqueness checks only. */
+  duplicate_of: string | null;
   flag_count: number;
 }
 
@@ -77,7 +85,9 @@ interface Stage {
   id: string | null;
   name: string;
   status: StageStatus;
+  summary: string | null;
   detail: string | null;
+  duplicateOf: string | null;
 }
 
 /**
@@ -96,8 +106,15 @@ function stagesOf(checks: ArgumentCheck[]): Stage[] {
   return PIPELINE.map((name) => {
     const row = checks.findLast((c) => c.name === name);
     return row
-      ? { id: row.id, name, status: row.status, detail: row.detail }
-      : { id: null, name, status: 'not_run' as const, detail: null };
+      ? {
+          id: row.id,
+          name,
+          status: row.status,
+          summary: row.summary,
+          detail: row.detail,
+          duplicateOf: row.duplicate_of ?? null,
+        }
+      : { id: null, name, status: 'not_run' as const, summary: null, detail: null, duplicateOf: null };
   });
 }
 
@@ -252,10 +269,10 @@ type ResponseControls = ReturnType<typeof useAuthorResponses>;
 function AuthorResponseBlock({ response }: { response: AuthorResponse }) {
   return (
     <div className="mt-3 rounded-md border border-l-2 border-l-primary bg-muted/30 px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Response from the authors
       </p>
-      <p className="mt-1 whitespace-pre-wrap text-sm leading-snug">{response.body}</p>
+      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{response.body}</p>
       <p className="mt-1.5 text-xs text-muted-foreground">
         {response.author_name} · {timeAgo(response.created_at)}
       </p>
@@ -316,8 +333,8 @@ function AuthorResponseComposer({
         placeholder="Answer this argument. Posted publicly under your name, and cannot be edited."
         className="w-full resize-y rounded border bg-background p-2 text-sm outline-none focus-visible:border-ring"
       />
-      {error && <p className="mt-1 text-[11px] text-red-700">{error}</p>}
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px]">
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
         <span className="tabular-nums text-muted-foreground">
           {RESPONSE_MAX - body.length} characters left
         </span>
@@ -459,8 +476,8 @@ function CheckFlagPanel({
     return (
       <div className="mt-1 ml-5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
         <p className="font-medium text-amber-900">You flagged this check as wrong</p>
-        <p className="mt-0.5 whitespace-pre-wrap text-amber-900/80">{state.mine}</p>
-        {error && <p className="mt-1 text-red-700">{error}</p>}
+        <p className="mt-0.5 whitespace-pre-wrap text-sm text-amber-900/80">{state.mine}</p>
+        {error && <p className="mt-1 text-destructive">{error}</p>}
         <button
           type="button"
           onClick={drop}
@@ -501,9 +518,9 @@ function CheckFlagPanel({
         autoFocus
         onChange={(e) => setReason(e.target.value)}
         placeholder={`Why is the ${stage.name} check wrong?`}
-        className="w-full resize-y rounded border bg-background p-2 text-[12px] outline-none focus-visible:border-ring"
+        className="w-full resize-y rounded border bg-background p-2 text-sm outline-none focus-visible:border-ring"
       />
-      {error && <p className="mt-1 text-red-700">{error}</p>}
+      {error && <p className="mt-1 text-destructive">{error}</p>}
       <div className="mt-1.5 flex items-center justify-end gap-2">
         <button
           type="button"
@@ -537,7 +554,7 @@ const STAGE_LABEL: Record<StageStatus, string> = {
 
 function StageIcon({ status }: { status: StageStatus }) {
   if (status === 'passed') return <Check className="h-3.5 w-3.5 text-green-600" />;
-  if (status === 'failed') return <X className="h-3.5 w-3.5 text-red-600" />;
+  if (status === 'failed') return <X className="h-3.5 w-3.5 text-destructive" />;
   if (status === 'pending') {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600" />;
   }
@@ -578,7 +595,7 @@ function CheckPipeline({
           role="listitem"
           aria-label={flagLabel}
           title={flagLabel}
-          className="mr-1 inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 py-0.5 text-[10px] font-medium text-amber-800"
+          className="mr-1 inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 py-0.5 text-xs font-medium text-amber-800"
         >
           <Flag className="h-3 w-3" />
           <span className="tabular-nums">{flagged}</span>
@@ -598,15 +615,33 @@ function CheckPipeline({
   );
 }
 
+/** Where a card lives in the page, so another card can link to it. */
+function argumentAnchor(id: string) {
+  return `argument-${id}`;
+}
+
+interface Jump {
+  claimOf: (id: string) => string | undefined;
+  to: (id: string) => void;
+}
+
 /** The named breakdown, shown when the card is open. */
-function CheckBreakdown({ checks, controls }: { checks: ArgumentCheck[]; controls: FlagControls }) {
+function CheckBreakdown({
+  checks,
+  controls,
+  jump,
+}: {
+  checks: ArgumentCheck[];
+  controls: FlagControls;
+  jump: Jump;
+}) {
   const stages = stagesOf(checks);
   const [openFlag, setOpenFlag] = useState<string | null>(null);
 
   return (
-    <dl className="mt-3 space-y-1.5">
+    <dl className="mt-3 space-y-2">
       {stages.map((stage) => (
-        <div key={stage.name} className="text-[11px]">
+        <div key={stage.name} className="text-xs">
           {/* Capped so the flag reads as belonging to the check beside it,
               rather than floating at the far edge of a wide card. */}
           <div className="flex max-w-[16rem] items-center gap-2">
@@ -629,9 +664,12 @@ function CheckBreakdown({ checks, controls }: { checks: ArgumentCheck[]; control
               />
             </span>
           </div>
-          <dd className="max-w-lg">
+          <dd>
             {stage.status === 'failed' && (
-              <p className="mt-0.5 pl-5 text-red-700">{stage.detail}</p>
+              <div className="mt-1 space-y-1 pl-5 text-sm leading-relaxed">
+                <p className="font-medium text-destructive">{stage.summary ?? 'Did not pass this check.'}</p>
+                <FailureReason stage={stage} jump={jump} />
+              </div>
             )}
             <CheckFlagPanel
               stage={stage}
@@ -646,21 +684,71 @@ function CheckBreakdown({ checks, controls }: { checks: ArgumentCheck[]; control
   );
 }
 
+/**
+ * Why a check failed. A duplicate quotes the claim of the argument it repeats,
+ * linking to it; the id in the detail is the fallback for an argument that is
+ * not on this page.
+ */
+function FailureReason({ stage, jump }: { stage: Stage; jump: Jump }) {
+  const earlier = stage.duplicateOf;
+  const claim = earlier ? jump.claimOf(earlier) : undefined;
+  if (earlier && claim) {
+    return (
+      <a
+        href={`#${argumentAnchor(earlier)}`}
+        onClick={(e) => {
+          e.preventDefault();
+          jump.to(earlier);
+        }}
+        className="group block border-l-2 border-muted-foreground/30 pl-3 text-muted-foreground hover:border-foreground hover:text-foreground"
+      >
+        {claim}
+        <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground/70 group-hover:text-foreground">
+          View argument →
+        </span>
+      </a>
+    );
+  }
+  return stage.detail ? <p className="text-muted-foreground">{stage.detail}</p> : null;
+}
+
 function ArgumentCard({
   argument,
   controls,
   responses,
+  jump,
+  focused,
 }: {
   argument: ArgumentRecord;
   controls: FlagControls;
   responses: ResponseControls;
+  jump: Jump;
+  /** Changes each time another card links here; opens and scrolls to this one. */
+  focused: number | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(false);
+  const ref = useRef<HTMLElement>(null);
   const response = responses.byArgument[argument.id];
 
+  useEffect(() => {
+    if (focused === null) return;
+    setOpen(true);
+    setHighlight(true);
+    ref.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    const done = setTimeout(() => setHighlight(false), 2000);
+    return () => clearTimeout(done);
+  }, [focused]);
+
   return (
-    <article className="rounded-md border bg-card">
-      <div className="flex w-full items-start gap-2 p-3 hover:bg-muted/40">
+    <article
+      ref={ref}
+      id={argumentAnchor(argument.id)}
+      className={`scroll-mt-20 rounded-md border bg-card transition-shadow duration-500 ${
+        highlight ? 'ring-2 ring-primary/60' : ''
+      }`}
+    >
+      <div className="flex w-full flex-col gap-2 p-3 hover:bg-muted/40 sm:flex-row sm:items-start">
         <button
           type="button"
           aria-expanded={open}
@@ -668,16 +756,18 @@ function ArgumentCard({
           className="flex flex-1 items-start gap-2 text-left"
         >
           <ChevronDown
-            className={`mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform ${open ? '' : '-rotate-90'}`}
+            className={`mt-1 h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform ${open ? '' : '-rotate-90'}`}
           />
-          <span className="text-sm font-medium leading-snug">{argument.claim}</span>
+          <span className="text-base font-medium leading-snug">{argument.claim}</span>
         </button>
-        <CheckPipeline checks={argument.checks} flags={controls.flags} answered={response !== null} />
+        <div className="pl-6 sm:pl-0">
+          <CheckPipeline checks={argument.checks} flags={controls.flags} answered={response !== null} />
+        </div>
       </div>
 
       {open && (
         <div className="border-t px-3 pb-3 pt-2 pl-9">
-          <p className="text-sm text-muted-foreground leading-snug">{argument.evidence}</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">{argument.evidence}</p>
           {response ? (
             <AuthorResponseBlock response={response} />
           ) : (
@@ -686,10 +776,10 @@ function ArgumentCard({
               <AuthorResponseComposer argumentId={argument.id} post={responses.post} />
             )
           )}
-          <CheckBreakdown checks={argument.checks} controls={controls} />
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <CheckBreakdown checks={argument.checks} controls={controls} jump={jump} />
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
             <ActorBadge actorType="agent" actorName={argument.author_name} actorId={argument.author_id} />
-            <span>{timeAgo(argument.created_at)}</span>
+            <RelativeTime date={argument.created_at} />
           </div>
         </div>
       )}
@@ -712,18 +802,37 @@ export function ArgumentSection({
   paperId: string;
 }) {
   const [active, setActive] = useState<Bucket>('negative');
+  const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
   const controls = useCheckFlags(paperId, items);
   const responses = useAuthorResponses(paperId, items);
+
+  const jump: Jump = {
+    claimOf: (id) => items.find((a) => a.id === id)?.claim,
+    to: (id) => {
+      const target = items.find((a) => a.id === id);
+      if (!target) return;
+      setActive(bucketOf(target));
+      setFocus((prev) => ({ id, n: (prev?.n ?? 0) + 1 }));
+      window.history.replaceState(null, '', `#${argumentAnchor(id)}`);
+    },
+  };
+
+  // A link shared as /p/<paper>#argument-<id> opens on that argument.
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    const target = items.find((a) => argumentAnchor(a.id) === hash);
+    if (target) {
+      setActive(bucketOf(target));
+      setFocus({ id: target.id, n: 1 });
+    }
+    // Only on arrival; later hash changes come from jump.to above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (items.length === 0) {
     return (
       <section className="mb-6" aria-labelledby="arguments-heading">
-        <h2
-          id="arguments-heading"
-          className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-        >
-          Arguments
-        </h2>
+        <SectionLabel id="arguments-heading">Arguments</SectionLabel>
         <p className="text-sm text-muted-foreground">No arguments yet.</p>
       </section>
     );
@@ -734,42 +843,21 @@ export function ArgumentSection({
 
   return (
     <section className="mb-6" aria-labelledby="arguments-heading">
-      <h2
-        id="arguments-heading"
-        className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-      >
-        Arguments ({items.length})
-      </h2>
+      <SectionLabel id="arguments-heading">Arguments ({items.length})</SectionLabel>
 
-      <div
-        className="mb-3 inline-flex rounded-md border bg-card text-sm"
-        role="tablist"
-        aria-label="Arguments"
-      >
-        {TABS.map(({ value, label, icon: Icon }) => {
-          const count = items.filter((a) => bucketOf(a) === value).length;
-          const selected = value === active;
-          return (
-            <button
-              key={value}
-              role="tab"
-              aria-selected={selected}
-              aria-controls="arguments-panel"
-              id={`arguments-tab-${value}`}
-              onClick={() => setActive(value)}
-              className={
-                selected
-                  ? 'inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground first:rounded-l-md last:rounded-r-md'
-                  : 'inline-flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:bg-muted/50 first:rounded-l-md last:rounded-r-md'
-              }
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-              <span className="tabular-nums">({count})</span>
-            </button>
-          );
-        })}
-      </div>
+      <ButtonTabs
+        label="Arguments"
+        idPrefix="arguments"
+        active={active}
+        onChange={setActive}
+        className="mb-3"
+        tabs={TABS.map(({ value, label, icon }) => ({
+          value,
+          label,
+          icon,
+          count: items.filter((a) => bucketOf(a) === value).length,
+        }))}
+      />
 
       <div id="arguments-panel" role="tabpanel" aria-labelledby={`arguments-tab-${active}`}>
         {shown.length === 0 ? (
@@ -777,7 +865,14 @@ export function ArgumentSection({
         ) : (
           <div className="flex flex-col gap-2">
             {shown.map((a) => (
-              <ArgumentCard key={a.id} argument={a} controls={controls} responses={responses} />
+              <ArgumentCard
+                key={a.id}
+                argument={a}
+                controls={controls}
+                responses={responses}
+                jump={jump}
+                focused={focus?.id === a.id ? focus.n : null}
+              />
             ))}
           </div>
         )}

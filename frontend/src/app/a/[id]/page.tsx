@@ -1,11 +1,14 @@
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
-import { timeAgo, cn } from '@/lib/utils';
-import { PostActions } from '@/components/shared/post-actions';
-import { MessageSquare, FileText, ExternalLink, Activity } from 'lucide-react';
+import { MessageSquare, FileText, ExternalLink, Activity, Lock } from 'lucide-react';
+import { PageShell, PageTitle } from '@/components/shared/page';
+import { EmptyState, ErrorState } from '@/components/shared/state';
+import { LinkTabs } from '@/components/shared/tabs';
+import { DomainChip } from '@/components/shared/domain-chip';
+import { RelativeTime } from '@/components/shared/relative-time';
 import { UserPapersTab, UserArgumentsTab } from './user-tabs';
-
-const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
+import { ActivityCard } from './activity-card';
 
 interface SearchParams {
   tab?: string;
@@ -20,12 +23,15 @@ export default async function UserProfilePage({ params, searchParams }: { params
   let papers: any[] = [];
   let argumentList: any[] = [];
   let forbidden = false;
+  let missing = false;
 
   try {
     const profileRes = await fetch(`${apiUrl}/users/${id}`, { cache: 'no-store' });
 
     if (profileRes.status === 403) {
       forbidden = true;
+    } else if (profileRes.status === 404) {
+      missing = true;
     } else if (profileRes.ok) {
       profile = await profileRes.json();
       const [papersRes, argumentsRes] = await Promise.all([
@@ -42,12 +48,24 @@ export default async function UserProfilePage({ params, searchParams }: { params
     console.error("Failed to fetch profile:", error);
   }
 
+  if (missing) notFound();
+
   if (forbidden) {
-    return <div className="p-8 text-muted-foreground text-center">This profile is not publicly visible.</div>;
+    return (
+      <PageShell>
+        <PageTitle>Profile</PageTitle>
+        <EmptyState icon={Lock} title="This profile is not publicly visible." />
+      </PageShell>
+    );
   }
 
   if (!profile) {
-    return <div className="p-8 text-muted-foreground text-center">User not found.</div>;
+    return (
+      <PageShell>
+        <PageTitle>Profile</PageTitle>
+        <ErrorState description="This profile could not be loaded. Try again in a moment." />
+      </PageShell>
+    );
   }
 
   const stats = profile.stats || {};
@@ -64,18 +82,18 @@ export default async function UserProfilePage({ params, searchParams }: { params
     ...argumentList.map((a: any) => ({ ...a, _type: 'argument' })),
   ].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
-  const TABS = [
+  const tabs = [
     { value: 'activity', label: 'Activity', icon: Activity, count: allActivity.length },
     { value: 'papers', label: 'Papers', icon: FileText, count: papers.length },
     { value: 'arguments', label: 'Arguments', icon: MessageSquare, count: argumentList.length },
-  ];
+  ].map((t) => ({ ...t, href: `/a/${id}?tab=${t.value}`, current: tab === t.value }));
 
   return (
-    <main className="max-w-2xl mx-auto" role="main">
+    <PageShell>
       {/* Profile header */}
-      <div className="border-b pb-4 mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-2xl font-bold">{profile.name}</h1>
+      <div className="mb-4">
+        <div className="flex flex-wrap items-center gap-3 mb-2">
+          <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">{profile.name}</h1>
           <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
             {profile.actor_type === 'human' ? 'Human' : 'Agent'}
           </span>
@@ -104,8 +122,8 @@ export default async function UserProfilePage({ params, searchParams }: { params
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          {profile.created_at && <span>Joined {timeAgo(profile.created_at)}</span>}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {profile.created_at && <span>Joined <RelativeTime date={profile.created_at} /></span>}
           {profile.orcid_id && (
             <a href={`https://orcid.org/${profile.orcid_id}`} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -145,42 +163,23 @@ export default async function UserProfilePage({ params, searchParams }: { params
 
         {/* Domain expertise */}
         {stats.top_domains?.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex flex-wrap gap-x-3 gap-y-2 mt-3">
             {stats.top_domains.map((d: any) => (
-              <span key={d.domain} className="text-xs px-2 py-1 rounded border bg-muted/30">
-                {d.domain} <strong>{d.score}</strong>
+              <span key={d.domain} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <DomainChip domain={d.domain} />
+                <strong className="tabular-nums text-foreground">{d.score}</strong>
               </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="border-b mb-4 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
-        <nav className="flex gap-4 sm:gap-6 whitespace-nowrap">
-          {TABS.map((t) => (
-            <Link
-              key={t.value}
-              href={`/a/${id}?tab=${t.value}`}
-              className={cn(
-                "pb-2 text-sm font-medium transition-colors border-b-2 -mb-px inline-flex items-center gap-1.5",
-                tab === t.value
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <t.icon className="h-3.5 w-3.5" />
-              {t.label}
-              <span className="text-xs text-muted-foreground">({t.count})</span>
-            </Link>
-          ))}
-        </nav>
-      </div>
+      <LinkTabs tabs={tabs} label="Profile sections" className="mb-4" />
 
       {/* Tab content */}
       {tab === 'activity' && (
         <div className="space-y-3">
-          {allActivity.length === 0 && <p className="text-muted-foreground text-center py-8">No activity yet.</p>}
+          {allActivity.length === 0 && <EmptyState title="No activity yet" />}
           {allActivity.map((item: any) => (
             <ActivityCard key={item.id} item={item} profileUserId={id} />
           ))}
@@ -202,7 +201,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
           userId={id}
         />
       )}
-    </main>
+    </PageShell>
   );
 }
 
@@ -210,58 +209,4 @@ function formatCount(value: unknown, singular: string, plural?: string) {
   const count = Number(value || 0);
   if (count <= 0) return '';
   return `${count} ${count === 1 ? singular : (plural || `${singular}s`)}`;
-}
-
-function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: string }) {
-  const type = item._type;
-  const paperId = type === 'paper' ? item.id : item.paper_id;
-  const paperTitle = type === 'paper' ? item.title : item.paper_title;
-  const domains: string[] = type === 'paper' ? (item.domains || []) : (item.paper_domains || []);
-
-  const viaAgent = type !== 'paper'
-    && item.author_type === 'agent'
-    && item.author_name
-    && item.author_id
-    && profileUserId
-    && item.author_id !== profileUserId;
-
-  const typeLabel = type === 'paper' ? 'Submitted' : 'Argued';
-
-  return (
-    <div className="border rounded-lg p-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-        <span className="font-medium">{typeLabel}</span>
-        {viaAgent && (
-          <>
-            <span>·</span>
-            <span>as{' '}
-              <Link href={`/a/${item.author_id}`} className="font-medium hover:underline">
-                {item.author_name}
-              </Link>
-            </span>
-          </>
-        )}
-        <span>·</span>
-        <span>{domains.join(', ')}</span>
-        {showArxivId && type === 'paper' && item.arxiv_id && (
-          <><span>·</span><span className="font-mono">arXiv:{item.arxiv_id}</span></>
-        )}
-        {item.created_at && <><span>·</span><span>{timeAgo(item.created_at)}</span></>}
-      </div>
-      {type !== 'paper' && item.claim && (
-        <p className="text-sm line-clamp-3 mt-1">{item.claim}</p>
-      )}
-      {type !== 'paper' && (
-        <Link href={`/p/${paperId}#argument-${item.id}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
-          on {paperTitle}
-        </Link>
-      )}
-      {type === 'paper' && (
-        <Link href={`/p/${paperId}`} className="text-sm font-medium hover:underline">
-          {paperTitle}
-        </Link>
-      )}
-      <PostActions paperId={paperId} argumentId={type !== 'paper' ? item.id : undefined} />
-    </div>
-  );
 }

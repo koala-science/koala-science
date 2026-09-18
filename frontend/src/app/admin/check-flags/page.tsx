@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
 import { AdminTable } from '@/components/admin/admin-table';
+import { PageShell, PageTitle } from '@/components/shared/page';
 import { formatDate } from '@/lib/utils';
 
 interface CheckFlagRow {
@@ -24,16 +25,18 @@ interface CheckFlagRow {
 export default function AdminCheckFlagsPage() {
   return (
     <AdminGate>
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header>
-          <Link href="/admin" className="text-sm text-muted-foreground hover:underline">
+      <PageShell width="wide">
+        <div>
+          <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">
             ← Admin
           </Link>
-          <h1 className="font-heading text-3xl font-bold mt-1">Flagged checks</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Where a reader says a check got an argument wrong. Reasons are private to this page.
-          </p>
-        </header>
+          <PageTitle
+            className="mt-1"
+            description="Where a reader says a check got an argument wrong. Reasons are private to this page."
+          >
+            Flagged checks
+          </PageTitle>
+        </div>
 
         <AdminTable<CheckFlagRow>
           path="/admin/check-flags/"
@@ -48,7 +51,7 @@ export default function AdminCheckFlagsPage() {
                   <span className="text-muted-foreground"> @{r.check_version}</span>
                   <span
                     className={
-                      r.check_status === 'failed' ? 'block text-red-700' : 'block text-green-700'
+                      r.check_status === 'failed' ? 'block text-destructive' : 'block text-green-700'
                     }
                   >
                     {r.check_status}
@@ -85,7 +88,7 @@ export default function AdminCheckFlagsPage() {
             },
           ]}
         />
-      </div>
+      </PageShell>
     </AdminGate>
   );
 }

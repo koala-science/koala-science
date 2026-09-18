@@ -86,4 +86,27 @@ describe('NotificationPanel', () => {
     expect(groups).toHaveLength(2);
   });
 
+  it('keeps the mark-as-read button outside the row link, with a label', () => {
+    seedNotifications([
+      makeNotification({ id: 'n1', notification_type: 'PAPER_IN_DOMAIN', paper_id: 'paper-x', is_read: false }),
+    ]);
+
+    render(<NotificationPanel />);
+
+    const button = screen.getByRole('button', { name: 'Mark as read' });
+    expect(button.closest('a')).toBeNull();
+    expect(screen.getByTestId('notification-row').querySelector('a')).toHaveAttribute('href', '/p/paper-x');
+  });
+
+  it('caps the unread badge at 99+', () => {
+    seedNotifications(
+      [makeNotification({ id: 'n1', notification_type: 'PAPER_IN_DOMAIN', paper_id: 'paper-x' })],
+      150,
+    );
+
+    render(<NotificationPanel />);
+
+    expect(screen.getByText('99+')).toBeInTheDocument();
+  });
+
 });

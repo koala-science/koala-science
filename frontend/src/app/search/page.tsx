@@ -3,11 +3,17 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, ChevronDown } from 'lucide-react';
+import { MessageSquare, ChevronDown, FileText, Search } from 'lucide-react';
 import { apiCall } from '@/lib/api';
-import { cn, timeAgo } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { LaTeX } from '@/components/shared/latex';
+import { Button } from '@/components/ui/button';
+import { PageShell, PageTitle } from '@/components/shared/page';
+import { EmptyState, ErrorState } from '@/components/shared/state';
+import { LinkTabs } from '@/components/shared/tabs';
+import { DomainChips, domainHref } from '@/components/shared/domain-chip';
+import { RelativeTime } from '@/components/shared/relative-time';
 
 const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
 
@@ -38,7 +44,11 @@ type SearchResultActor = {
   actor_id: string;
   name: string;
   actor_type: string;
-  description?: string;
+  description?: string | null;
+  owner_id?: string | null;
+  owner_name?: string | null;
+  argument_count?: number;
+  created_at?: string | null;
 };
 
 type SearchResultDomain = {
@@ -91,6 +101,7 @@ export default function SearchPage() {
   const LIMIT = 20;
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
 
@@ -108,6 +119,7 @@ export default function SearchPage() {
 
     const fetchResults = async () => {
       setLoading(true);
+      setFailed(false);
       try {
         const data = await apiCall<SearchResult[]>(`/search/?${buildParams(0)}`);
         setResults(data);
@@ -115,6 +127,7 @@ export default function SearchPage() {
       } catch {
         setResults([]);
         setHasMore(false);
+        setFailed(true);
       } finally {
         setLoading(false);
       }
@@ -136,76 +149,76 @@ export default function SearchPage() {
     }
   };
 
-  function updateParam(key: string, value: string) {
+  function hrefWith(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
       params.set(key, value);
     } else {
       params.delete(key);
     }
-    router.push(`/search?${params}`);
+    return `/search?${params}`;
+  }
+
+  function updateParam(key: string, value: string) {
+    router.push(hrefWith(key, value));
   }
 
   const paperCount = results.filter((r) => r.type === 'paper').length;
 
+  const typeTabs = TYPE_TABS.map((tab) => ({
+    label: tab.label,
+    href: hrefWith('type', tab.value === 'all' ? '' : tab.value),
+    current: type === tab.value,
+  }));
+
+  let description: React.ReactNode = null;
+  if (query) {
+    description = loading ? (
+      'Searching…'
+    ) : failed ? (
+      <>Results for &ldquo;{query}&rdquo;</>
+    ) : (
+      <>
+        {results.length} {results.length === 1 ? 'result' : 'results'} for &ldquo;{query}&rdquo;
+        {domain && <> in <Link href={domainHref(domain)} className="text-primary hover:underline">{domain}</Link></>}
+        {/* The breakdown only says something when papers are mixed with other results. */}
+        {paperCount > 0 && paperCount < results.length && (
+          <span className="ml-1">
+            ({paperCount} {paperCount === 1 ? 'paper' : 'papers'})
+          </span>
+        )}
+      </>
+    );
+  }
+
   return (
-    <main className="max-w-3xl mx-auto space-y-4">
+    <PageShell>
+      <PageTitle
+        description={description}
+        actions={query && (
+          <select
+            value={time}
+            onChange={(e) => updateParam('time', e.target.value)}
+            aria-label="Time range"
+            className="h-8 rounded-lg border bg-transparent px-2 text-sm text-muted-foreground"
+          >
+            {TIME_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )}
+      >
+        Search
+      </PageTitle>
+
       {query && (
-        <>
-          {/* Filter bar — pill chips at all widths */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <nav className="flex flex-wrap gap-1.5">
-              {TYPE_TABS.map((tab) => {
-                const isActive = type === tab.value || (tab.value === 'all' && !type);
-                return (
-                  <button
-                    key={tab.value}
-                    onClick={() => updateParam('type', tab.value === 'all' ? '' : tab.value)}
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition-colors',
-                      isActive
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </nav>
+        <div className="space-y-4">
+          <LinkTabs tabs={typeTabs} label="Result type" />
 
-            <select
-              value={time}
-              onChange={(e) => updateParam('time', e.target.value)}
-              className="text-xs sm:text-sm bg-transparent border rounded-full px-3 py-1 text-muted-foreground"
-            >
-              {TIME_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="border-b" />
-
-          {/* Results summary */}
-          <p className="text-sm text-muted-foreground">
-            {loading ? (
-              'Searching...'
-            ) : (
-              <>
-                {results.length} results for &ldquo;{query}&rdquo;
-                {domain && <> in <Link href={`/d/${domain.replace('d/', '')}`} className="text-primary hover:underline">{domain}</Link></>}
-                {results.length > 0 && (
-                  <span className="ml-1">
-                    ({paperCount} {paperCount === 1 ? 'paper' : 'papers'})
-                  </span>
-                )}
-              </>
-            )}
-          </p>
-
-          {/* Results list */}
-          {!loading && results.length === 0 ? (
-            <p className="text-muted-foreground text-center py-12">No results found. Try a different query or broaden your filters.</p>
+          {failed ? (
+            <ErrorState description="Search is unavailable right now. Try again in a moment." />
+          ) : !loading && results.length === 0 ? (
+            <EmptyState icon={Search} title="No results found" description="Try a different query or broaden your filters." />
           ) : (
             <>
               <div className="divide-y">
@@ -217,27 +230,22 @@ export default function SearchPage() {
                 })}
               </div>
               {hasMore && (
-                <button
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                  className="w-full py-3 text-sm text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 transition-colors"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                  {loadingMore ? 'Loading...' : 'Show more'}
-                </button>
+                <Button variant="outline" className="w-full" onClick={loadMore} disabled={loadingMore}>
+                  <ChevronDown />
+                  {loadingMore ? 'Loading…' : 'Show more'}
+                </Button>
               )}
             </>
           )}
-        </>
+        </div>
       )}
 
       {!query && (
-        <p className="text-muted-foreground text-center py-12">Enter a query to search across papers and discussions.</p>
+        <EmptyState icon={Search} title="Enter a query to search" description="Search papers, agents and domains." />
       )}
-    </main>
+    </PageShell>
   );
 }
-
 
 const TYPE_BADGE_STYLES = {
   paper: 'bg-blue-50 text-blue-800 border-blue-200',
@@ -249,7 +257,7 @@ function TypeBadge({ kind, label }: { kind: keyof typeof TYPE_BADGE_STYLES; labe
   return (
     <span
       className={cn(
-        'inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
+        'inline-flex items-center text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
         TYPE_BADGE_STYLES[kind],
       )}
     >
@@ -258,101 +266,134 @@ function TypeBadge({ kind, label }: { kind: keyof typeof TYPE_BADGE_STYLES; labe
   );
 }
 
-function DomainChips({ domains }: { domains: string[] }) {
-  if (!domains || domains.length === 0) return null;
+/**
+ * Every kind of result is laid out the same way: a byline (what it is, whose
+ * it is, when), the name as a link, a two-line summary, then a footer of
+ * counts and domains. Only what fills the slots differs.
+ */
+function ResultRow({
+  byline,
+  href,
+  title,
+  summary,
+  footer,
+}: {
+  byline: React.ReactNode;
+  href: string;
+  title: React.ReactNode;
+  summary?: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <article className="py-5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">{byline}</div>
+      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5">
+        <Link href={href} className="hover:text-primary transition-colors">
+          {title}
+        </Link>
+      </h3>
+      {summary && <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">{summary}</p>}
+      {footer && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">{footer}</div>
+      )}
+    </article>
+  );
+}
+
+function When({ date, prefix }: { date?: string | null; prefix?: string }) {
+  if (!date) return null;
   return (
     <>
-      {domains.map((d) => (
-        <Link
-          key={d}
-          href={`/d/${d.replace('d/', '')}`}
-          className="text-[11px] font-mono text-slate-700 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded transition-colors"
-        >
-          {d}
-        </Link>
-      ))}
+      <span aria-hidden>·</span>
+      <span>
+        {prefix && `${prefix} `}
+        <RelativeTime date={date} />
+      </span>
     </>
+  );
+}
+
+function Count({ icon: Icon, n, singular, href }: { icon: typeof MessageSquare; n: number; singular: string; href?: string }) {
+  const body = (
+    <>
+      <Icon className="h-3.5 w-3.5" aria-hidden />
+      {n} {n === 1 ? singular : `${singular}s`}
+    </>
+  );
+  return href ? (
+    <Link href={href} className="inline-flex items-center gap-1 hover:text-foreground">{body}</Link>
+  ) : (
+    <span className="inline-flex items-center gap-1">{body}</span>
   );
 }
 
 function PaperResult({ result }: { result: SearchResultPaper }) {
   const { paper } = result;
-
   return (
-    <article className="py-5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
-        <TypeBadge kind="paper" label="Paper" />
-        <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
-        {paper.created_at && <span className="opacity-70">· {timeAgo(paper.created_at)}</span>}
-      </div>
-      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5">
-        <Link href={`/p/${paper.id}`} className="hover:text-primary transition-colors">
-          {paper.title}
-        </Link>
-      </h3>
-      <p className="text-sm text-muted-foreground/90 line-clamp-2 mb-3 leading-relaxed">
-        <LaTeX>{paper.abstract}</LaTeX>
-      </p>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-        <DomainChips domains={paper.domains || []} />
-        {paper.argument_count !== undefined && paper.argument_count > 0 && (
-          <Link href={`/p/${paper.id}#arguments`} className="inline-flex items-center gap-1 hover:text-foreground">
-            <MessageSquare className="h-3.5 w-3.5" />
-            {paper.argument_count}
-          </Link>
-        )}
-        {showArxivId && paper.arxiv_id && (
-          <a
-            href={`https://arxiv.org/abs/${paper.arxiv_id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono hover:text-foreground"
-          >
-            arXiv:{paper.arxiv_id}
-          </a>
-        )}
-      </div>
-    </article>
+    <ResultRow
+      byline={
+        <>
+          <TypeBadge kind="paper" label="Paper" />
+          <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
+          <When date={paper.created_at} />
+        </>
+      }
+      href={`/p/${paper.id}`}
+      title={paper.title}
+      summary={<LaTeX>{paper.abstract}</LaTeX>}
+      footer={
+        <>
+          <DomainChips domains={paper.domains} />
+          <Count icon={MessageSquare} n={paper.argument_count ?? 0} singular="argument" href={`/p/${paper.id}#arguments`} />
+          {showArxivId && paper.arxiv_id && (
+            <a
+              href={`https://arxiv.org/abs/${paper.arxiv_id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono hover:text-foreground"
+            >
+              arXiv:{paper.arxiv_id}
+            </a>
+          )}
+        </>
+      }
+    />
   );
 }
 
 function ActorResult({ result }: { result: SearchResultActor }) {
-  const { actor_id, name, actor_type, description } = result;
-
+  const { actor_id, name, actor_type, description, owner_id, owner_name, argument_count, created_at } = result;
+  const isAgent = actor_type !== 'human';
   return (
-    <article className="py-5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
-        <TypeBadge kind="actor" label={actor_type === 'human' ? 'Human' : 'Agent'} />
-      </div>
-      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5">
-        <Link href={`/a/${actor_id}`} className="hover:text-primary transition-colors">
-          {name}
-        </Link>
-      </h3>
-      {description && (
-        <p className="text-sm text-muted-foreground/90 line-clamp-2 leading-relaxed">{description}</p>
-      )}
-    </article>
+    <ResultRow
+      byline={
+        <>
+          <TypeBadge kind="actor" label={isAgent ? 'Agent' : 'Human'} />
+          {isAgent && owner_id && owner_name && (
+            <span className="inline-flex items-center gap-1">
+              Owned by <ActorBadge actorType="human" actorName={owner_name} actorId={owner_id} />
+            </span>
+          )}
+          <When date={created_at} prefix="Joined" />
+        </>
+      }
+      href={`/a/${actor_id}`}
+      title={name}
+      summary={description || (isAgent ? <span className="italic">No description.</span> : null)}
+      footer={<Count icon={MessageSquare} n={argument_count ?? 0} singular="argument" />}
+    />
   );
 }
 
 function DomainResult({ result }: { result: SearchResultDomain }) {
   const { name, description, paper_count } = result;
-
   return (
-    <article className="py-5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
-        <TypeBadge kind="domain" label="Domain" />
-        <span>{paper_count} paper{paper_count !== 1 ? 's' : ''}</span>
-      </div>
-      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5 font-mono">
-        <Link href={`/d/${name.replace('d/', '')}`} className="hover:text-primary transition-colors">
-          {name}
-        </Link>
-      </h3>
-      {description && (
-        <p className="text-sm text-muted-foreground/90 line-clamp-2 leading-relaxed">{description}</p>
-      )}
-    </article>
+    <ResultRow
+      byline={<TypeBadge kind="domain" label="Domain" />}
+      href={domainHref(name)}
+      title={name}
+      summary={description || <span className="italic">No description.</span>}
+      footer={<Count icon={FileText} n={paper_count} singular="paper" />}
+    />
   );
 }

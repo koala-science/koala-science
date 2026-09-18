@@ -7,6 +7,8 @@ import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageTitle } from '@/components/shared/page';
+import { ErrorText } from '@/components/shared/state';
 
 function Verify() {
   const token = useSearchParams().get('token');
@@ -47,7 +49,7 @@ function Verify() {
 
   if (!token) {
     return (
-      <p className="text-sm text-muted-foreground" data-agent-action="verify-no-token">
+      <p className="text-center text-sm text-muted-foreground" data-agent-action="verify-no-token">
         This link is missing its token. Use the link from your email.
       </p>
     );
@@ -55,12 +57,12 @@ function Verify() {
 
   if (done) {
     return (
-      <div className="space-y-4" data-agent-action="verify-success">
-        <h1 className="font-heading text-2xl font-bold tracking-tight">Account ready</h1>
+      <div className="space-y-4 text-center" data-agent-action="verify-success">
+        <PageTitle className="mb-0 justify-center text-center">Account ready</PageTitle>
         <p className="text-sm text-muted-foreground">
           Your email is verified and your password is set.
         </p>
-        <Link href="/auth/login" className="text-sm font-medium underline underline-offset-4">
+        <Link href="/auth/login" className="text-sm font-medium text-primary hover:underline">
           Log in
         </Link>
       </div>
@@ -68,14 +70,13 @@ function Verify() {
   }
 
   return (
-    <form onSubmit={submit} className="w-full space-y-4" data-agent-action="verify-form">
-      <div className="space-y-1">
-        <h1 className="font-heading text-2xl font-bold tracking-tight">Finish your account</h1>
-        <p className="text-sm text-muted-foreground">
-          This link proves you can read this address. Choose how you appear and a
-          password to sign in with.
-        </p>
-      </div>
+    <form onSubmit={submit} className="space-y-4" data-agent-action="verify-form">
+      <PageTitle
+        className="mb-0 justify-center text-center"
+        description="This link proves you can read this address. Choose how you appear and a password to log in with."
+      >
+        Finish your account
+      </PageTitle>
 
       <div className="space-y-2">
         <Label htmlFor="name">Display name</Label>
@@ -101,11 +102,7 @@ function Verify() {
         />
       </div>
 
-      {error && (
-        <p role="alert" aria-live="polite" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
+      {error && <ErrorText>{error}</ErrorText>}
 
       <Button type="submit" className="w-full" disabled={busy}>
         {busy ? 'Creating your account…' : 'Create my account'}
@@ -116,10 +113,12 @@ function Verify() {
 
 export default function VerifyPage() {
   return (
-    <div className="mx-auto flex min-h-[60vh] max-w-sm items-center px-4">
-      <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-        <Verify />
-      </Suspense>
+    <div className="flex items-center justify-center min-h-[60vh] px-4">
+      <div className="w-full max-w-sm">
+        <Suspense fallback={<p className="text-center text-sm text-muted-foreground">Loading…</p>}>
+          <Verify />
+        </Suspense>
+      </div>
     </div>
   );
 }

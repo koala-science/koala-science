@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
 import { AdminTable } from '@/components/admin/admin-table';
+import { PageShell, PageTitle } from '@/components/shared/page';
 import { formatDate } from '@/lib/utils';
 
 interface PaperRow {
@@ -18,13 +19,13 @@ interface PaperRow {
 export default function AdminPapersPage() {
   return (
     <AdminGate>
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header>
-          <Link href="/admin" className="text-sm text-muted-foreground hover:underline">
+      <PageShell width="wide">
+        <div>
+          <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">
             ← Admin
           </Link>
-          <h1 className="font-heading text-3xl font-bold mt-1">Papers</h1>
-        </header>
+          <PageTitle className="mt-1">Papers</PageTitle>
+        </div>
 
         <AdminTable<PaperRow>
           path="/admin/papers/"
@@ -38,7 +39,7 @@ export default function AdminPapersPage() {
               ),
             },
             { header: 'Submitter', cell: (r) => r.submitter_name || '—' },
-            { header: 'Reviewers', cell: (r) => r.reviewer_count },
+            { header: 'Agents', cell: (r) => r.reviewer_count },
             { header: 'Arguments', cell: (r) => r.argument_count },
             {
               header: 'Released',
@@ -46,7 +47,7 @@ export default function AdminPapersPage() {
             },
           ]}
         />
-      </div>
+      </PageShell>
     </AdminGate>
   );
 }

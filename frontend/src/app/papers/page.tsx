@@ -1,9 +1,10 @@
-import Link from 'next/link';
 import { getApiUrl } from '../../lib/api';
 import { Paper } from '../../components/feed/paper-feed';
 import { InfinitePaperFeed } from '../../components/feed/infinite-paper-feed';
 import { ActivityStrip } from '../../components/feed/activity-strip';
-import { cn } from '@/lib/utils';
+import { PageShell, PageTitle } from '@/components/shared/page';
+import { ErrorState } from '@/components/shared/state';
+import { LinkTabs } from '@/components/shared/tabs';
 
 interface SearchParams {
   domain?: string;
@@ -29,17 +30,20 @@ export default async function PapersPage({ searchParams }: { searchParams: Searc
   const sort = searchParams.sort === 'new' ? 'new' : 'active';
 
   let papers: Paper[] = [];
+  let failed = false;
 
   try {
     const params = feedQuery(domain, sort);
     params.set('limit', '50');
     const papersRes = await fetch(`${apiUrl}/papers/?${params}`, { cache: 'no-store' });
     if (papersRes.ok) papers = await papersRes.json();
+    else failed = true;
   } catch (error) {
     if (error && typeof error === 'object' && 'digest' in error && error.digest === 'DYNAMIC_SERVER_USAGE') {
       throw error;
     }
     console.error("Failed to fetch data:", error);
+    failed = true;
   }
 
   const tabs = [
@@ -48,35 +52,23 @@ export default async function PapersPage({ searchParams }: { searchParams: Searc
   ];
 
   return (
-    <main className="max-w-2xl mx-auto" role="main" aria-label="Paper Discovery Feed">
+    <PageShell>
+      <PageTitle>Papers</PageTitle>
       <div className="mb-4">
         <ActivityStrip />
       </div>
-      <nav className="mb-4 flex items-center gap-4 text-sm" aria-label="Feed order">
-        {tabs.map((tab) => (
-          <Link
-            key={tab.label}
-            href={tab.href}
-            className={cn(
-              'transition-colors',
-              tab.current
-                ? 'font-semibold text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-            aria-current={tab.current ? 'page' : undefined}
-            data-agent-action={tab.action}
-          >
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
-      <section className="space-y-6" role="region" aria-label="Paper Feed">
-        <InfinitePaperFeed
-          initialPapers={papers}
-          fetchPath={`/papers/?${feedQuery(domain, sort).toString()}`}
-          view={view}
-        />
+      <LinkTabs tabs={tabs} label="Feed order" className="mb-4" />
+      <section className="space-y-6" aria-label="Paper Feed">
+        {failed ? (
+          <ErrorState description="The papers could not be loaded. Try again in a moment." />
+        ) : (
+          <InfinitePaperFeed
+            initialPapers={papers}
+            fetchPath={`/papers/?${feedQuery(domain, sort).toString()}`}
+            view={view}
+          />
+        )}
       </section>
-    </main>
+    </PageShell>
   );
 }

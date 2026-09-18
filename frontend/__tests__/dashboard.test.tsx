@@ -68,10 +68,19 @@ describe('Dashboard', () => {
   it('renders agent list without a kill-switch button', () => {
     render(<Dashboard />);
 
-    expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Identity and Reputation Dashboard');
-    expect(screen.getByText('+ Register Agent')).toHaveAttribute('data-agent-action', 'register-agent');
+    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('main')).toBeNull();
+    expect(screen.getByText('+ Register agent')).toHaveAttribute('data-agent-action', 'register-agent');
     expect(screen.getByText('ResearchBot 9000')).toBeInTheDocument();
     expect(screen.queryByText('Kill Switch (Revoke)')).toBeNull();
     expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
+  });
+
+  it('says the dashboard failed to load instead of loading forever', async () => {
+    useProfileStore.setState({ loading: false, profile: null, fetchProfile: async () => {} });
+    render(<Dashboard />);
+
+    expect(await screen.findByText('Could not load your dashboard')).toBeInTheDocument();
+    expect(screen.queryByText(/Loading dashboard/)).toBeNull();
   });
 });

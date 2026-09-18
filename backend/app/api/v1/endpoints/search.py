@@ -17,13 +17,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, or_, func, case, literal
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_visibility import public_paper_clause
 from app.db.session import get_db
 from app.models.identity import Actor, Agent
-from app.models.platform import Paper, Domain
+from app.models.platform import Argument, Paper, Domain
 from app.schemas.platform import (
     PaperResponse,
     SearchResultPaper, SearchResultActor, SearchResultDomain,
@@ -122,6 +123,12 @@ async def _search_papers(
         .where(Paper.id.in_(paper_ids), public_paper_clause())
     )
     papers = {str(p.id): p for p in result.scalars().unique().all()}
+    # Counted as the feed counts them, so a paper shows the same number in both.
+    counts = dict((await db.execute(
+        select(Argument.paper_id, func.count())
+        .where(Argument.paper_id.in_(paper_ids), publicly_visible_argument_clause())
+        .group_by(Argument.paper_id)
+    )).all())
 
     out: list[dict] = []
     for pid, (score, _) in by_id.items():
@@ -129,7 +136,10 @@ async def _search_papers(
         if not paper:
             continue
         out.append(
-            SearchResultPaper(score=score, paper=_paper_response(paper)).model_dump()
+            SearchResultPaper(
+                score=score,
+                paper=_paper_response(paper, argument_count=counts.get(paper.id, 0)),
+            ).model_dump()
         )
     return out
 
@@ -219,39 +229,46 @@ async def _search_actors(
     if not by_id:
         return []
 
-    # Hydrate any actors we only know by id.
-    needs_hydration = [
-        uuid.UUID(aid) for aid, (_, payload) in by_id.items()
-        if not payload.get("name")
-    ]
-    hydrated: dict[str, dict] = {}
-    if needs_hydration:
-        agent_t = Agent.__table__
-        rows = (await db.execute(
-            select(Actor.id, Actor.name, Actor.actor_type, agent_t.c.description)
-            .join(agent_t, agent_t.c.id == Actor.id, isouter=True)
-            .where(Actor.id.in_(needs_hydration), Actor.is_active.is_(True))
-        )).all()
-        for aid, name, actor_type, description in rows:
-            hydrated[str(aid)] = {
-                "actor_id": str(aid),
-                "name": name,
-                "actor_type": actor_type.value if hasattr(actor_type, "value") else str(actor_type),
-                "description": description,
-            }
+    # Every hit is read back from Postgres, vector hits included: the index
+    # carries no owner, join date or argument count, and it may still hold
+    # an actor that has since been deactivated.
+    ids = [uuid.UUID(aid) for aid in by_id]
+    agent_t = Agent.__table__
+    owner = aliased(Actor)
+    rows = (await db.execute(
+        select(
+            Actor.id, Actor.name, Actor.actor_type, Actor.created_at,
+            agent_t.c.description, owner.id, owner.name,
+        )
+        .join(agent_t, agent_t.c.id == Actor.id, isouter=True)
+        .join(owner, owner.id == agent_t.c.owner_id, isouter=True)
+        .where(Actor.id.in_(ids), Actor.is_active.is_(True))
+    )).all()
+    counts = dict((await db.execute(
+        select(Argument.author_id, func.count())
+        .join(Paper, Argument.paper_id == Paper.id)
+        .where(
+            Argument.author_id.in_(ids),
+            public_paper_clause(),
+            publicly_visible_argument_clause(),
+        )
+        .group_by(Argument.author_id)
+    )).all())
 
     out: list[dict] = []
-    for aid, (score, payload) in by_id.items():
-        p = payload if payload.get("name") else hydrated.get(aid)
-        if not p:
-            continue
+    for aid, name, actor_type, created_at, description, owner_id, owner_name in rows:
+        score, payload = by_id[str(aid)]
         out.append(
             SearchResultActor(
                 score=score,
-                actor_id=uuid.UUID(p["actor_id"]),
-                name=p.get("name", ""),
-                actor_type=p.get("actor_type", ""),
-                description=p.get("description"),
+                actor_id=aid,
+                name=name,
+                actor_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
+                description=description or payload.get("description"),
+                owner_id=owner_id,
+                owner_name=owner_name,
+                argument_count=counts.get(aid, 0),
+                created_at=created_at,
             ).model_dump()
         )
     return out
@@ -397,7 +414,7 @@ def _vector_domains(
 # ---- Response builders ----
 
 
-def _paper_response(paper: Paper) -> PaperResponse:
+def _paper_response(paper: Paper, argument_count: int = 0) -> PaperResponse:
     return PaperResponse(
         id=paper.id,
         title=paper.title,
@@ -412,6 +429,7 @@ def _paper_response(paper: Paper) -> PaperResponse:
         arxiv_id=paper.arxiv_id,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
+        argument_count=argument_count,
     )
 
 

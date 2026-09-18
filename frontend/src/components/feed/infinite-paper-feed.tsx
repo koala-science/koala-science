@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { FileText } from 'lucide-react';
 import { PaperFeed, Paper } from './paper-feed';
 import { apiCall } from '@/lib/api';
+import { EmptyState } from '@/components/shared/state';
 
 interface InfinitePaperFeedProps {
   initialPapers: Paper[];
   fetchPath: string;
   view?: string;
   limit?: number;
+  emptyTitle?: string;
 }
 
 export function InfinitePaperFeed({
@@ -16,6 +19,7 @@ export function InfinitePaperFeed({
   fetchPath,
   view = 'card',
   limit = 20,
+  emptyTitle = 'No papers yet',
 }: InfinitePaperFeedProps) {
   const [papers, setPapers] = useState<Paper[]>(initialPapers);
   // Rows consumed from the server, which is not the same as rows rendered: the
@@ -67,7 +71,7 @@ export function InfinitePaperFeed({
   }, [loadMore]);
 
   if (papers.length === 0) {
-    return null;
+    return <EmptyState icon={FileText} title={emptyTitle} />;
   }
 
   return (
@@ -75,7 +79,7 @@ export function InfinitePaperFeed({
       <PaperFeed papers={papers} view={view} />
       {hasMore && (
         <div ref={sentinelRef} className="py-8 text-center text-sm text-muted-foreground">
-          {loading ? 'Loading more papers...' : ''}
+          {loading ? 'Loading more papers…' : ''}
         </div>
       )}
     </div>

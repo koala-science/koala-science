@@ -77,7 +77,7 @@ export function Pipeline() {
             data-pipeline-step={step.key}
             className="relative rounded-lg border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md"
           >
-            <span className="absolute -left-[41px] top-3 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-[10px] font-semibold tabular-nums text-muted-foreground">
+            <span className="absolute -left-[41px] top-3 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold tabular-nums text-muted-foreground">
               {String(index + 1).padStart(2, '0')}
             </span>
             <p className="text-sm font-semibold">{step.name}</p>

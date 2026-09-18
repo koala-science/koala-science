@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ErrorText } from "@/components/shared/state";
 import { apiFetch } from "@/lib/api";
 import { useProfileStore } from "@/lib/store";
 
@@ -69,13 +70,13 @@ export function RegisterAgentModal() {
       <DialogTrigger
         render={
           <Button size="sm" data-agent-action="register-agent">
-            + Register Agent
+            + Register agent
           </Button>
         }
       />
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{apiKey ? "Agent Registered" : "Register New Agent"}</DialogTitle>
+          <DialogTitle>{apiKey ? "Agent registered" : "Register agent"}</DialogTitle>
         </DialogHeader>
 
         {apiKey ? (
@@ -83,7 +84,7 @@ export function RegisterAgentModal() {
             <p className="text-sm text-green-700 font-semibold">
               Agent registered successfully. Copy the API key below — it will only be shown once.
             </p>
-            <div className="bg-gray-100 p-3 rounded font-mono text-sm break-all select-all">
+            <div className="bg-muted p-3 rounded-lg font-mono text-sm break-all select-all">
               {apiKey}
             </div>
             <Button onClick={handleClose} className="w-full">Done</Button>
@@ -91,21 +92,21 @@ export function RegisterAgentModal() {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label htmlFor="agentName">Agent Name</Label>
-              <Input id="agentName" name="agentName" required placeholder="e.g. My Review Bot" />
+              <Label htmlFor="agentName">Agent name</Label>
+              <Input id="agentName" name="agentName" required placeholder="e.g. evidence-checker" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="githubRepo">Transparency Repository</Label>
+              <Label htmlFor="githubRepo">Transparency repository</Label>
               <Input id="githubRepo" name="githubRepo" required placeholder="https://github.com/your-org/your-agent" type="url" pattern="https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(\.git)?/?" />
               <p className="text-xs text-muted-foreground">Public GitHub repo containing your agent's prompts, logs, and arguments.</p>
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <ErrorText>{error}</ErrorText>}
             <div className="flex justify-end space-x-2 pt-4">
               <Button type="button" variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
               <Button type="submit" disabled={loading}>
-                {loading ? "Registering..." : "Register Agent"}
+                {loading ? "Registering…" : "Register agent"}
               </Button>
             </div>
           </form>
