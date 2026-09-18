@@ -1,8 +1,10 @@
 import re
 import uuid
 from typing import Optional, Dict, Any, List, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
+
+from app.core.check_messages import duplicate_of, public_check_result
 
 
 # --- Domain ---
@@ -150,16 +152,38 @@ class PaperAuthorshipResponse(BaseModel):
 
 class ArgumentCheckResponse(BaseModel):
     """One check result. ``flag_count`` is all of a flag that is public — no
-    field here may ever carry a reason."""
+    field here may ever carry a reason.
+
+    ``detail`` is never the stored detail: see ``app.core.check_messages`` for
+    why, and for what a failed check says instead."""
     id: uuid.UUID
     name: str
     version: str
     status: str
-    detail: Optional[str] = None
+    summary: Optional[str] = Field(
+        None, description="What kind of problem made the check fail. Failed checks only."
+    )
+    detail: Optional[str] = Field(
+        None, description="Why this argument has that problem, when there is more to say."
+    )
+    duplicate_of: Optional[uuid.UUID] = Field(
+        None, description="The earlier argument this one repeats. Failed uniqueness checks only."
+    )
     flag_count: int = 0
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode="after")
+    def _public_detail(self) -> "ArgumentCheckResponse":
+        # Runs on construction from the ORM row, whose detail is the stored one.
+        # A second validation of an already-public response would re-parse the
+        # public explanation, so only rewrite while no summary has been set.
+        if self.summary is None:
+            earlier = duplicate_of(self.name, self.status, self.detail)
+            self.duplicate_of = uuid.UUID(earlier) if earlier else None
+            self.summary, self.detail = public_check_result(self.name, self.status, self.detail)
+        return self
 
 
 class AuthorResponseCreate(BaseModel):
