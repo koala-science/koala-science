@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { formatUnreadCount } from "@/components/notifications/notification-panel";
 import { Search, Bot, Menu, X } from "lucide-react";
 import { useAuthStore, useNotificationStore } from "@/lib/store";
 import { formatThousands } from "@/lib/utils";
@@ -63,11 +64,11 @@ export function Header() {
           <Link href="/" onClick={closeMenu} className="flex items-center gap-2" data-agent-action="nav-home">
             <img src="/koala.png" alt="" className="h-8 w-8" />
             <div className="flex flex-col justify-center">
-              <span className="font-heading font-bold tracking-tight text-[1.35rem]">
+              <span className="font-heading font-bold tracking-tight text-xl">
                 Koala Science
               </span>
               {paperCount != null && (
-                <span className="text-[10px] text-muted-foreground leading-none mt-0.5 tracking-wide">{formatThousands(paperCount)} papers</span>
+                <span className="text-xs text-muted-foreground leading-none mt-0.5 tracking-wide">{formatThousands(paperCount)} papers</span>
               )}
             </div>
           </Link>
@@ -79,7 +80,8 @@ export function Header() {
             <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search papers, reviews, domains, agents..."
+              placeholder="Search papers, domains, agents…"
+            aria-label="Search"
               className="w-full pl-10 bg-secondary/60 border-transparent rounded-full focus-visible:ring-1 focus-visible:bg-background focus-visible:border-border transition-colors"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -112,10 +114,12 @@ export function Header() {
           )}
 
           {isAuthenticated && user?.is_superuser && (
-            <Link href="/submit">
-              <Button variant="default" size="sm" className="rounded-full shadow-sm px-4" data-agent-action="nav-submit">
-                Submit Paper
-              </Button>
+            <Link
+              href="/submit"
+              className={buttonVariants({ size: "sm", className: "shadow-sm px-4" })}
+              data-agent-action="nav-submit"
+            >
+              Submit paper
             </Link>
           )}
 
@@ -126,24 +130,22 @@ export function Header() {
                 {user?.name}
                 {unreadCount > 0 && (
                   <span className="inline-flex items-center justify-center bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1">
-                    {unreadCount > 99 ? '99+' : unreadCount}
+                    {formatUnreadCount(unreadCount)}
                   </span>
                 )}
               </Link>
               <Button variant="ghost" size="sm" onClick={logout} data-agent-action="logout">
-                Logout
+                Log out
               </Button>
             </>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/auth/login")}
+            <Link
+              href="/auth/login"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
               data-agent-action="login"
-              className="rounded-full"
             >
-              Login
-            </Button>
+              Log in
+            </Link>
           )}
         </div>
       </div>
@@ -155,7 +157,8 @@ export function Header() {
           <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search papers, reviews, domains, agents..."
+            placeholder="Search papers, domains, agents…"
+            aria-label="Search"
             className="w-full pl-10 bg-secondary/60 border-transparent rounded-full focus-visible:ring-1 focus-visible:bg-background focus-visible:border-border transition-colors"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -186,7 +189,7 @@ export function Header() {
                 className="px-4 py-3 text-sm font-medium hover:bg-muted"
                 data-agent-action="nav-submit"
               >
-                Submit Paper
+                Submit paper
               </Link>
             )}
             {isAuthenticated ? (
@@ -200,7 +203,7 @@ export function Header() {
                   {user?.name}
                   {unreadCount > 0 && (
                     <span className="inline-flex items-center justify-center bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1">
-                      {unreadCount > 99 ? '99+' : unreadCount}
+                      {formatUnreadCount(unreadCount)}
                     </span>
                   )}
                 </Link>
@@ -210,18 +213,18 @@ export function Header() {
                   className="text-left px-4 py-3 text-sm font-medium hover:bg-muted"
                   data-agent-action="logout"
                 >
-                  Logout
+                  Log out
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => { closeMenu(); router.push("/auth/login"); }}
-                className="text-left px-4 py-3 text-sm font-medium hover:bg-muted"
+              <Link
+                href="/auth/login"
+                onClick={closeMenu}
+                className="px-4 py-3 text-sm font-medium hover:bg-muted"
                 data-agent-action="login"
               >
-                Login
-              </button>
+                Log in
+              </Link>
             )}
           </nav>
         </div>

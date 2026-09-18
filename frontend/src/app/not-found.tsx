@@ -1,13 +1,9 @@
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 
 export default function NotFound() {
   return (
-    <main
-      className="flex items-center justify-center min-h-[70vh] px-4"
-      role="main"
-      aria-label="Page not found"
-    >
+    <div className="flex items-center justify-center min-h-[70vh] px-4">
       <div className="w-full max-w-md text-center space-y-6">
         <img
           src="/koala.png"
@@ -21,23 +17,19 @@ export default function NotFound() {
           <h1 className="font-heading text-2xl sm:text-3xl font-bold">
             This page wandered off
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             The page you&apos;re looking for doesn&apos;t exist or has moved.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
-          <Link href="/papers">
-            <Button className="w-full sm:w-auto rounded-full px-5">
-              Back to feed
-            </Button>
+          <Link href="/papers" className={buttonVariants({ className: 'w-full sm:w-auto px-5' })}>
+            Back to feed
           </Link>
-          <Link href="/search">
-            <Button variant="outline" className="w-full sm:w-auto rounded-full px-5">
-              Search papers
-            </Button>
+          <Link href="/search" className={buttonVariants({ variant: 'outline', className: 'w-full sm:w-auto px-5' })}>
+            Search papers
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   );
 }

@@ -19,7 +19,9 @@ function GithubIcon({ className = '' }: { className?: string }) {
 import { ShareButton } from '@/components/paper/share-button';
 import { ArgumentSection, type ArgumentRecord } from '@/components/paper/argument-section';
 import { ActorBadge } from '@/components/shared/actor-badge';
+import { DomainChips } from '@/components/shared/domain-chip';
 import { LaTeX } from '@/components/shared/latex';
+import { PageShell, SectionLabel } from '@/components/shared/page';
 import { buttonVariants } from '@/components/ui/button';
 import { formatFullDate, timeAgo } from '@/lib/utils';
 
@@ -68,9 +70,9 @@ export function PaperDetailClient({
   const tarballUrl = resolvePdfUrl(paper.tarball_url);
 
   return (
-    <main className="max-w-4xl mx-auto" role="main" aria-label="Paper Detail">
+    <PageShell width="default">
       <div className="mb-5">
-        <Link href="/papers" className={buttonVariants({ variant: 'outline', size: 'default' })} aria-label="Back to feed">
+        <Link href="/papers" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
           <ArrowLeft className="h-4 w-4" />
           <span>Back to feed</span>
         </Link>
@@ -78,13 +80,15 @@ export function PaperDetailClient({
 
       <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold leading-tight tracking-tight mb-4 break-words">{paper.title}</h1>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-4">
-        <span className="text-sm text-muted-foreground">Submitted by</span>
-        <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
+        <span className="inline-flex items-center gap-2">
+          Submitted by
+          <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
+        </span>
         {paper.created_at && (
-          <span className="text-sm text-muted-foreground" title={timeAgo(paper.created_at)}>
-            · {formatFullDate(paper.created_at)}
-          </span>
+          <time dateTime={paper.created_at} title={timeAgo(paper.created_at)} suppressHydrationWarning>
+            {formatFullDate(paper.created_at)}
+          </time>
         )}
         {showArxivId && paper.arxiv_id && (
           <a
@@ -98,19 +102,7 @@ export function PaperDetailClient({
         )}
       </div>
 
-      {(paper.domains || []).length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-5">
-          {(paper.domains || []).map((d) => (
-            <Link
-              key={d}
-              href={`/d/${d.replace('d/', '')}`}
-              className={`${buttonVariants({ size: 'default' })} px-3.5 text-base bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200`}
-            >
-              {d}
-            </Link>
-          ))}
-        </div>
-      )}
+      <DomainChips domains={paper.domains} className="mb-6" />
 
       {(() => {
         const githubUrls =
@@ -123,9 +115,7 @@ export function PaperDetailClient({
         if (!hasAny) return null;
         return (
           <section className="mb-6 space-y-2" aria-labelledby="resources-heading">
-            <h2 id="resources-heading" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Resources
-            </h2>
+            <SectionLabel id="resources-heading">Resources</SectionLabel>
             {(pdfUrl || tarballUrl) && (
               <div className="flex flex-wrap items-center gap-2">
                 {pdfUrl && (
@@ -162,7 +152,7 @@ export function PaperDetailClient({
                     href={url}
                     target="_blank"
                     rel="noreferrer"
-                    className={`${buttonVariants({ size: 'lg' })} bg-slate-900 text-white hover:bg-slate-800 border-slate-900`}
+                    className={buttonVariants({ variant: 'outline', size: 'lg' })}
                     data-agent-action="view-code"
                     title={url}
                   >
@@ -178,9 +168,7 @@ export function PaperDetailClient({
       })()}
 
       <section className="mb-6" aria-labelledby="abstract-heading">
-        <h2 id="abstract-heading" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          Abstract
-        </h2>
+        <SectionLabel id="abstract-heading">Abstract</SectionLabel>
         <p className="text-base leading-relaxed text-foreground/90"><LaTeX>{paper.abstract}</LaTeX></p>
       </section>
 
@@ -190,9 +178,9 @@ export function PaperDetailClient({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-6 border-y py-2 mb-4 text-sm text-muted-foreground">
-        <a href="#arguments" className="inline-flex items-center gap-1.5 hover:text-foreground">
-          <MessageSquare className="h-4 w-4" />
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-y py-2 text-xs text-muted-foreground">
+        <a href="#arguments" className="inline-flex items-center gap-1 hover:text-foreground">
+          <MessageSquare className="h-3.5 w-3.5" />
           <span>{argumentList.length} argument{argumentList.length !== 1 ? 's' : ''}</span>
         </a>
 
@@ -202,6 +190,6 @@ export function PaperDetailClient({
       <div id="arguments">
         <ArgumentSection arguments={argumentList} paperId={paper.id} />
       </div>
-    </main>
+    </PageShell>
   );
 }

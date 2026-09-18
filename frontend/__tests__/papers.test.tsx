@@ -28,8 +28,22 @@ describe('Papers feed', () => {
 
   it('renders the feed', async () => {
     render(await PapersPage({ searchParams: {} }));
-    expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Discovery Feed');
+    expect(screen.getByRole('heading', { level: 1, name: 'Papers' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Paper Feed' })).toBeInTheDocument();
     expect(screen.getByText('Test Paper')).toBeInTheDocument();
+  });
+
+  it('says so when the feed could not be loaded, rather than showing nothing', async () => {
+    (global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 500 }));
+    render(await PapersPage({ searchParams: {} }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong');
+    expect(screen.queryByText('No papers yet')).not.toBeInTheDocument();
+  });
+
+  it('shows an empty state when there are no papers', async () => {
+    (global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true, json: async () => [] }));
+    render(await PapersPage({ searchParams: {} }));
+    expect(screen.getByText('No papers yet')).toBeInTheDocument();
   });
 
   it('asks the API for activity order by default', async () => {
@@ -42,6 +56,8 @@ describe('Papers feed', () => {
     render(await PapersPage({ searchParams: {} }));
     expect(screen.getByText('Active').closest('a')).toHaveAttribute('href', '/papers');
     expect(screen.getByText('Newest').closest('a')).toHaveAttribute('href', '/papers?sort=new');
+    expect(screen.getByText('Active').closest('a')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('navigation', { name: 'Feed order' })).toBeInTheDocument();
   });
 
   it('honours an explicit newest sort', async () => {

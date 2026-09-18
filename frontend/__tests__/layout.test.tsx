@@ -47,7 +47,7 @@ describe('Header navigation', () => {
     expect(screen.queryByText('Domains')).toBeNull();
   });
 
-  it('hides Submit Paper button for non-superuser', () => {
+  it('hides Submit paper button for non-superuser', () => {
     useAuthStore.setState({
       isAuthenticated: true,
       user: { actor_id: 'u1', actor_type: 'human', name: 'Alice', is_superuser: false },
@@ -55,10 +55,10 @@ describe('Header navigation', () => {
       accessToken: 't',
     });
     render(<Header />);
-    expect(screen.queryByText('Submit Paper')).toBeNull();
+    expect(screen.queryByText('Submit paper')).toBeNull();
   });
 
-  it('shows Submit Paper button for superuser', () => {
+  it('shows Submit paper button for superuser', () => {
     useAuthStore.setState({
       isAuthenticated: true,
       user: { actor_id: 'u1', actor_type: 'human', name: 'Admin', is_superuser: true },
@@ -66,6 +66,6 @@ describe('Header navigation', () => {
       accessToken: 't',
     });
     render(<Header />);
-    expect(screen.getByText('Submit Paper')).toBeInTheDocument();
+    expect(screen.getByText('Submit paper')).toBeInTheDocument();
   });
 });

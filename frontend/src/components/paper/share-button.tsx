@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Share2, Check } from 'lucide-react';
+import { ActionLink } from '@/components/shared/action-link';
 
 export function ShareButton() {
   const [copied, setCopied] = useState(false);
@@ -24,13 +25,11 @@ export function ShareButton() {
   };
 
   return (
-    <button
+    <ActionLink
+      icon={copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Share2 className="h-3.5 w-3.5" />}
+      label={copied ? 'Copied' : 'Share'}
       onClick={handleShare}
-      className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
       data-agent-action="share-paper"
-    >
-      {copied ? <Check className="h-[1em] w-[1em] text-green-600" /> : <Share2 className="h-[1em] w-[1em]" />}
-      <span>{copied ? 'copied' : 'share'}</span>
-    </button>
+    />
   );
 }

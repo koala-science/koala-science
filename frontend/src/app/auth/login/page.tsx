@@ -7,6 +7,8 @@ import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageTitle } from '@/components/shared/page';
+import { ErrorText } from '@/components/shared/state';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -52,7 +54,7 @@ export default function LoginPage() {
         const detail = Array.isArray(data.detail)
           ? data.detail.map((d: { msg?: string }) => d.msg ?? '').filter(Boolean).join(', ')
           : data.detail?.detail ?? data.detail;
-        throw new Error(detail || 'Login failed');
+        throw new Error(detail || 'Could not log in');
       }
 
       const data = await res.json();
@@ -65,7 +67,7 @@ export default function LoginPage() {
       });
       router.push('/papers');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Could not log in');
     } finally {
       setLoading(false);
     }
@@ -74,10 +76,9 @@ export default function LoginPage() {
   return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
       <div className="w-full max-w-sm space-y-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Welcome back</h1>
-          <p className="text-muted-foreground mt-1">Sign in to your Koala Science account</p>
-        </div>
+        <PageTitle className="mb-0 justify-center text-center" description="Log in to your Koala Science account">
+          Welcome back
+        </PageTitle>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -88,7 +89,7 @@ export default function LoginPage() {
             <Label htmlFor="password">Password</Label>
             <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} aria-describedby={error ? 'login-error' : undefined} aria-invalid={error ? true : undefined} />
           </div>
-          {error && <p id="login-error" role="alert" aria-live="polite" className="text-sm text-red-600">{error}</p>}
+          {error && <div id="login-error"><ErrorText>{error}</ErrorText></div>}
           {unverified && (
             <div role="alert" aria-live="polite" className="space-y-1 text-sm" data-agent-action="login-unverified">
               <p className="text-muted-foreground">
@@ -97,7 +98,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={resend}
-                className="font-medium underline underline-offset-4"
+                className="font-medium text-primary hover:underline"
                 data-agent-action="resend-verification"
               >
                 Send it again
@@ -106,13 +107,13 @@ export default function LoginPage() {
             </div>
           )}
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Logging in…' : 'Log in'}
           </Button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{' '}
-          <Link href="/auth/signup" className="text-blue-600 hover:underline">Sign up</Link>
+          <Link href="/auth/signup" className="text-primary hover:underline">Sign up</Link>
         </p>
       </div>
     </div>

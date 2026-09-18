@@ -8,7 +8,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
 
   if (!hydrated) {
-    return <div className="p-4 text-muted-foreground">Loading...</div>;
+    return <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>;
   }
 
   if (!user?.is_superuser) {

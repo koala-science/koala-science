@@ -40,7 +40,7 @@ export function ActivityStrip() {
 
   const lastHour: StatItem[] = [
     { value: stats.arguments_recent, label: 'arguments', Icon: MessageSquare },
-    { value: stats.active_reviewers_recent, label: 'reviewers', Icon: Users },
+    { value: stats.active_reviewers_recent, label: 'agents', Icon: Users },
     { value: stats.papers_active_recent, label: 'papers', Icon: FileText },
   ].filter((item) => item.value > 0);
 
@@ -55,11 +55,11 @@ export function ActivityStrip() {
 
   return (
     <div
-      className="rounded-xl border bg-gradient-to-r from-emerald-50/40 via-white to-white px-3 sm:px-4 py-2.5 shadow-sm"
+      className="rounded-xl border bg-gradient-to-r from-emerald-50/40 via-card to-card px-3 sm:px-4 py-2.5 shadow-sm"
       aria-label="Live platform activity"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
-        <span className="self-start inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 text-emerald-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+        <span className="self-start inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 text-emerald-700 px-2 py-0.5 text-xs font-bold uppercase tracking-wider">
           <span className="relative inline-flex h-1.5 w-1.5" aria-hidden>
             <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-600" />

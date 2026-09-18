@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { apiCall } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/shared/state';
 
 interface ShowMoreListProps<T> {
   /** Initial items (from server-side fetch) */
@@ -22,7 +24,7 @@ export function ShowMoreList<T>({
   fetchPath,
   limit = 20,
   renderItem,
-  emptyMessage = 'Nothing here yet.',
+  emptyMessage = 'Nothing here yet',
 }: ShowMoreListProps<T>) {
   const [items, setItems] = useState<T[]>(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length === limit);
@@ -43,21 +45,17 @@ export function ShowMoreList<T>({
   };
 
   if (items.length === 0) {
-    return <p className="text-muted-foreground text-center py-8">{emptyMessage}</p>;
+    return <EmptyState title={emptyMessage} />;
   }
 
   return (
     <div className="space-y-3">
       {items.map((item, i) => renderItem(item, i))}
       {hasMore && (
-        <button
-          onClick={loadMore}
-          disabled={loading}
-          className="w-full py-3 text-sm text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 transition-colors"
-        >
-          <ChevronDown className="h-4 w-4" />
-          {loading ? 'Loading...' : 'Show more'}
-        </button>
+        <Button variant="outline" className="w-full" onClick={loadMore} disabled={loading}>
+          <ChevronDown />
+          {loading ? 'Loading…' : 'Show more'}
+        </Button>
       )}
     </div>
   );

@@ -3,8 +3,11 @@ import { ActorBadge } from '@/components/shared/actor-badge';
 import { MessageSquare, FileText } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
-import { formatFullDate, timeAgo } from '@/lib/utils';
 import { LaTeX } from '@/components/shared/latex';
+import { DomainChips } from '@/components/shared/domain-chip';
+import { RelativeTime } from '@/components/shared/relative-time';
+import { EmptyState } from '@/components/shared/state';
+import { PaperPreview } from './paper-preview';
 
 const ABSTRACT_CHAR_LIMIT = 180;
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n).trimEnd() + '…' : s);
@@ -26,23 +29,6 @@ export interface Paper {
   status?: string;
 }
 
-function DomainBadges({ domains, className = "" }: { domains: string[]; className?: string }) {
-  if (!domains || domains.length === 0) return null;
-  return (
-    <span className={`inline-flex flex-wrap items-center gap-1.5 ${className}`}>
-      {domains.map((d) => (
-        <Link
-          key={d}
-          href={`/d/${d.replace('d/', '')}`}
-          className={`${buttonVariants({ size: 'xs' })} bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200`}
-        >
-          {d}
-        </Link>
-      ))}
-    </span>
-  );
-}
-
 interface PaperFeedProps {
   papers: Paper[];
   view?: string;
@@ -56,7 +42,7 @@ const resolveUrl = (url: string | null | undefined) =>
 
 export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
   if (!papers || papers.length === 0) {
-    return <p className="text-muted-foreground text-center py-12">No papers found.</p>;
+    return <EmptyState icon={FileText} title="No papers found" />;
   }
 
   if (view === "compact") {
@@ -72,13 +58,13 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
               </h3>
               <p className="text-xs text-muted-foreground truncate mt-0.5 mb-1"><LaTeX>{paper.abstract}</LaTeX></p>
               <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                <DomainBadges domains={paper.domains} />
+                <DomainChips domains={paper.domains} />
                 <span>·</span>
                 <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
                 {paper.created_at && (
                   <>
                     <span>·</span>
-                    <span title={formatFullDate(paper.created_at)}>{timeAgo(paper.created_at)}</span>
+                    <RelativeTime date={paper.created_at} />
                   </>
                 )}
                 {showArxivId && paper.arxiv_id && (
@@ -101,30 +87,20 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
       {papers.map((paper) => (
         <Card
           key={paper.id}
-          className="overflow-hidden max-w-2xl mx-auto border border-border rounded-xl shadow-sm hover:shadow-md hover:border-accent-foreground/40 transition-all p-0 gap-0"
+          className="p-0 gap-0 transition-shadow hover:shadow-md"
           aria-label={`Paper: ${paper.title}`}
         >
           <Link href={`/p/${paper.id}`} className="block h-56 w-full border-b overflow-hidden bg-muted">
-            {paper.preview_image_url ? (
-              <img
-                src={resolveUrl(paper.preview_image_url) ?? ''}
-                alt={`Preview of ${paper.title}`}
-                className="w-full h-full object-cover object-top"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <FileText className="h-14 w-14 text-muted-foreground/30" />
-              </div>
-            )}
+            <PaperPreview src={resolveUrl(paper.preview_image_url)} title={paper.title} />
           </Link>
 
           <div className="p-6 pb-4">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground mb-3">
-              <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} className="font-medium text-foreground" />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-3">
+              <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
               {paper.created_at && (
                 <>
                   <span>·</span>
-                  <span title={formatFullDate(paper.created_at)}>{timeAgo(paper.created_at)}</span>
+                  <RelativeTime date={paper.created_at} />
                 </>
               )}
               {showArxivId && paper.arxiv_id && (
@@ -147,13 +123,14 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
               <LaTeX>{truncate(paper.abstract, ABSTRACT_CHAR_LIMIT)}</LaTeX>
             </p>
 
-            <DomainBadges domains={paper.domains} />
+            <DomainChips domains={paper.domains} />
           </div>
 
           <div className="border-t bg-secondary/40 px-6 py-2.5 flex justify-between items-center">
             <Link href={`/p/${paper.id}#arguments`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-              <MessageSquare className="h-4 w-4" />
+              <MessageSquare className="h-4 w-4" aria-hidden />
               <span>{paper.argument_count ?? 0}</span>
+              <span className="sr-only">arguments</span>
             </Link>
             {paper.pdf_url && (
               <a

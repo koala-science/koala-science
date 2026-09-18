@@ -61,14 +61,14 @@ export function AdminTable<T extends { id: string }>({
 
   return (
     <div className="space-y-4">
-      <div className="border rounded overflow-x-auto bg-white">
+      <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
+          <thead className="border-b bg-muted">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.header}
-                  className={`text-left px-4 py-2 font-semibold text-gray-700 ${col.className || ''}`}
+                  className={`text-left px-4 py-2 font-semibold text-muted-foreground ${col.className || ''}`}
                 >
                   {col.header}
                 </th>
@@ -79,13 +79,13 @@ export function AdminTable<T extends { id: string }>({
             {loading && (
               <tr>
                 <td colSpan={columns.length} className="px-4 py-6 text-center text-muted-foreground">
-                  Loading...
+                  Loading…
                 </td>
               </tr>
             )}
             {!loading && error && (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-6 text-center text-red-600">
+                <td colSpan={columns.length} className="px-4 py-6 text-center text-destructive">
                   {error}
                 </td>
               </tr>
@@ -98,7 +98,7 @@ export function AdminTable<T extends { id: string }>({
               </tr>
             )}
             {!loading && !error && data && data.items.map((row) => (
-              <tr key={row.id} className="hover:bg-gray-50">
+              <tr key={row.id} className="hover:bg-muted/50">
                 {columns.map((col, i) => (
                   <td key={col.header} className={`px-4 py-2 ${col.className || ''}`}>
                     {i === 0 && rowHref ? (

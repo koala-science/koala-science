@@ -28,6 +28,8 @@ const base = {
   author_response: null,
 };
 
+const LOW_EFFORT = 'Too vague to evaluate.';
+
 function checksOf(
   argumentId: string,
   status: 'pending' | 'passed' | 'failed',
@@ -38,7 +40,9 @@ function checksOf(
     name,
     version: 'v1',
     status,
-    detail: status === 'failed' ? 'low_effort' : 'ok',
+    summary: status === 'failed' ? LOW_EFFORT : null,
+    detail: status === 'failed' ? 'Just says the paper is bad.' : null,
+    duplicate_of: null,
     flag_count: 0,
   }));
 }
@@ -150,10 +154,11 @@ describe('ArgumentSection', () => {
     render(<ArgumentSection paperId="p1" arguments={[rejected]} />);
     fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
 
-    expect(screen.queryByText(/low_effort/)).not.toBeInTheDocument();
+    expect(screen.queryByText(LOW_EFFORT)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(rejected.claim, 'i') }));
-    expect(screen.getByText(/low_effort/)).toBeInTheDocument();
+    expect(screen.getByText(LOW_EFFORT)).toBeInTheDocument();
+    expect(screen.getByText('Just says the paper is bad.')).toBeInTheDocument();
   });
 
   it('shows only the claim until the argument is opened', () => {
@@ -230,7 +235,7 @@ describe('ArgumentSection', () => {
         claim: 'Failed at relevance.',
         checks: [
           ...checksOf('late', 'passed', ['moderation', 'validity']),
-          { id: 'late-relevance', name: 'relevance', version: 'v1', status: 'failed' as const, detail: 'cosmetic: a typo', flag_count: 0 },
+          { id: 'late-relevance', name: 'relevance', version: 'v1', status: 'failed' as const, summary: 'The argument is about presentation rather than substance.', detail: 'a typo', duplicate_of: null, flag_count: 0 },
         ],
       };
       render(<ArgumentSection paperId="p1" arguments={[failedLate]} />);
@@ -263,7 +268,7 @@ describe('ArgumentSection', () => {
       fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
 
       expect(screen.getByLabelText('moderation: failed')).toBeInTheDocument();
-      expect(screen.queryByText(/low_effort/)).not.toBeInTheDocument();
+      expect(screen.queryByText(LOW_EFFORT)).not.toBeInTheDocument();
     });
 
     it('takes the newest version when a check was re-run', () => {
@@ -273,14 +278,62 @@ describe('ArgumentSection', () => {
         state: 'accepted' as const,
         claim: 'Re-run at v2.',
         checks: [
-          { id: 're-mod-v1', name: 'moderation', version: 'v1', status: 'failed' as const, detail: 'low_effort', flag_count: 0 },
-          { id: 're-mod-v2', name: 'moderation', version: 'v2', status: 'passed' as const, detail: 'ok', flag_count: 0 },
+          { id: 're-mod-v1', name: 'moderation', version: 'v1', status: 'failed' as const, summary: LOW_EFFORT, detail: null, duplicate_of: null, flag_count: 0 },
+          { id: 're-mod-v2', name: 'moderation', version: 'v2', status: 'passed' as const, summary: null, detail: null, duplicate_of: null, flag_count: 0 },
         ],
       };
       render(<ArgumentSection paperId="p1" arguments={[rechecked]} />);
 
       expect(screen.getByLabelText('moderation: passed')).toBeInTheDocument();
       expect(screen.queryByLabelText('moderation: failed')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('a duplicate', () => {
+    // Following the link records it in the URL; later tests must not land on it.
+    afterEach(() => window.history.replaceState(null, '', window.location.pathname));
+
+    const repeat = (duplicateOf: string) => ({
+      ...base,
+      id: 'dup',
+      state: 'rejected' as const,
+      claim: 'The same criticism again.',
+      checks: [
+        ...checksOf('dup', 'passed', ['moderation', 'validity', 'relevance']),
+        {
+          id: 'dup-uniqueness',
+          name: 'uniqueness',
+          version: 'v1',
+          status: 'failed' as const,
+          summary: 'Already made by an earlier argument on this paper.',
+          detail: `Earlier argument: ${duplicateOf}`,
+          duplicate_of: duplicateOf,
+          flag_count: 0,
+        },
+      ],
+    });
+
+    it('quotes the argument it repeats, linking to it', () => {
+      render(<ArgumentSection paperId="p1" arguments={[negative, repeat('neg')]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+      fireEvent.click(screen.getByRole('button', { name: /the same criticism again/i }));
+
+      const link = screen.getByRole('link', { name: new RegExp(negative.claim) });
+      expect(link).toHaveAttribute('href', '#argument-neg');
+      expect(screen.queryByText(/Earlier argument: neg/)).not.toBeInTheDocument();
+
+      fireEvent.click(link);
+      expect(screen.getByRole('tab', { name: /negative/i })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('button', { name: negative.claim })).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('falls back to the id when the earlier argument is not on the page', () => {
+      render(<ArgumentSection paperId="p1" arguments={[repeat('gone')]} />);
+      fireEvent.click(screen.getByRole('tab', { name: /rejected/i }));
+      fireEvent.click(screen.getByRole('button', { name: /the same criticism again/i }));
+
+      expect(screen.getByText('Earlier argument: gone')).toBeInTheDocument();
+      expect(document.querySelector('a[href^="#argument-"]')).toBeNull();
     });
   });
 

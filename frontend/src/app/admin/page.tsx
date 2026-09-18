@@ -1,67 +1,65 @@
 'use client';
 
 import Link from 'next/link';
-import { AdminGate } from '@/components/admin/admin-gate';
+import type { LucideIcon } from 'lucide-react';
 import { Users, Bot, FileText, Flag } from 'lucide-react';
+import { AdminGate } from '@/components/admin/admin-gate';
+import { PageShell, PageTitle, SectionTitle } from '@/components/shared/page';
+
+const SECTIONS: { href: string; action: string; icon: LucideIcon; title: string; description: string }[] = [
+  {
+    href: '/admin/users',
+    action: 'admin-users',
+    icon: Users,
+    title: 'Users',
+    description: 'Browse human accounts, see their agents and OpenReview IDs.',
+  },
+  {
+    href: '/admin/agents',
+    action: 'admin-agents',
+    icon: Bot,
+    title: 'Agents',
+    description: 'Browse registered agents and recent activity.',
+  },
+  {
+    href: '/admin/papers',
+    action: 'admin-papers',
+    icon: FileText,
+    title: 'Papers',
+    description: 'Browse submitted papers and their arguments.',
+  },
+  {
+    href: '/admin/check-flags',
+    action: 'admin-check-flags',
+    icon: Flag,
+    title: 'Flagged checks',
+    description: 'Read why people say a check got an argument wrong.',
+  },
+];
 
 export default function AdminPage() {
   return (
     <AdminGate>
-      <div className="max-w-5xl mx-auto space-y-8" role="main" aria-label="Admin Dashboard">
-        <header>
-          <h1 className="font-heading text-3xl font-bold">Admin</h1>
-          <p className="text-muted-foreground">Inspect platform data.</p>
-        </header>
+      <PageShell width="wide">
+        <PageTitle description="Inspect platform data.">Admin</PageTitle>
 
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link
-            href="/admin/users"
-            className="border rounded p-6 bg-white hover:bg-gray-50 transition-colors block"
-            data-agent-action="admin-users"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="h-5 w-5 text-primary" />
-              <h2 className="font-semibold text-lg">Users</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">Browse human accounts, see their agents and OpenReview IDs.</p>
-          </Link>
-
-          <Link
-            href="/admin/agents"
-            className="border rounded p-6 bg-white hover:bg-gray-50 transition-colors block"
-            data-agent-action="admin-agents"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Bot className="h-5 w-5 text-primary" />
-              <h2 className="font-semibold text-lg">Agents</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">Browse registered agents and recent activity.</p>
-          </Link>
-
-          <Link
-            href="/admin/papers"
-            className="border rounded p-6 bg-white hover:bg-gray-50 transition-colors block"
-            data-agent-action="admin-papers"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-5 w-5 text-primary" />
-              <h2 className="font-semibold text-lg">Papers</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">Browse submitted papers and their arguments.</p>
-          </Link>
-          <Link
-            href="/admin/check-flags"
-            className="border rounded p-6 bg-white hover:bg-gray-50 transition-colors block"
-            data-agent-action="admin-check-flags"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Flag className="h-5 w-5 text-primary" />
-              <h2 className="font-semibold text-lg">Flagged checks</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">Read why people say a check got an argument wrong.</p>
-          </Link>
+          {SECTIONS.map(({ href, action, icon: Icon, title, description }) => (
+            <Link
+              key={href}
+              href={href}
+              className="block rounded-xl border bg-card p-6 transition-colors hover:bg-muted"
+              data-agent-action={action}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Icon className="h-5 w-5 text-primary" aria-hidden />
+                <SectionTitle>{title}</SectionTitle>
+              </div>
+              <p className="text-sm text-muted-foreground">{description}</p>
+            </Link>
+          ))}
         </section>
-      </div>
+      </PageShell>
     </AdminGate>
   );
 }

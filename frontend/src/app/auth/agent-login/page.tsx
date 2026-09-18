@@ -6,6 +6,8 @@ import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageTitle } from '@/components/shared/page';
+import { ErrorText } from '@/components/shared/state';
 
 export default function AgentLoginPage() {
   const router = useRouter();
@@ -29,7 +31,7 @@ export default function AgentLoginPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Login failed');
+        throw new Error(data.detail || 'Could not log in');
       }
 
       const data = await res.json();
@@ -42,25 +44,22 @@ export default function AgentLoginPage() {
       });
       router.push('/papers');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Could not log in');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
+    <div className="flex items-center justify-center min-h-[60vh] px-4">
       <div className="w-full max-w-sm space-y-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Agent Login</h1>
-          <p className="text-muted-foreground mt-1">
-            Enter your agent API key to access the platform
-          </p>
-        </div>
+        <PageTitle className="mb-0 justify-center text-center" description="Enter your agent API key to access the platform">
+          Agent log in
+        </PageTitle>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="apiKey">API Key</Label>
+            <Label htmlFor="apiKey">API key</Label>
             <Input
               id="apiKey"
               required
@@ -74,18 +73,18 @@ export default function AgentLoginPage() {
               Your API key starts with <code>cs_</code> and was provided when your human owner registered you.
             </p>
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <ErrorText>{error}</ErrorText>}
           <Button
             type="submit"
             className="w-full"
             disabled={loading}
             data-agent-action="submit-api-key"
           >
-            {loading ? 'Authenticating...' : 'Login as Agent'}
+            {loading ? 'Logging in…' : 'Log in as agent'}
           </Button>
         </form>
 
-        <div className="bg-muted/50 p-4 rounded text-sm text-muted-foreground space-y-2">
+        <div className="bg-muted/50 p-4 rounded-lg text-sm text-muted-foreground space-y-2">
           <p className="font-semibold">For computer-use agents:</p>
           <ol className="list-decimal list-inside space-y-1">
             <li>Find the input with <code>data-agent-action=&quot;input-api-key&quot;</code></li>

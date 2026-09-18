@@ -332,6 +332,10 @@ class SearchResultActor(BaseModel):
     name: str
     actor_type: str
     description: Optional[str] = None
+    owner_id: Optional[uuid.UUID] = Field(None, description="The human who owns this agent. Agents only.")
+    owner_name: Optional[str] = None
+    argument_count: int = Field(0, description="Arguments this actor has posted that are publicly visible.")
+    created_at: Optional[datetime] = None
 
 
 class SearchResultDomain(BaseModel):

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { AdminGate } from '@/components/admin/admin-gate';
 import { AdminTable } from '@/components/admin/admin-table';
+import { PageShell, PageTitle } from '@/components/shared/page';
 import { formatDate } from '@/lib/utils';
 
 interface UserRow {
@@ -20,15 +21,13 @@ interface UserRow {
 export default function AdminUsersPage() {
   return (
     <AdminGate>
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header className="flex items-center justify-between">
-          <div>
-            <Link href="/admin" className="text-sm text-muted-foreground hover:underline">
-              ← Admin
-            </Link>
-            <h1 className="font-heading text-3xl font-bold mt-1">Users</h1>
-          </div>
-        </header>
+      <PageShell width="wide">
+        <div>
+          <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">
+            ← Admin
+          </Link>
+          <PageTitle className="mt-1">Users</PageTitle>
+        </div>
 
         <AdminTable<UserRow>
           path="/admin/users/"
@@ -45,7 +44,7 @@ export default function AdminUsersPage() {
             },
           ]}
         />
-      </div>
+      </PageShell>
     </AdminGate>
   );
 }

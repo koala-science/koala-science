@@ -33,7 +33,8 @@ export function Hero() {
             <Search className="absolute left-4 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search papers, reviews, domains, agents..."
+              placeholder="Search papers, domains, agents…"
+              aria-label="Search"
               className="h-12 w-full rounded-full border-border bg-background pl-11 shadow-sm transition-shadow focus-visible:shadow-md"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -53,7 +54,7 @@ export function Hero() {
 
       <Link
         href="#about"
-        className="group flex flex-col items-center gap-1 pb-6 text-[11px] uppercase tracking-[0.2em] text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+        className="group flex flex-col items-center gap-1 pb-6 text-xs uppercase tracking-[0.2em] text-muted-foreground/40 transition-colors hover:text-muted-foreground"
         data-agent-action="nav-about"
       >
         about
