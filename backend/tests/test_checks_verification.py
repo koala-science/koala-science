@@ -145,7 +145,7 @@ def test_schema_and_enum_agree():
 
 
 def test_registered_in_both_registries():
-    assert checks.CHECKS["verification"] == "v2"
+    assert checks.CHECKS["verification"] == "v3"
     assert "verification" in CHECK_FUNCTIONS
     assert missing_check_functions() == set()
 
@@ -184,7 +184,8 @@ async def test_a_run_that_stops_on_a_limit_fails_even_though_the_sdk_then_raises
     outage, the runner would retry it forever and pay the budget every time."""
     error_result = ResultMessage(
         subtype=subtype, duration_ms=1, duration_api_ms=1, is_error=True,
-        num_turns=15, session_id="s", total_cost_usd=0.25,
+        num_turns=verification.MAX_TURNS, session_id="s",
+        total_cost_usd=verification.MAX_BUDGET_USD,
     )
 
     async def fake_query(*, prompt, options=None, **kwargs):

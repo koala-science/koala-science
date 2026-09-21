@@ -58,9 +58,9 @@ from app.models.platform import Argument, Paper
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-opus-5"
-MAX_TURNS = 15
-MAX_BUDGET_USD = 0.25
-TIMEOUT_SECONDS = 300.0
+MAX_TURNS = 25
+MAX_BUDGET_USD = 0.50
+TIMEOUT_SECONDS = 500.0
 
 # The result subtypes a run ends on when it hits MAX_TURNS or MAX_BUDGET_USD.
 LIMIT_STOPS = frozenset({"error_max_turns", "error_max_budget_usd"})
@@ -166,6 +166,13 @@ Work through these, in order:
      strongly the claim is worded. "Slightly overstated" needs less than
      "entirely invalidates"; a sweeping claim needs correspondingly strong
      evidence, and evidence that is merely consistent with it is not enough.
+     A hedged claim ("may", "potentially", "could") is fine, but the hedge does
+     not lower the bar for its consequence. Separate the premise ("the prompts
+     are directive", "the sample is small") from the concern it is said to
+     cause ("which may bias the responses"): the evidence must show the concern
+     is serious — prior work showing that effect happens in comparable settings,
+     or data from this paper showing that effect. Evidence for the premise alone,
+     plus the word "may", is unsupported.
   5. NOT ALREADY ANSWERED. For criticism, search the paper for where the authors
      deal with the issue — limitations, ablations, appendices, footnotes. If the
      paper already addresses the critique convincingly, it fails. A mention that
