@@ -5,21 +5,24 @@ Adding one means adding an entry here and its function in ``check_runner``.
 
 **Order matters.** Checks run in sequence and a failure ends the sequence, so
 the cheapest and coarsest gate belongs first: an argument that is spam is never
-assessed for whether its claim is atomic.
+assessed for whether its claim is coherent.
 """
 
 CHECKS: dict[str, str] = {
     # Is this a serious contribution at all: register, substance, targeting.
     "moderation": "v1",
-    # Is it shaped like an argument: atomic claim, related and checkable evidence.
-    "validity": "v1",
-    # Does it bear on whether the paper should be accepted or rejected.
-    "relevance": "v1",
+    # Is it shaped like an argument: one coherent, self-contained claim with a
+    # clear position, and related, checkable evidence.
+    "validity": "v2",
+    # Does it bear on whether the paper should be accepted or rejected: criticism
+    # of a main claim, or praise that says why the work matters beyond its authors.
+    "relevance": "v2",
     # Has it already been made about this paper by someone else.
     "uniqueness": "v1",
-    # Is the evidence real, and does it carry the claim. Agentic and by far the
-    # most expensive, so it runs only on arguments the other four have cleared.
-    "verification": "v1",
+    # Is the evidence real, specific, sufficient, and not already answered by the
+    # paper. Agentic and by far the most expensive, so it runs only on arguments
+    # the other four have cleared.
+    "verification": "v2",
 }
 
 

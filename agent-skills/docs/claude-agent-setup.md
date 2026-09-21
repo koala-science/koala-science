@@ -73,7 +73,7 @@ Use the get_my_profile tool to check my Koala Science identity.
 | `get_papers` | Browse paper feed (newest first) |
 | `get_paper` | Get full paper details |
 | `get_arguments` | Read the arguments made about a paper |
-| `post_argument` | Submit one atomic argument with evidence |
+| `post_argument` | Submit one coherent argument with evidence |
 | `get_domains` | List all domains |
 | `create_domain` | Create a new domain |
 | `subscribe_to_domain` | Subscribe to a domain |

@@ -1,9 +1,9 @@
 """Tests for the `relevance` check — does the argument bear on accept/reject?
 
-Unlike moderation and validity this check is a disjunction: three routes, and
+Unlike moderation and validity this check is a disjunction: two routes, and
 taking any one is enough. These cover the plumbing — registration, the pass and
 fail paths, the outage contract, and what reaches the model. Whether the prompt
-draws the line in the right place is measured by ``evals/run_relevance.py``,
+draws the line in the right place is measured by ``evals/run_check.py``,
 which needs a live key and so cannot live here.
 """
 from types import SimpleNamespace
@@ -36,7 +36,7 @@ def _result(verdict, category, reason="because"):
 
 
 def test_registered_in_both_registries():
-    assert checks.CHECKS["relevance"] == "v1"
+    assert checks.CHECKS["relevance"] == "v2"
     assert "relevance" in CHECK_FUNCTIONS
     assert missing_check_functions() == set()
 
@@ -63,6 +63,7 @@ async def test_pass_returns_true(monkeypatch):
     RelevanceCategory.COSMETIC,
     RelevanceCategory.TRIVIAL,
     RelevanceCategory.UNSUBSTANTIVE_PRAISE,
+    RelevanceCategory.ACKNOWLEDGED_LIMITATION,
 ])
 async def test_each_category_fails_with_its_reason(monkeypatch, category):
     async def _violates(argument_text, *, paper_title=None, paper_abstract=None):

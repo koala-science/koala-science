@@ -10,9 +10,11 @@ import uuid
 import json
 
 import pytest
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import ResultError, ResultMessage
 
+from app.core import checks
 from app.core import checks_verification as verification
+from app.core.check_runner import CHECK_FUNCTIONS, missing_check_functions
 from app.core.checks_verification import verification_check
 from app.core.gemini import CheckUnavailableError
 from app.models.platform import Argument, ArgumentPosition, Paper
@@ -119,6 +121,35 @@ async def test_real_evidence_that_does_not_carry_the_claim_fails(monkeypatch):
     assert "unsupported" in detail
 
 
+@pytest.mark.parametrize("verdict", ["addressed", "not_self_contained"])
+async def test_each_failing_verdict_fails_the_argument_and_keeps_its_reason(
+    monkeypatch, verdict
+):
+    monkeypatch.setattr(verification, "query", _agent_returning(_Result(
+        structured_output={"verdict": verdict, "reason": "Section 5 answers it."}
+    )))
+
+    passed, detail = await verification_check(None, _argument(_paper()))
+
+    assert passed is False
+    assert detail.startswith(f"{verdict}: ")
+    assert "Section 5 answers it." in detail
+
+
+def test_schema_and_enum_agree():
+    """A verdict the schema allows but the enum lacks reads as an outage, and is
+    retried forever on every argument that earns it."""
+    assert set(verification.VERDICT_SCHEMA["properties"]["verdict"]["enum"]) == {
+        v.value for v in verification.Verdict
+    }
+
+
+def test_registered_in_both_registries():
+    assert checks.CHECKS["verification"] == "v2"
+    assert "verification" in CHECK_FUNCTIONS
+    assert missing_check_functions() == set()
+
+
 async def test_a_paper_with_no_full_text_fails_without_running_the_agent(monkeypatch):
     """Nothing to verify against, and the agent must not be paid to discover that."""
     monkeypatch.setattr(verification, "query", _agent_raising(
@@ -142,6 +173,54 @@ async def test_a_truncated_manuscript_says_so_in_the_detail(monkeypatch):
 
     assert passed is False
     assert "truncated" in detail.lower()
+
+
+@pytest.mark.parametrize("subtype", ["error_max_budget_usd", "error_max_turns"])
+async def test_a_run_that_stops_on_a_limit_fails_even_though_the_sdk_then_raises(
+    monkeypatch, subtype
+):
+    """What the SDK really does at a limit: yield the error result, then raise
+    ``ResultError`` from the iterator as the CLI exits non-zero. Read as an
+    outage, the runner would retry it forever and pay the budget every time."""
+    error_result = ResultMessage(
+        subtype=subtype, duration_ms=1, duration_api_ms=1, is_error=True,
+        num_turns=15, session_id="s", total_cost_usd=0.25,
+    )
+
+    async def fake_query(*, prompt, options=None, **kwargs):
+        yield error_result
+        raise ResultError(f"Claude Code returned an error result: {subtype}", data={})
+
+    monkeypatch.setattr(verification, "query", fake_query)
+
+    passed, detail = await verification_check(None, _argument(_paper()))
+
+    assert passed is False
+    assert detail == f"no verdict reached: {subtype}"
+
+
+@pytest.mark.parametrize("api_error_status", [None, 401])
+async def test_an_api_failure_the_sdk_raises_after_stays_an_outage(
+    monkeypatch, api_error_status
+):
+    """An API failure arrives as ``subtype="success"`` with ``is_error`` set, and
+    the SDK raises after it just as it does at a limit. With no HTTP status (a
+    reset connection) or with one (a revoked key) it is our outage, not the
+    argument's failure, so only the limit stops may be read as a verdict."""
+    error_result = ResultMessage(
+        subtype="success", duration_ms=1, duration_api_ms=1, is_error=True,
+        num_turns=2, session_id="s", api_error_status=api_error_status,
+        result="API Error: Connection error.",
+    )
+
+    async def fake_query(*, prompt, options=None, **kwargs):
+        yield error_result
+        raise ResultError("Claude Code returned an error result: API Error", data={})
+
+    monkeypatch.setattr(verification, "query", fake_query)
+
+    with pytest.raises(CheckUnavailableError):
+        await verification_check(None, _argument(_paper()))
 
 
 async def test_running_out_of_turns_fails_the_argument(monkeypatch):

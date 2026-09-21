@@ -21,34 +21,69 @@ Example:
 
 ## 2. Validity
 
-Arguments should be built like arguments: one single point, backed by evidence
-that bears on it and that a reader could go and check. Several criticisms bundled
-into one claim, or a claim resting on nothing a reader can inspect, fail here.
+Arguments should be one coherent piece of praise or criticism, backed by
+evidence that proves its point and that a reader could check. The argument's
+thesis must be self-contained: someone who has not read the paper can fully
+understand the thesis, and what sort of evidence exists to back it, without
+needing to read the paper or the evidence section. This means that acronyms are not accepted, except
+for universally known and accepted ones such as AI, ML, RL or GPU, and neither
+are vague arguments that give no intuition about the evidence that will be
+provided. An argument's thesis can itself have more than one constituent, as
+long as they are chained into a coherent argument that would not hold without
+all of its constituents. The argument should clearly be either positive or
+negative about the paper, without the need to read the evidence.
 
 Example:
 
 > **Argument:** "The baseline is missing and the dataset is too small."
 >
-> **Evidence:** "There is no need of evidence as this is clear from the
+> **Evidence:** "There is no need for evidence, as this is clear from the
 > manuscript."
 
-This fails twice over. The argument is really two separate points — a missing
-baseline and a small dataset — each of which stands or falls on its own, so it is
-not atomic and should be posted as two arguments. And no evidence is offered:
-nothing here points at anything a reader could go and inspect.
+This fails twice over. The argument is really two separate points, each of which
+stands on its own. And no evidence is offered: nothing here points at anything a
+reader could go and inspect.
+
+In contrast:
+
+> **Argument:** "The baseline is missing, and previous papers have shown that it
+> is quite hard to beat."
+>
+> **Evidence:** "Doe et al. (2020) have shown that the baseline X is simple and
+> extremely hard to beat. In fact, the community has adopted this baseline, as
+> seen in K et al. and J et al."
+
+This would pass the check, as the argument makes one claim and is clear without
+needing to read the paper. At the same time, it provides its evidence in the
+evidence section.
 
 ## 3. Relevance
 
-Arguments should bear on whether the paper is accepted or rejected. Cosmetic and
-trivial issues are real and worth fixing, but nobody accepts or rejects a paper
-over them — and praise counts only when it says why the work matters to someone
-other than its authors.
+Arguments should inform whether the paper should be accepted or rejected.
+Cosmetic and trivial issues are not a reason to accept or reject a paper. Praise
+counts only when the contribution matters to a community larger than its
+authors. A critique should go against the main claims of the paper. This can
+include limitations the authors mention, if they substantially undermine the
+central claim of the paper; otherwise, acknowledged limitations are not
+considered valid.
 
 Example:
 
 > **Argument:** "Figure 3's axis labels are too small to read comfortably."
 >
 > **Evidence:** "The axis labels in Figure 3 on page 6 are set in about 5pt."
+
+This would not pass the check. Another example:
+
+> **Argument:** "The authors acknowledge that they only test on three pre-trained
+> models, which cannot guarantee that the method will work on every possible
+> model."
+>
+> **Evidence:** "The limitations section explicitly acknowledges …"
+
+This would not pass the check either, as the argument raises a point the authors
+have already addressed. To be relevant, the argument would have to make the case
+for why this limitation substantially undermines the main claims of the paper.
 
 ## 4. Uniqueness
 
@@ -74,9 +109,20 @@ does not already contain.
 ## 5. Verification
 
 Evidence should be real, and enough to convincingly defend the argument. This
-check confirms that what an argument cites actually exists and says what the
-argument claims it says, and that it carries the claim rather than merely
-gesturing at it.
+means the evidence must be verified, and must be enough to fully support the
+argument for the vast majority of readers. For example, strongly worded
+arguments must provide correspondingly strong evidence to convince a reader. The
+critique must also not already be thoroughly addressed in the paper, as the
+authors may already have taken measures that convincingly answer it. If the
+argument relies on citations that the paper uses, the check verifies that those
+citations are grounded in the original cited paper, that is, that the cited work
+fully supports how the paper uses it. Arguments should be self-contained in their
+evidence, and not rely on readers going to the paper to understand them. For
+example, to claim a "dramatic reduction" in some value, the evidence must give
+the specific numbers. As a guide, verification is expected to be an easy
+process: if the evidence does not allow for easy verification (some readers
+might not be convinced within five minutes of reading it), the argument fails
+verification.
 
 Example:
 
@@ -85,4 +131,5 @@ Example:
 > **Evidence:** "Table 6 reports the no-pretraining ablation scoring within
 > noise of the baseline."
 
-The paper has no Table 6.
+This would not pass, as it is not clear what "disappears" means: no numbers are
+given, and only Table 6 is referenced.

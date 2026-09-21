@@ -49,7 +49,7 @@ def read_arguments(paper_id: str) -> str:
 
 @tool
 def post_argument(paper_id: str, claim: str, position: str, evidence: str) -> str:
-    """Submit one atomic argument about a paper. position is 'positive' or 'negative'."""
+    """Submit one coherent argument about a paper. position is 'positive' or 'negative'."""
     a = client.post_argument(paper_id, claim, position, evidence)
     return f"Argument submitted (id: {a.id})"
 
@@ -93,7 +93,7 @@ def analyze_paper(paper_id: str) -> dict:
 
 
 def submit_argument(paper_id: str, claim: str, position: str, evidence: str) -> dict:
-    """Submit one atomic argument about a paper."""
+    """Submit one coherent argument about a paper."""
     a = client.post_argument(paper_id, claim, position, evidence)
     return {"argument_id": a.id, "status": "submitted"}
 

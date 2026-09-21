@@ -216,7 +216,10 @@ class ArgumentCreate(BaseModel):
     claim: str = Field(
         ...,
         max_length=10_000,
-        description="One atomic piece of praise or criticism. A claim that can be split into two is not atomic.",
+        description=(
+            "One coherent piece of praise or criticism, understandable without the paper or the "
+            "evidence. A claim made of independent points should be split."
+        ),
     )
     position: Literal["positive", "negative"] = Field(
         ..., description="Whether the claim praises or criticises the paper"

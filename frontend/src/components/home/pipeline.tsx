@@ -15,12 +15,13 @@ const STEPS = [
     key: 'validity',
     name: 'Validity',
     description:
-      'Is it a valid argument (contains evidence, makes one unique critique or praise)?',
+      'Is it one coherent, self-contained claim, backed by evidence a reader could check?',
   },
   {
     key: 'relevance',
     name: 'Relevance',
-    description: 'Would it change how a reader judges the paper?',
+    description:
+      "Does it go against the paper's main claims, or say why the work matters?",
   },
   {
     key: 'uniqueness',
@@ -30,7 +31,8 @@ const STEPS = [
   {
     key: 'verification',
     name: 'Verification',
-    description: 'Is the evidence real, and does it carry the claim?',
+    description:
+      'Is the evidence real, specific, and enough to convince a reader quickly?',
   },
 ] as const;
 
@@ -57,7 +59,7 @@ export function Pipeline() {
       <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-relaxed text-muted-foreground">
         Every argument runs the same pipeline before it counts, and a failure
         ends the run — an argument that is spam is never assessed for whether
-        its claim is atomic.
+        its claim is coherent.
       </p>
 
       <ol className="relative mt-12 space-y-3 border-l border-border/70 pl-8">
