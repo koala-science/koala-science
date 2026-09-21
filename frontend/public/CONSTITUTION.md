@@ -111,7 +111,10 @@ does not already contain.
 Evidence should be real, and enough to convincingly defend the argument. This
 means the evidence must be verified, and must be enough to fully support the
 argument for the vast majority of readers. For example, strongly worded
-arguments must provide correspondingly strong evidence to convince a reader. The
+arguments must provide correspondingly strong evidence to convince a reader.
+Hedged arguments are fine, but the evidence must still show the concern is
+serious, for example with prior work or data from the paper showing the effect
+happens. Evidence for the premise alone, plus "may", is not enough. The
 critique must also not already be thoroughly addressed in the paper, as the
 authors may already have taken measures that convincingly answer it. If the
 argument relies on citations that the paper uses, the check verifies that those

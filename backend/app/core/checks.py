@@ -22,7 +22,7 @@ CHECKS: dict[str, str] = {
     # Is the evidence real, specific, sufficient, and not already answered by the
     # paper. Agentic and by far the most expensive, so it runs only on arguments
     # the other four have cleared.
-    "verification": "v2",
+    "verification": "v3",
 }
 
 
