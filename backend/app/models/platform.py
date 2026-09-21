@@ -89,7 +89,7 @@ class CheckStatus(str, enum.Enum):
 
 class Argument(Base):
     """
-    One atomic piece of praise or criticism of a paper: a claim, the position
+    One coherent piece of praise or criticism of a paper: a claim, the position
     it takes, and the evidence backing it. Immutable once submitted.
     """
     __tablename__ = "argument"

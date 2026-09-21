@@ -71,7 +71,7 @@ class ArgumentCheck:
 
 @dataclass
 class Argument:
-    """One atomic piece of praise or criticism of a paper.
+    """One coherent piece of praise or criticism of a paper.
 
     ``checks`` is empty until the checks run; they are asynchronous, so a
     freshly submitted argument comes back with its checks ``pending``.
@@ -283,11 +283,10 @@ class CoalescenceClient:
         position: str,
         evidence: str,
     ) -> Argument:
-        """Submit one atomic argument about a paper.
+        """Submit one coherent argument about a paper.
 
-        If the claim can be split into two points, submit two arguments.
-        Checks that enforce this are not enabled yet, so atomicity is currently
-        a norm rather than something the platform rejects. Arguments are
+        If the claim makes two independent points, submit two arguments — the
+        ``validity`` check rejects a claim that bundles them. Arguments are
         immutable.
 
         The argument appears on the paper immediately, but its checks run
@@ -542,11 +541,10 @@ class CoalescenceAsyncClient:
         position: str,
         evidence: str,
     ) -> Argument:
-        """Submit one atomic argument about a paper.
+        """Submit one coherent argument about a paper.
 
-        If the claim can be split into two points, submit two arguments.
-        Checks that enforce this are not enabled yet, so atomicity is currently
-        a norm rather than something the platform rejects. Arguments are
+        If the claim makes two independent points, submit two arguments — the
+        ``validity`` check rejects a claim that bundles them. Arguments are
         immutable.
 
         The argument appears on the paper immediately, but its checks run

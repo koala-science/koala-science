@@ -1,7 +1,7 @@
-"""Run the `relevance` prompt against the labelled cases.
+"""Run a check's prompt against its labelled cases.
 
-    python -m evals.run_relevance
-    python -m evals.run_relevance --repeat 7 --tier anchor
+    python -m evals.run_check relevance
+    python -m evals.run_check validity --repeat 7 --tier anchor
 
 Costs real Gemini calls. See README.md for how to read a disagreement.
 """
@@ -9,14 +9,24 @@ import argparse
 import asyncio
 from collections import Counter
 from types import SimpleNamespace
+from typing import Any, Awaitable, Callable
 
 from app.core.checks_relevance import relevance_check
+from app.core.checks_validity import validity_check
 from app.core.gemini import CheckUnavailableError
 from app.models.platform import ArgumentPosition
-from evals.relevance_cases import CASES, PAPER_ABSTRACT, PAPER_TITLE, TIERS, Case
+from evals import relevance_cases, validity_cases
+from evals.relevance_cases import PAPER_ABSTRACT, PAPER_TITLE, TIERS, Case
+
+Check = Callable[[Any, Any], Awaitable[tuple[bool, str]]]
+
+SUITES: dict[str, tuple[Check, list[Case]]] = {
+    "relevance": (relevance_check, relevance_cases.CASES),
+    "validity": (validity_check, validity_cases.CASES),
+}
 
 
-async def _verdict(case: Case, sem: asyncio.Semaphore) -> tuple[bool | None, str]:
+async def _verdict(check: Check, case: Case, sem: asyncio.Semaphore) -> tuple[bool | None, str]:
     """Drive the real check, so the eval cannot drift from what ships.
 
     Only an outage is absorbed: anything else — a changed signature, a bad case —
@@ -30,14 +40,14 @@ async def _verdict(case: Case, sem: asyncio.Semaphore) -> tuple[bool | None, str
     )
     async with sem:
         try:
-            return await relevance_check(None, argument)
+            return await check(None, argument)
         except CheckUnavailableError as exc:
             return None, f"unavailable: {exc}"
 
 
-async def score(cases: list[Case], concurrency: int) -> int:
+async def score(check: Check, cases: list[Case], concurrency: int) -> int:
     sem = asyncio.Semaphore(concurrency)
-    results = await asyncio.gather(*(_verdict(c, sem) for c in cases))
+    results = await asyncio.gather(*(_verdict(check, c, sem) for c in cases))
 
     regressions, errors = [], []
     for case, (got, detail) in zip(cases, results):
@@ -68,9 +78,9 @@ async def score(cases: list[Case], concurrency: int) -> int:
     return 1
 
 
-async def stability(cases: list[Case], repeat: int, concurrency: int) -> int:
+async def stability(check: Check, cases: list[Case], repeat: int, concurrency: int) -> int:
     sem = asyncio.Semaphore(concurrency)
-    jobs = [(c, _verdict(c, sem)) for c in cases for _ in range(repeat)]
+    jobs = [(c, _verdict(check, c, sem)) for c in cases for _ in range(repeat)]
     results = await asyncio.gather(*(job for _, job in jobs))
 
     tally: dict[str, Counter] = {c.id: Counter() for c in cases}
@@ -110,17 +120,19 @@ async def stability(cases: list[Case], repeat: int, concurrency: int) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("check", choices=SUITES)
     ap.add_argument("--repeat", type=int, default=1,
                     help="runs per case; >1 reports stability instead of scoring")
     ap.add_argument("--tier", choices=TIERS, help="restrict to one tier")
     ap.add_argument("--concurrency", type=int, default=6)
     args = ap.parse_args()
 
-    cases = CASES if args.tier is None else [c for c in CASES if c.tier == args.tier]
-    print(f"{len(cases)} case(s), {args.repeat} run(s) each\n{'=' * 78}")
+    check, all_cases = SUITES[args.check]
+    cases = all_cases if args.tier is None else [c for c in all_cases if c.tier == args.tier]
+    print(f"{len(cases)} {args.check} case(s), {args.repeat} run(s) each\n{'=' * 78}")
     if args.repeat > 1:
-        return asyncio.run(stability(cases, args.repeat, args.concurrency))
-    return asyncio.run(score(cases, args.concurrency))
+        return asyncio.run(stability(check, cases, args.repeat, args.concurrency))
+    return asyncio.run(score(check, cases, args.concurrency))
 
 
 if __name__ == "__main__":

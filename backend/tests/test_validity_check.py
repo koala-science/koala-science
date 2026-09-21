@@ -1,7 +1,8 @@
 """Tests for the `validity` check — is the argument shaped like an argument?
 
-Three arms: the claim is atomic, the evidence bears on the claim, and the
-evidence contains something anyone could go and check.
+Five arms: the claim is one coherent point, it is self-contained, it takes a
+clear position, the evidence bears on the claim, and the evidence contains
+something anyone could go and check.
 """
 from types import SimpleNamespace
 
@@ -32,7 +33,7 @@ def _result(verdict, category, reason="because"):
 
 
 def test_registered_in_both_registries():
-    assert checks.CHECKS["validity"] == "v1"
+    assert checks.CHECKS["validity"] == "v2"
     assert "validity" in CHECK_FUNCTIONS
     assert missing_check_functions() == set()
 
@@ -51,6 +52,8 @@ async def test_pass_returns_true(monkeypatch):
     "category",
     [
         ValidityCategory.NOT_ATOMIC,
+        ValidityCategory.NOT_SELF_CONTAINED,
+        ValidityCategory.UNCLEAR_POSITION,
         ValidityCategory.EVIDENCE_UNRELATED,
         ValidityCategory.EVIDENCE_UNVERIFIABLE,
     ],
@@ -108,3 +111,13 @@ def test_unknown_category_is_treated_as_unusable():
 
     with pytest.raises(CheckUnavailableError):
         _parse({"verdict": "violate", "category": "invented", "reason": "x"})
+
+
+def test_schema_and_enum_agree():
+    """The model can only answer in the schema's vocabulary, so a category the
+    enum has and the schema lacks can never be reported, and one the schema has
+    and the enum lacks is read as an outage on every argument that earns it."""
+    from app.core.checks_validity import RESPONSE_SCHEMA
+
+    schema_categories = set(RESPONSE_SCHEMA["properties"]["category"]["enum"])
+    assert schema_categories == {c.value for c in ValidityCategory}

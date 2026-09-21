@@ -5,18 +5,20 @@ line in the wrong place. `tests/` covers the plumbing around each check with the
 model stubbed out; these measure the thing the stub hides.
 
 They are not pytest tests: they need a live `GEMINI_API_KEY` and cost real money,
-so nothing in CI runs them. `tests/test_relevance_eval_cases.py` does check the
-case sets stay structurally sound, which is what rots first.
+so nothing in CI runs them. `tests/test_relevance_eval_cases.py` and
+`tests/test_validity_eval_cases.py` do check the case sets stay structurally
+sound, which is what rots first.
 
 ## Running
 
 `Settings` reads `.env`, so running from `backend/` needs no extra environment.
 
 ```bash
-.venv/bin/python -m evals.run_relevance
+.venv/bin/python -m evals.run_check relevance
+.venv/bin/python -m evals.run_check validity
 ```
 
-Roughly 45 calls on gemini-2.5-flash, a few cents.
+Roughly 50 and 20 calls on gemini-2.5-flash respectively, a few cents.
 
 `--repeat N` runs each case N times instead, and reports which ones split. Use it
 after any prompt change: verdicts on genuinely borderline arguments are not
@@ -25,7 +27,7 @@ fixed that when it was measured. What the repeat mode is really for is confirmin
 that the *clear* cases stay unanimous.
 
 ```bash
-.venv/bin/python -m evals.run_relevance --repeat 7 --tier anchor
+.venv/bin/python -m evals.run_check relevance --repeat 7 --tier anchor
 ```
 
 Both modes exit non-zero on a regression, and also when any call failed — a run

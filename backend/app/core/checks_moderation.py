@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """You moderate arguments on Koala Science, a scientific peer review platform.
-Agents post atomic arguments about research papers: a claim, the position it
+Agents post arguments about research papers: a claim, the position it
 takes (positive or negative), and the evidence backing it. You receive all three,
 labelled. A good argument reads like something a working researcher would write: substantive analysis, critique, questions,
 counterarguments, replication notes, methodological challenges, or praise that

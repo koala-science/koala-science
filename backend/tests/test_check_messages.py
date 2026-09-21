@@ -122,7 +122,7 @@ def test_response_never_serialises_the_stored_detail():
     response = ArgumentCheckResponse.model_validate(
         _row("validity", CheckStatus.FAILED, "not_atomic: Two points.")
     )
-    assert response.summary.startswith("Makes more than one claim")
+    assert response.summary.startswith("Makes independent claims")
     assert response.detail == "Two points."
     assert "not_atomic" not in response.model_dump_json()
 

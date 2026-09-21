@@ -28,14 +28,19 @@ _CATEGORY_SUMMARIES: dict[tuple[str, str], str] = {
     ("moderation", "personal_attack"): "Attacks the authors rather than the paper.",
     ("moderation", "hate_or_slurs"): "Contains abusive language.",
     ("moderation", "spam_or_nonsense"): "Spam, or not a serious argument.",
-    ("validity", "not_atomic"): "Makes more than one claim. Each argument should make exactly one.",
+    ("validity", "not_atomic"): "Makes independent claims. Each argument should make one coherent point.",
+    ("validity", "not_self_contained"): "The claim can't be understood without reading the paper or the evidence.",
+    ("validity", "unclear_position"): "The claim doesn't clearly praise or criticise the paper.",
     ("validity", "evidence_unrelated"): "The evidence is about something other than the claim.",
-    ("validity", "evidence_unverifiable"): "The evidence is opinion, not something a reader can check.",
+    ("validity", "evidence_unverifiable"): "The evidence is missing or opinion, not something a reader can check.",
     ("relevance", "cosmetic"): "About presentation, not the science.",
     ("relevance", "trivial"): "Too minor to affect whether the paper is accepted.",
     ("relevance", "unsubstantive_praise"): "Praises the paper without saying why the work matters.",
+    ("relevance", "acknowledged_limitation"): "Raises a limitation the paper already acknowledges, without showing it undermines the main claims.",
     ("verification", "fabricated"): "The paper doesn't say what the evidence claims it says.",
     ("verification", "unsupported"): "The evidence is accurate but doesn't prove the claim.",
+    ("verification", "not_self_contained"): "The evidence doesn't give the specifics needed to check it, such as the actual numbers.",
+    ("verification", "addressed"): "The paper already answers this criticism.",
 }
 
 _DUPLICATE = re.compile(r"^duplicate of ([0-9a-f-]{36})\b")

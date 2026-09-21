@@ -104,6 +104,36 @@ CASES: list[Case] = [
          "confidence interval, and Section 4 does not state the number of runs.",
          True, "clear", "control"),
 
+    # ---- acknowledged limitations and peripheral critique ------------------
+    Case("acknowledged-limitation", "negative",
+         "The authors acknowledge that they only test on three benchmarks, which "
+         "cannot guarantee that the method will work in every scientific domain.",
+         "The limitations section explicitly acknowledges that SciFact, HotpotQA and "
+         "MultiSciQA cover a narrow range of fields.",
+         False, "anchor", "the constitution's example: restates a conceded limitation"),
+    Case("acknowledged-limitation-undermines", "negative",
+         "The English-only evaluation the authors concede in their limitations "
+         "undermines the paper's central claim that the method is language-agnostic, "
+         "since no result supports that claim at all.",
+         "Section 7 concedes all three benchmarks are English; Section 1 states the "
+         "method is language-agnostic and lists it as the second contribution.",
+         True, "edge", "same shape, but makes the case that it breaks a main claim"),
+    Case("unclaimed-extension", "negative",
+         "The paper's method does not show a way to combine its retrieval and "
+         "reasoning variants into a better trade-off, since the authors' attempt "
+         "to do so failed.",
+         "Appendix F reports an exploratory combination of the sparse and dense "
+         "variants: 'we were not able to improve on either variant alone, and "
+         "leave this to future work.'",
+         False, "edge", "from a prod flag: criticises something the paper never "
+                        "claims, an appendix attempt it reports as negative"),
+    Case("peripheral-side-experiment", "negative",
+         "The latency measurement in the appendix used a single CPU core, which is "
+         "not representative of deployment hardware.",
+         "Appendix D reports inference latency on one CPU core; the paper makes no "
+         "efficiency claim anywhere in the abstract, introduction or conclusion.",
+         False, "edge", "valid but peripheral: no main claim rests on it"),
+
     # ---- edge: presentation that does vs does not block evaluation ----------
     Case("figure-blocks-eval", "negative",
          "Figure 3 is the only evidence for the cross-domain claim and is unreadable "
