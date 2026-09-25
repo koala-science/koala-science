@@ -17,7 +17,7 @@ from app.core import checks_verification as verification
 from app.core.check_runner import CHECK_FUNCTIONS, missing_check_functions
 from app.core.checks_verification import verification_check
 from app.core.gemini import CheckUnavailableError
-from app.models.platform import Argument, ArgumentPosition, Paper
+from app.models.platform import Argument, ArgumentPosition, ArgumentStrength, Paper
 
 
 CLAIM = "The reported gain disappears without pretraining."
@@ -28,13 +28,13 @@ def _paper(full_text: str | None = "Section 1. A paper.", title: str = "A Paper"
     return Paper(id=uuid.uuid4(), title=title, abstract="An abstract.", full_text=full_text)
 
 
-def _argument(paper: Paper) -> Argument:
+def _argument(paper: Paper, position: ArgumentPosition = ArgumentPosition.NEGATIVE) -> Argument:
     argument = Argument(
         id=uuid.uuid4(),
         paper_id=paper.id,
         author_id=uuid.uuid4(),
         claim=CLAIM,
-        position=ArgumentPosition.NEGATIVE,
+        position=position,
         evidence=EVIDENCE,
     )
     argument.paper = paper
@@ -61,12 +61,36 @@ def _agent_returning(result, *, record=None):
     """A stand-in for ``query`` that yields one result and records its options."""
 
     async def fake_query(*, prompt, options=None, **kwargs):
-        if record is not None:
+        # The verification call only: a verified verdict is followed by a
+        # strength call through this same fake, which must not overwrite it.
+        if record is not None and "options" not in record:
             record["prompt"] = prompt
             record["options"] = options
         yield result
 
     return fake_query
+
+
+def _agent_scripted(*steps, calls):
+    """A stand-in for ``query`` that plays one step per call, recording each.
+
+    A step is a ResultMessage to yield, an exception to raise, or "hang".
+    """
+    remaining = list(steps)
+
+    async def fake_query(*, prompt, options=None, **kwargs):
+        calls.append({"prompt": prompt, "options": options})
+        step = remaining.pop(0)
+        if step == "hang":
+            await asyncio.sleep(60)
+        if isinstance(step, BaseException):
+            raise step
+        yield step
+
+    return fake_query
+
+
+VERIFIED = {"verdict": "verified", "reason": "Table 6 reports exactly that."}
 
 
 def _agent_raising(exc):
@@ -571,3 +595,158 @@ async def test_no_uid_is_forced_when_none_is_configured(monkeypatch):
     await verification_check(None, _argument(_paper()))
 
     assert record["options"].user is None
+
+
+async def test_a_verified_argument_is_labelled_with_the_strength_the_agent_gives(monkeypatch):
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output=VERIFIED),
+        _Result(structured_output={"strength": "critical", "reason": "It breaks the main claim."}),
+        calls=calls,
+    ))
+    argument = _argument(_paper())
+
+    passed, _ = await verification_check(None, argument)
+
+    assert passed is True
+    assert argument.strength is ArgumentStrength.CRITICAL
+    assert argument.strength_reason == "It breaks the main claim."
+
+
+async def test_strength_is_decided_by_resuming_the_verification_session(monkeypatch):
+    """The label should draw on what the verifier read, not on a fresh agent."""
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output=VERIFIED),
+        _Result(structured_output={"strength": "medium", "reason": "r"}),
+        calls=calls,
+    ))
+
+    await verification_check(None, _argument(_paper()))
+
+    first, second = (c["options"] for c in calls)
+    assert first.resume is None
+    assert first.output_format["schema"] == verification.VERDICT_SCHEMA
+    assert second.resume == "test-session"
+    assert second.cwd == first.cwd
+    assert second.output_format["schema"] == verification.STRENGTH_SCHEMA
+    assert second.max_turns == verification.STRENGTH_MAX_TURNS
+    assert second.max_budget_usd == verification.STRENGTH_MAX_BUDGET_USD
+
+
+async def test_the_resumed_session_keeps_every_containment_option(monkeypatch):
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output=VERIFIED),
+        _Result(structured_output={"strength": "weak", "reason": "r"}),
+        calls=calls,
+    ))
+
+    await verification_check(None, _argument(_paper()))
+
+    first, second = (c["options"] for c in calls)
+    for field in ("allowed_tools", "disallowed_tools", "tools", "permission_mode",
+                  "settings", "sandbox", "env", "user", "setting_sources",
+                  "strict_mcp_config", "system_prompt", "model"):
+        assert getattr(second, field) == getattr(first, field), field
+
+
+@pytest.mark.parametrize("position", list(ArgumentPosition))
+async def test_the_strength_prompt_gives_the_definitions_for_the_arguments_side(
+    monkeypatch, position
+):
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output=VERIFIED),
+        _Result(structured_output={"strength": "weak", "reason": "r"}),
+        calls=calls,
+    ))
+
+    await verification_check(None, _argument(_paper(), position))
+
+    prompt = calls[1]["prompt"]
+    other = next(p for p in ArgumentPosition if p is not position)
+    for definition in verification.STRENGTH_DEFINITIONS[position].values():
+        assert definition in prompt
+    for definition in verification.STRENGTH_DEFINITIONS[other].values():
+        assert definition not in prompt
+
+
+async def test_the_verifier_is_not_told_about_strength_while_verifying(monkeypatch):
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output=VERIFIED),
+        _Result(structured_output={"strength": "weak", "reason": "r"}),
+        calls=calls,
+    ))
+
+    await verification_check(None, _argument(_paper()))
+
+    first = calls[0]
+    assert "strength" not in first["prompt"].lower()
+    assert "strength" not in first["options"].system_prompt.lower()
+    assert "strength" not in json.dumps(first["options"].output_format).lower()
+
+
+async def test_a_failed_verdict_gets_no_strength_and_no_second_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output={"verdict": "unsupported", "reason": "thin"}),
+        calls=calls,
+    ))
+    argument = _argument(_paper())
+
+    passed, _ = await verification_check(None, argument)
+
+    assert passed is False
+    assert len(calls) == 1
+    assert argument.strength is None
+
+
+@pytest.mark.parametrize("step", [
+    ConnectionError("dropped"),
+    "hang",
+    _Result(structured_output=None, terminal_reason="max_turns_exceeded"),
+    _Result(structured_output={"strength": "enormous", "reason": "r"}),
+])
+async def test_a_strength_step_that_fails_still_passes_the_argument_as_weak(monkeypatch, step):
+    """Strength is a label on an argument that has already earned its place."""
+    calls = []
+    monkeypatch.setattr(verification, "query", _agent_scripted(
+        _Result(structured_output=VERIFIED), step, calls=calls,
+    ))
+    monkeypatch.setattr(verification, "STRENGTH_TIMEOUT_SECONDS", 0.05)
+    argument = _argument(_paper())
+
+    passed, detail = await verification_check(None, argument)
+
+    assert passed is True
+    assert "Table 6" in detail
+    assert len(calls) == 2
+    assert argument.strength is ArgumentStrength.WEAK
+    assert argument.strength_reason is None
+
+
+async def test_a_strength_step_on_a_limit_stop_still_passes_the_argument_as_weak(monkeypatch):
+    """The SDK yields the limit result and then raises, as in verification."""
+    limit = ResultMessage(
+        subtype="error_max_turns", duration_ms=1, duration_api_ms=1, is_error=True,
+        num_turns=verification.STRENGTH_MAX_TURNS, session_id="s",
+    )
+    calls = []
+
+    async def fake_query(*, prompt, options=None, **kwargs):
+        calls.append(options)
+        if len(calls) == 1:
+            yield _Result(structured_output=VERIFIED)
+            return
+        yield limit
+        raise ResultError("Claude Code returned an error result: error_max_turns", data={})
+
+    monkeypatch.setattr(verification, "query", fake_query)
+    argument = _argument(_paper())
+
+    passed, _ = await verification_check(None, argument)
+
+    assert passed is True
+    assert argument.strength is ArgumentStrength.WEAK

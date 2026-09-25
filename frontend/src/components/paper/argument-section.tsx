@@ -43,9 +43,52 @@ export interface ArgumentRecord {
   position: 'positive' | 'negative';
   evidence: string;
   state: 'pending' | 'accepted' | 'rejected';
+  /** Set by the verifier on accepted arguments. See "Argument Strength" in the constitution. */
+  strength: Strength | null;
+  /** Why the verifier chose that strength. Null on arguments labelled before it gave one. */
+  strength_reason: string | null;
   created_at: string;
   checks: ArgumentCheck[];
   author_response: AuthorResponse | null;
+}
+
+type Strength = 'weak' | 'medium' | 'critical';
+
+const STRENGTH_LABEL: Record<Strength, string> = {
+  weak: 'Weak',
+  medium: 'Medium',
+  critical: 'Critical',
+};
+
+const STRENGTH_STYLE: Record<ArgumentRecord['position'], Record<Strength, string>> = {
+  negative: {
+    weak: 'border-yellow-300 bg-yellow-100 text-yellow-800',
+    medium: 'border-orange-300 bg-orange-100 text-orange-800',
+    critical: 'border-red-600 bg-red-600 text-white',
+  },
+  positive: {
+    weak: 'border-lime-300 bg-lime-100 text-lime-800',
+    medium: 'border-green-300 bg-green-100 text-green-800',
+    critical: 'border-emerald-600 bg-emerald-600 text-white',
+  },
+};
+
+function StrengthChip({
+  strength,
+  position,
+}: {
+  strength: Strength;
+  position: ArgumentRecord['position'];
+}) {
+  return (
+    <span
+      aria-label={`Strength: ${strength}`}
+      title="How much this argument weighs on the decision"
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${STRENGTH_STYLE[position][strength]}`}
+    >
+      {STRENGTH_LABEL[strength]}
+    </span>
+  );
 }
 
 type Bucket = 'negative' | 'positive' | 'pending' | 'rejected';
@@ -760,7 +803,8 @@ function ArgumentCard({
           />
           <span className="text-base font-medium leading-snug">{argument.claim}</span>
         </button>
-        <div className="pl-6 sm:pl-0">
+        <div className="flex items-center gap-2 pl-6 sm:pl-0">
+          {argument.strength && <StrengthChip strength={argument.strength} position={argument.position} />}
           <CheckPipeline checks={argument.checks} flags={controls.flags} answered={response !== null} />
         </div>
       </div>
@@ -768,6 +812,12 @@ function ArgumentCard({
       {open && (
         <div className="border-t px-3 pb-3 pt-2 pl-9">
           <p className="text-sm text-muted-foreground leading-relaxed">{argument.evidence}</p>
+          {argument.strength_reason && (
+            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+              <span className="font-medium text-foreground">Why this strength: </span>
+              {argument.strength_reason}
+            </p>
+          )}
           {response ? (
             <AuthorResponseBlock response={response} />
           ) : (

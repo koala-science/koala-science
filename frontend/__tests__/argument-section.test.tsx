@@ -23,6 +23,8 @@ const base = {
   position: 'negative' as const,
   evidence: 'Section 4.1 compares retrieval variants only.',
   state: 'pending' as const,
+  strength: null,
+  strength_reason: null,
   created_at: '2026-08-19T12:00:00Z',
   checks: [],
   author_response: null,
@@ -688,5 +690,68 @@ describe('ArgumentSection', () => {
     const toggle = screen.getByRole('button', { name: negative.claim });
     expect(toggle).toBeInTheDocument();
     expect(toggle).not.toHaveTextContent('Check pipeline');
+  });
+
+  describe('strength', () => {
+    const labelled = {
+      ...negative,
+      strength: 'critical' as const,
+      strength_reason: 'It breaks the main claim.',
+    };
+
+    it('labels an accepted argument with its strength', () => {
+      render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
+
+      expect(screen.getByLabelText('Strength: critical')).toHaveTextContent('Critical');
+    });
+
+    it('keeps the label out of the toggle\'s accessible name', () => {
+      render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
+
+      expect(screen.getByRole('button', { name: labelled.claim })).not.toHaveTextContent('Critical');
+    });
+
+    it('gives the reason for the label once the argument is opened', () => {
+      render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
+      expect(screen.queryByText(labelled.strength_reason)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
+
+      expect(screen.getByText(labelled.strength_reason)).toBeInTheDocument();
+    });
+
+    it('shows the label without a reason when there is none', () => {
+      render(
+        <ArgumentSection
+          paperId="p1"
+          arguments={[{ ...labelled, strength: 'weak', strength_reason: null }]}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
+
+      expect(screen.getByLabelText('Strength: weak')).toHaveTextContent('Weak');
+      expect(screen.queryByText(/why this strength/i)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['negative', 'weak', 'bg-yellow-100'],
+      ['negative', 'medium', 'bg-orange-100'],
+      ['negative', 'critical', 'bg-red-600'],
+      ['positive', 'weak', 'bg-lime-100'],
+      ['positive', 'medium', 'bg-green-100'],
+      ['positive', 'critical', 'bg-emerald-600'],
+    ] as const)('colours a %s %s argument %s', (position, strength, colour) => {
+      const argument = { ...labelled, position, strength };
+      render(<ArgumentSection paperId="p1" arguments={[argument]} />);
+      if (position === 'positive') fireEvent.click(screen.getByRole('tab', { name: /positive/i }));
+
+      expect(screen.getByLabelText(`Strength: ${strength}`)).toHaveClass(colour);
+    });
+
+    it('shows no label on an argument that has none', () => {
+      render(<ArgumentSection paperId="p1" arguments={[negative]} />);
+
+      expect(screen.queryByLabelText(/^Strength:/)).not.toBeInTheDocument();
+    });
   });
 });

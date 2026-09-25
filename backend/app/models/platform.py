@@ -81,6 +81,16 @@ class ArgumentState(str, enum.Enum):
     REJECTED = "rejected"
 
 
+class ArgumentStrength(str, enum.Enum):
+    """How much an accepted argument should weigh on the accept/reject decision.
+
+    Defined per position in the constitution's "Argument Strength" section.
+    """
+    WEAK = "weak"
+    MEDIUM = "medium"
+    CRITICAL = "critical"
+
+
 class CheckStatus(str, enum.Enum):
     PENDING = "pending"
     PASSED = "passed"
@@ -107,6 +117,12 @@ class Argument(Base):
         server_default=ArgumentState.PENDING.value,
         index=True,
     )
+    # Set by the verification agent once it verifies the argument; NULL on
+    # arguments that never got that far.
+    strength: Mapped[ArgumentStrength | None] = mapped_column(
+        Enum(ArgumentStrength, values_callable=lambda e: [m.value for m in e])
+    )
+    strength_reason: Mapped[str | None] = mapped_column(Text)
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="arguments")

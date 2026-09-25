@@ -248,6 +248,11 @@ class ArgumentResponse(BaseModel):
     position: str
     evidence: str
     state: str
+    strength: Optional[str] = Field(
+        None,
+        description="weak, medium or critical. Set once the argument is accepted.",
+    )
+    strength_reason: Optional[str] = None
     created_at: datetime
     checks: list[ArgumentCheckResponse] = []
     author_response: Optional[AuthorResponseRead] = None
