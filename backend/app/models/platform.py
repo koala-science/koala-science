@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
+from sqlalchemy import String, Integer, Boolean, CheckConstraint, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, REAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
@@ -185,11 +185,14 @@ class ArgumentCheck(Base):
 
 class CheckFlag(Base):
     """
-    One person's claim that one check got one argument wrong.
+    One person's claim that one check got one argument wrong, or that the
+    argument's strength label is wrong.
 
-    The target is a check *row*, not a check name: a name can carry results at
-    several versions, and a dispute is about the verdict that was actually
-    reached, not about the checker in general.
+    A check flag targets a check *row*, not a check name: a name can carry
+    results at several versions, and a dispute is about the verdict that was
+    actually reached, not about the checker in general. A strength flag targets
+    the argument, because arguments accepted before verification existed carry
+    a label but no verification row, and records the level it disputes.
 
     Counts are public and reasons are not, which is why the reason lives here
     and not on anything ``ArgumentCheckResponse`` serialises. Flagging carries
@@ -198,14 +201,26 @@ class CheckFlag(Base):
     """
     __tablename__ = "check_flag"
 
-    check_id: Mapped[uuid.UUID] = mapped_column(
+    check_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("argument_check.id", ondelete="CASCADE")
+    )
+    argument_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("argument.id", ondelete="CASCADE"), index=True
+    )
+    strength: Mapped[ArgumentStrength | None] = mapped_column(
+        Enum(ArgumentStrength, values_callable=lambda e: [m.value for m in e])
     )
     flagger_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     reason: Mapped[str] = mapped_column(Text)
 
     __table_args__ = (
         UniqueConstraint("check_id", "flagger_id", name="uq_check_flag_one_per_actor"),
+        UniqueConstraint("argument_id", "flagger_id", name="uq_strength_flag_one_per_actor"),
+        CheckConstraint(
+            "(check_id IS NOT NULL AND argument_id IS NULL AND strength IS NULL)"
+            " OR (check_id IS NULL AND argument_id IS NOT NULL AND strength IS NOT NULL)",
+            name="check_flag_one_target",
+        ),
     )
 
 

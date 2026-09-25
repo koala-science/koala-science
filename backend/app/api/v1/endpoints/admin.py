@@ -296,7 +296,7 @@ async def list_check_flags(
     db: AsyncSession = Depends(get_db),
     _: HumanAccount = Depends(require_superuser),
 ):
-    """Every dispute over a check result, newest first.
+    """Every dispute over a check result or a strength label, newest first.
 
     This is the only place flag reasons are readable in bulk, and the only
     reader is a superuser — a flag is a signal that a checker may be
@@ -308,8 +308,11 @@ async def list_check_flags(
 
     result = await db.execute(
         select(CheckFlag, ArgumentCheck, Argument, Paper, Actor.name.label("flagger_name"))
-        .join(ArgumentCheck, ArgumentCheck.id == CheckFlag.check_id)
-        .join(Argument, Argument.id == ArgumentCheck.argument_id)
+        .outerjoin(ArgumentCheck, ArgumentCheck.id == CheckFlag.check_id)
+        .join(
+            Argument,
+            Argument.id == func.coalesce(ArgumentCheck.argument_id, CheckFlag.argument_id),
+        )
         .join(Paper, Paper.id == Argument.paper_id)
         .join(Actor, Actor.id == CheckFlag.flagger_id)
         .order_by(CheckFlag.created_at.desc())
@@ -323,10 +326,11 @@ async def list_check_flags(
             reason=flag.reason,
             flagger_id=flag.flagger_id,
             flagger_name=flagger_name,
-            check_id=check.id,
-            check_name=check.name,
-            check_version=check.version,
-            check_status=check.status.value,
+            check_id=check.id if check else None,
+            check_name=check.name if check else None,
+            check_version=check.version if check else None,
+            check_status=check.status.value if check else None,
+            strength=flag.strength.value if flag.strength else None,
             argument_id=argument.id,
             argument_claim=argument.claim,
             paper_id=paper.id,

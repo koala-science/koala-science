@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 
 import { ArgumentSection, type ArgumentRecord } from '../src/components/paper/argument-section';
@@ -25,6 +25,7 @@ const base = {
   state: 'pending' as const,
   strength: null,
   strength_reason: null,
+  strength_flag_count: 0,
   created_at: '2026-08-19T12:00:00Z',
   checks: [],
   author_response: null,
@@ -705,6 +706,14 @@ describe('ArgumentSection', () => {
       expect(screen.getByLabelText('Strength: critical')).toHaveTextContent('Critical');
     });
 
+    it('puts the label before the claim, so a reader can pick what to read', () => {
+      render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
+
+      const chip = screen.getByLabelText('Strength: critical');
+      const claim = screen.getByText(labelled.claim);
+      expect(chip.compareDocumentPosition(claim) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it('keeps the label out of the toggle\'s accessible name', () => {
       render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
 
@@ -729,8 +738,130 @@ describe('ArgumentSection', () => {
       );
       fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
 
-      expect(screen.getByLabelText('Strength: weak')).toHaveTextContent('Weak');
-      expect(screen.queryByText(/why this strength/i)).not.toBeInTheDocument();
+      const row = screen.getByRole('group', { name: 'Strength label' });
+      expect(within(row).getByLabelText('Strength: weak')).toHaveTextContent('Weak');
+      expect(row).toHaveTextContent(/^strengthWeakFlag$/);
+    });
+
+    it('ends the opened card with the label, its reason and a flag, after the checks', () => {
+      render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
+      fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
+
+      const row = screen.getByRole('group', { name: 'Strength label' });
+      expect(within(row).getByLabelText('Strength: critical')).toBeInTheDocument();
+      expect(within(row).getByText(labelled.strength_reason)).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: /flag strength as wrong/i })).toBeInTheDocument();
+      const lastCheck = screen.getByText('verification');
+      expect(lastCheck.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('has no label row when the argument has no label', () => {
+      render(<ArgumentSection paperId="p1" arguments={[negative]} />);
+      fireEvent.click(screen.getByRole('button', { name: negative.claim }));
+
+      expect(screen.queryByRole('group', { name: 'Strength label' })).not.toBeInTheDocument();
+    });
+
+    describe('flagging the label as wrong', () => {
+      const HUMAN = { actor_id: 'h1', actor_type: 'human', name: 'A reader' };
+
+      function loginAs(user: typeof HUMAN | null) {
+        act(() => {
+          useAuthStore.setState({
+            isAuthenticated: user !== null,
+            user,
+            accessToken: user === null ? null : 'token',
+            hydrated: true,
+          });
+        });
+      }
+
+      beforeEach(() => {
+        mockedApiCall.mockReset();
+        mockedApiFetch.mockReset();
+        mockedApiCall.mockResolvedValue([] as never);
+        loginAs(null);
+      });
+
+      afterEach(() => loginAs(null));
+
+      async function openTheCard(argument = labelled) {
+        render(<ArgumentSection paperId="p1" arguments={[argument]} />);
+        fireEvent.click(screen.getByRole('button', { name: argument.claim }));
+        await act(async () => {});
+      }
+
+      it('shows how many people flagged the label', async () => {
+        await openTheCard({ ...labelled, strength_flag_count: 2 });
+
+        expect(
+          screen.getByRole('button', { name: /2 people flagged this label: strength/i }),
+        ).toHaveTextContent('2');
+      });
+
+      it('sends a guest to log in', async () => {
+        await openTheCard();
+        fireEvent.click(screen.getByRole('button', { name: /flag strength as wrong/i }));
+
+        expect(screen.getByText(/to say why this label is wrong/i)).toBeInTheDocument();
+      });
+
+      it('posts the reason against the argument and shows the label as flagged by you', async () => {
+        loginAs(HUMAN);
+        mockedApiCall.mockImplementation(async (path: string) =>
+          (path.startsWith('/check-flags/mine') ? [] : { reason: 'Only a detail.' }) as never,
+        );
+        await openTheCard();
+
+        fireEvent.click(screen.getByRole('button', { name: /flag strength as wrong/i }));
+        fireEvent.change(screen.getByPlaceholderText('Why is the strength label wrong?'), {
+          target: { value: 'Only a detail.' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: /^flag as wrong$/i }));
+
+        await waitFor(() =>
+          expect(screen.getByText(/you flagged this label as wrong/i)).toBeInTheDocument(),
+        );
+        expect(mockedApiCall).toHaveBeenCalledWith('/check-flags/', {
+          method: 'POST',
+          body: JSON.stringify({ argument_id: labelled.id, reason: 'Only a detail.' }),
+        });
+        expect(screen.getByRole('button', { name: /you flagged strength/i })).toHaveTextContent('1');
+      });
+
+      it('shows a label flag you already filed, fetched on mount', async () => {
+        loginAs(HUMAN);
+        mockedApiCall.mockImplementation(async (path: string) =>
+          (path.startsWith('/check-flags/mine')
+            ? [{ check_id: null, argument_id: labelled.id, strength: 'critical', reason: 'Filed earlier.' }]
+            : {}) as never,
+        );
+        await openTheCard();
+
+        await waitFor(() => expect(screen.getByText('Filed earlier.')).toBeInTheDocument());
+        expect(screen.getByText(/you flagged this label as wrong/i)).toBeInTheDocument();
+      });
+
+      it('withdraws through the label endpoint', async () => {
+        loginAs(HUMAN);
+        mockedApiCall.mockImplementation(async (path: string) =>
+          (path.startsWith('/check-flags/mine')
+            ? [{ check_id: null, argument_id: labelled.id, strength: 'critical', reason: 'Filed earlier.' }]
+            : {}) as never,
+        );
+        mockedApiFetch.mockResolvedValue({ ok: true } as Response);
+        await openTheCard({ ...labelled, strength_flag_count: 1 });
+        await waitFor(() => expect(screen.getByText('Filed earlier.')).toBeInTheDocument());
+
+        fireEvent.click(screen.getByRole('button', { name: /withdraw/i }));
+
+        await waitFor(() =>
+          expect(screen.queryByText(/you flagged this label as wrong/i)).not.toBeInTheDocument(),
+        );
+        expect(mockedApiFetch).toHaveBeenCalledWith(`/check-flags/strength/${labelled.id}`, {
+          method: 'DELETE',
+        });
+      });
     });
 
     it.each([
