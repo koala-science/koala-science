@@ -1,6 +1,7 @@
-"""Disputing a check result.
+"""Disputing a check result or a strength label.
 
-A flag says one check got one argument wrong, and carries the reason why. It
+A flag says one check got one argument wrong, or that an argument's strength
+label is wrong, and carries the reason why. It
 has no consequence of its own: nothing re-runs, no points move, nobody is
 notified. What it produces is a record that a person disagreed, which is the
 input a human needs before deciding whether a checker is miscalibrated.
@@ -8,7 +9,7 @@ input a human needs before deciding whether a checker is miscalibrated.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -50,6 +51,40 @@ def _visible_check_stmt(check_id: uuid.UUID):
     )
 
 
+def _visible_argument_stmt(argument_id: uuid.UUID):
+    """The argument, under the same visibility rules as ``_visible_check_stmt``."""
+    return (
+        select(Argument)
+        .join(Paper, Paper.id == Argument.paper_id)
+        .where(
+            Argument.id == argument_id,
+            publicly_visible_argument_clause(),
+            public_paper_clause(),
+        )
+    )
+
+
+async def _check_flag(db: AsyncSession, check_id: uuid.UUID, actor: Actor) -> CheckFlag:
+    check = (await db.execute(_visible_check_stmt(check_id))).scalar_one_or_none()
+    if check is None:
+        raise HTTPException(status_code=404, detail="Check not found")
+    if check.status == CheckStatus.PENDING:
+        raise HTTPException(
+            status_code=400,
+            detail="A check that has not produced a result cannot be flagged",
+        )
+    return CheckFlag(check_id=check.id, flagger_id=actor.id)
+
+
+async def _strength_flag(db: AsyncSession, argument_id: uuid.UUID, actor: Actor) -> CheckFlag:
+    argument = (await db.execute(_visible_argument_stmt(argument_id))).scalar_one_or_none()
+    if argument is None:
+        raise HTTPException(status_code=404, detail="Argument not found")
+    if argument.strength is None:
+        raise HTTPException(status_code=400, detail="This argument has no strength label")
+    return CheckFlag(argument_id=argument.id, strength=argument.strength, flagger_id=actor.id)
+
+
 @router.post("/", response_model=CheckFlagResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit(CHECK_FLAG_RATE_LIMIT)
 async def flag_check(
@@ -58,21 +93,15 @@ async def flag_check(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Record that a check got an argument wrong. Humans only."""
+    """Record that a check, or a strength label, got an argument wrong. Humans only."""
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(status_code=403, detail="Only humans can flag checks")
 
-    check = (await db.execute(_visible_check_stmt(flag_in.check_id))).scalar_one_or_none()
-    if check is None:
-        raise HTTPException(status_code=404, detail="Check not found")
-
-    if check.status == CheckStatus.PENDING:
-        raise HTTPException(
-            status_code=400,
-            detail="A check that has not produced a result cannot be flagged",
-        )
-
-    flag = CheckFlag(check_id=check.id, flagger_id=actor.id, reason=flag_in.reason)
+    if flag_in.check_id is not None:
+        flag = await _check_flag(db, flag_in.check_id, actor)
+    else:
+        flag = await _strength_flag(db, flag_in.argument_id, actor)
+    flag.reason = flag_in.reason
     db.add(flag)
     try:
         await db.commit()
@@ -80,9 +109,30 @@ async def flag_check(
         # The unique key is what decides, not a prior SELECT: two requests from
         # one person can both find nothing and both insert.
         await db.rollback()
-        raise HTTPException(status_code=409, detail="You have already flagged this check")
+        raise HTTPException(status_code=409, detail="You have already flagged this")
 
     return flag
+
+
+@router.delete("/strength/{argument_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def withdraw_strength_flag(
+    argument_id: uuid.UUID,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Withdraw your own flag on an argument's strength label."""
+    flag = (
+        await db.execute(
+            select(CheckFlag).where(
+                CheckFlag.argument_id == argument_id, CheckFlag.flagger_id == actor.id
+            )
+        )
+    ).scalar_one_or_none()
+    if flag is None:
+        raise HTTPException(status_code=404, detail="You have not flagged this label")
+
+    await db.delete(flag)
+    await db.commit()
 
 
 @router.delete("/{check_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -120,8 +170,11 @@ async def my_flags_on_paper(
     """
     result = await db.execute(
         select(CheckFlag)
-        .join(ArgumentCheck, ArgumentCheck.id == CheckFlag.check_id)
-        .join(Argument, Argument.id == ArgumentCheck.argument_id)
+        .outerjoin(ArgumentCheck, ArgumentCheck.id == CheckFlag.check_id)
+        .join(
+            Argument,
+            Argument.id == func.coalesce(ArgumentCheck.argument_id, CheckFlag.argument_id),
+        )
         .where(Argument.paper_id == paper_id, CheckFlag.flagger_id == actor.id)
         .order_by(CheckFlag.created_at.asc())
     )

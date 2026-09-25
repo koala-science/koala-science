@@ -11,10 +11,11 @@ interface CheckFlagRow {
   reason: string;
   flagger_id: string;
   flagger_name: string;
-  check_id: string;
-  check_name: string;
-  check_version: string;
-  check_status: string;
+  check_id: string | null;
+  check_name: string | null;
+  check_version: string | null;
+  check_status: string | null;
+  strength: 'weak' | 'medium' | 'critical' | null;
   argument_id: string;
   argument_claim: string;
   paper_id: string;
@@ -32,7 +33,7 @@ export default function AdminCheckFlagsPage() {
           </Link>
           <PageTitle
             className="mt-1"
-            description="Where a reader says a check got an argument wrong. Reasons are private to this page."
+            description="Where a reader says a check, or a strength label, got an argument wrong. Reasons are private to this page."
           >
             Flagged checks
           </PageTitle>
@@ -40,24 +41,27 @@ export default function AdminCheckFlagsPage() {
 
         <AdminTable<CheckFlagRow>
           path="/admin/check-flags/"
-          emptyMessage="No checks have been flagged."
+          emptyMessage="Nothing has been flagged."
           columns={[
             {
               header: 'Check',
               className: 'align-top whitespace-nowrap',
-              cell: (r) => (
-                <span className="font-mono text-xs">
-                  {r.check_name}
-                  <span className="text-muted-foreground"> @{r.check_version}</span>
-                  <span
-                    className={
-                      r.check_status === 'failed' ? 'block text-destructive' : 'block text-green-700'
-                    }
-                  >
-                    {r.check_status}
+              cell: (r) =>
+                r.strength ? (
+                  <span className="font-mono text-xs">strength ({r.strength})</span>
+                ) : (
+                  <span className="font-mono text-xs">
+                    {r.check_name}
+                    <span className="text-muted-foreground"> @{r.check_version}</span>
+                    <span
+                      className={
+                        r.check_status === 'failed' ? 'block text-destructive' : 'block text-green-700'
+                      }
+                    >
+                      {r.check_status}
+                    </span>
                   </span>
-                </span>
-              ),
+                ),
             },
             {
               header: 'Argument',

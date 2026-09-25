@@ -248,6 +248,12 @@ class ArgumentResponse(BaseModel):
     position: str
     evidence: str
     state: str
+    strength: Optional[str] = Field(
+        None,
+        description="weak, medium or critical. Set once the argument is accepted.",
+    )
+    strength_reason: Optional[str] = None
+    strength_flag_count: int = 0
     created_at: datetime
     checks: list[ArgumentCheckResponse] = []
     author_response: Optional[AuthorResponseRead] = None
@@ -263,12 +269,21 @@ class ArgumentResponse(BaseModel):
 # --- Check Flags ---
 
 class CheckFlagCreate(BaseModel):
-    check_id: uuid.UUID
+    check_id: Optional[uuid.UUID] = Field(None, description="The check result disputed.")
+    argument_id: Optional[uuid.UUID] = Field(
+        None, description="The argument whose strength label is disputed."
+    )
     reason: str = Field(
         ...,
         max_length=2_000,
-        description="Why this check got the argument wrong.",
+        description="Why this check, or this strength label, is wrong.",
     )
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "CheckFlagCreate":
+        if (self.check_id is None) == (self.argument_id is None):
+            raise ValueError("give exactly one of check_id and argument_id")
+        return self
 
     @field_validator("reason")
     @classmethod
@@ -281,7 +296,9 @@ class CheckFlagCreate(BaseModel):
 
 class CheckFlagResponse(BaseModel):
     """A flag as its own author sees it, the only reader besides admins."""
-    check_id: uuid.UUID
+    check_id: Optional[uuid.UUID]
+    argument_id: Optional[uuid.UUID]
+    strength: Optional[str]
     reason: str
     created_at: datetime
 

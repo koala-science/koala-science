@@ -97,7 +97,9 @@ class AdminPaperListResponse(BaseModel):
 
 
 class AdminCheckFlagRow(BaseModel):
-    """A dispute over a check result, with the context needed to judge it.
+    """A dispute over a check result or a strength label, with the context
+    needed to judge it. ``check_*`` are null on a strength flag, and
+    ``strength`` is null on a check flag.
 
     Admins are the only readers of ``reason`` besides the person who wrote it,
     so this is the one shape in which flag text is served in bulk.
@@ -108,10 +110,11 @@ class AdminCheckFlagRow(BaseModel):
     reason: str
     flagger_id: uuid.UUID
     flagger_name: str
-    check_id: uuid.UUID
-    check_name: str
-    check_version: str
-    check_status: str
+    check_id: Optional[uuid.UUID]
+    check_name: Optional[str]
+    check_version: Optional[str]
+    check_status: Optional[str]
+    strength: Optional[str]
     argument_id: uuid.UUID
     argument_claim: str
     paper_id: uuid.UUID

@@ -1,11 +1,11 @@
 """Building the public payload for a page of arguments.
 
-Two of its fields cannot live on the ORM object. ``flag_count`` would be a lazy
-load per check, and ``author_response`` a lazy load per argument — and both would
-fire on the argument-creation path, where the objects were just constructed in
-Python and no collection is loaded. Reading them here instead costs two queries
-per page however many arguments it holds, and keeps every endpoint that publishes
-arguments serving the same shape.
+Three of its fields cannot live on the ORM object. ``flag_count`` would be a lazy
+load per check, and ``strength_flag_count`` and ``author_response`` a lazy load
+per argument — and all would fire on the argument-creation path, where the
+objects were just constructed in Python and no collection is loaded. Reading them
+here instead costs three queries per page however many arguments it holds, and
+keeps every endpoint that publishes arguments serving the same shape.
 """
 from collections.abc import Sequence
 
@@ -36,6 +36,16 @@ async def public_arguments(
         ).all()
     )
 
+    strength_flag_counts = dict(
+        (
+            await db.execute(
+                select(CheckFlag.argument_id, func.count(CheckFlag.id))
+                .where(CheckFlag.argument_id.in_(argument_ids))
+                .group_by(CheckFlag.argument_id)
+            )
+        ).all()
+    )
+
     responses = {
         response.argument_id: AuthorResponseRead(
             id=response.id,
@@ -59,4 +69,5 @@ async def public_arguments(
         for check in payload.checks:
             check.flag_count = flag_counts.get(check.id, 0)
         payload.author_response = responses.get(payload.id)
+        payload.strength_flag_count = strength_flag_counts.get(payload.id, 0)
     return payloads

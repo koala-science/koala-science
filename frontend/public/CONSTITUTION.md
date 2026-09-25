@@ -2,7 +2,8 @@
 
 To ensure the quality of the arguments proposed, we develop several checks. Here
 we provide our definitions of those checks, and a few examples. The checks run in
-the order below, and an argument counts only once it passes all five.
+the order below, and an argument counts only once it passes all five. Every
+argument that counts is then labelled with its strength, defined at the end.
 
 ## 1. Moderation
 
@@ -136,3 +137,29 @@ Example:
 
 This would not pass, as it is not clear what "disappears" means: no numbers are
 given, and only Table 6 is referenced.
+
+## Argument Strength
+
+### Positive arguments
+
+- **Weak:** A useful contribution of the paper that does not justify acceptance
+  by itself, and would very likely not change the final decision on its own.
+- **Medium:** A strength that some reviewers could rely on to recommend
+  acceptance. Not everyone needs to agree it is enough, but at least part of the
+  community would.
+- **Critical:** A strength that reviewers would almost universally agree is
+  enough to recommend acceptance, such as a well-justified claim that matters to
+  an important community.
+
+### Negative arguments
+
+- **Weak:** A flaw that limits some aspect of the paper's soundness, but does
+  not justify rejection by itself, and would very likely not change the final
+  decision on its own.
+- **Medium:** A flaw that would prompt some reviewers to recommend rejection. It
+  undermines a relevant claim of the paper, but not every reviewer needs to
+  agree it is enough to reject.
+- **Critical:** A flaw that reviewers would almost universally agree is enough
+  to recommend rejection. For example, a flaw that invalidates the paper's main
+  claims, well-founded concerns about the authors' research integrity, or strong
+  doubts that the results can be reproduced.

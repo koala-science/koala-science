@@ -43,9 +43,54 @@ export interface ArgumentRecord {
   position: 'positive' | 'negative';
   evidence: string;
   state: 'pending' | 'accepted' | 'rejected';
+  /** Set by the verifier on accepted arguments. See "Argument Strength" in the constitution. */
+  strength: Strength | null;
+  /** Why the verifier chose that strength. Null on arguments labelled before it gave one. */
+  strength_reason: string | null;
+  /** How many people flagged the strength label as wrong. */
+  strength_flag_count: number;
   created_at: string;
   checks: ArgumentCheck[];
   author_response: AuthorResponse | null;
+}
+
+type Strength = 'weak' | 'medium' | 'critical';
+
+const STRENGTH_LABEL: Record<Strength, string> = {
+  weak: 'Weak',
+  medium: 'Medium',
+  critical: 'Critical',
+};
+
+const STRENGTH_STYLE: Record<ArgumentRecord['position'], Record<Strength, string>> = {
+  negative: {
+    weak: 'border-yellow-300 bg-yellow-100 text-yellow-800',
+    medium: 'border-orange-300 bg-orange-100 text-orange-800',
+    critical: 'border-red-600 bg-red-600 text-white',
+  },
+  positive: {
+    weak: 'border-lime-300 bg-lime-100 text-lime-800',
+    medium: 'border-green-300 bg-green-100 text-green-800',
+    critical: 'border-emerald-600 bg-emerald-600 text-white',
+  },
+};
+
+function StrengthChip({
+  strength,
+  position,
+}: {
+  strength: Strength;
+  position: ArgumentRecord['position'];
+}) {
+  return (
+    <span
+      aria-label={`Strength: ${strength}`}
+      title="How much this argument weighs on the decision"
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${STRENGTH_STYLE[position][strength]}`}
+    >
+      {STRENGTH_LABEL[strength]}
+    </span>
+  );
 }
 
 type Bucket = 'negative' | 'positive' | 'pending' | 'rejected';
@@ -134,9 +179,43 @@ interface FlagState {
 
 type FlagMap = Record<string, FlagState>;
 
-interface MyFlag {
-  check_id: string;
-  reason: string;
+type MyFlag =
+  | { check_id: string; argument_id: null; reason: string }
+  | { check_id: null; argument_id: string; reason: string };
+
+/**
+ * What a flag disputes, how to name it, and how to file or withdraw it. A
+ * check's key is its row id; a strength label's is `strength:<argument id>`,
+ * since it has no row of its own.
+ */
+interface FlagTarget {
+  key: string;
+  name: string;
+  noun: 'check' | 'label';
+  body: { check_id: string } | { argument_id: string };
+  withdrawPath: string;
+}
+
+function strengthTarget(argumentId: string): FlagTarget {
+  return {
+    key: `strength:${argumentId}`,
+    name: 'strength',
+    noun: 'label',
+    body: { argument_id: argumentId },
+    withdrawPath: `/check-flags/strength/${argumentId}`,
+  };
+}
+
+/** A check with no result has no verdict yet to be wrong, and the API refuses one. */
+function checkTarget(stage: Stage): FlagTarget | null {
+  if (stage.id === null || stage.status === 'pending') return null;
+  return {
+    key: stage.id,
+    name: stage.name,
+    noun: 'check',
+    body: { check_id: stage.id },
+    withdrawPath: `/check-flags/${stage.id}`,
+  };
 }
 
 function seedFlags(items: ArgumentRecord[]): FlagMap {
@@ -144,6 +223,9 @@ function seedFlags(items: ArgumentRecord[]): FlagMap {
   for (const argument of items) {
     for (const check of argument.checks) {
       seeded[check.id] = { count: check.flag_count, mine: null };
+    }
+    if (argument.strength) {
+      seeded[strengthTarget(argument.id).key] = { count: argument.strength_flag_count, mine: null };
     }
   }
   return seeded;
@@ -172,10 +254,11 @@ function useCheckFlags(paperId: string, items: ArgumentRecord[]) {
         if (cancelled) return;
         setFlags((prev) => {
           const next = { ...prev };
-          for (const { check_id, reason } of mine) {
+          for (const flag of mine) {
+            const key = flag.check_id !== null ? flag.check_id : strengthTarget(flag.argument_id).key;
             // A flag can outlive the visibility of the argument it sits on,
             // and there is no row here to attach it to when that happens.
-            if (next[check_id]) next[check_id] = { ...next[check_id], mine: reason };
+            if (next[key]) next[key] = { ...next[key], mine: flag.reason };
           }
           return next;
         });
@@ -190,23 +273,23 @@ function useCheckFlags(paperId: string, items: ArgumentRecord[]) {
     };
   }, [canFlag, paperId]);
 
-  const submit = useCallback(async (checkId: string, reason: string) => {
+  const submit = useCallback(async (target: FlagTarget, reason: string) => {
     const created = await apiCall<{ reason: string }>('/check-flags/', {
       method: 'POST',
-      body: JSON.stringify({ check_id: checkId, reason }),
+      body: JSON.stringify({ ...target.body, reason }),
     });
     setFlags((prev) => ({
       ...prev,
-      [checkId]: { count: prev[checkId].count + 1, mine: created.reason },
+      [target.key]: { count: prev[target.key].count + 1, mine: created.reason },
     }));
   }, []);
 
-  const withdraw = useCallback(async (checkId: string) => {
-    const res = await apiFetch(`/check-flags/${checkId}`, { method: 'DELETE' });
+  const withdraw = useCallback(async (target: FlagTarget) => {
+    const res = await apiFetch(target.withdrawPath, { method: 'DELETE' });
     if (!res.ok) throw new Error('Could not withdraw this flag.');
     setFlags((prev) => ({
       ...prev,
-      [checkId]: { count: prev[checkId].count - 1, mine: null },
+      [target.key]: { count: prev[target.key].count - 1, mine: null },
     }));
   }, []);
 
@@ -365,28 +448,24 @@ function AuthorResponseComposer({
 
 const REASON_MAX = 2_000;
 
-/**
- * The flag affordance on one stage of one argument's pipeline.
- *
- * A check with no result carries none: there is no verdict yet to be wrong,
- * and the API refuses one for the same reason.
- */
-function CheckFlagControl({
-  stage,
+/** The flag affordance on one check result or strength label. */
+function FlagControl({
+  target,
   controls,
   open,
   onToggle,
 }: {
-  stage: Stage;
+  target: FlagTarget;
   controls: FlagControls;
   open: boolean;
   onToggle: () => void;
 }) {
-  if (stage.id === null || stage.status === 'pending') return null;
-
-  const state = controls.flags[stage.id];
+  const state = controls.flags[target.key];
   const flagged = state.mine !== null;
-  const countLabel = state.count === 1 ? '1 person flagged this check' : `${state.count} people flagged this check`;
+  const countLabel =
+    state.count === 1
+      ? `1 person flagged this ${target.noun}`
+      : `${state.count} people flagged this ${target.noun}`;
 
   if (controls.isAuthenticated && !controls.canFlag) {
     return state.count > 0 ? (
@@ -404,10 +483,10 @@ function CheckFlagControl({
       aria-expanded={open}
       aria-label={
         flagged
-          ? `You flagged ${stage.name}`
+          ? `You flagged ${target.name}`
           : state.count > 0
-            ? `${countLabel}: ${stage.name}`
-            : `Flag ${stage.name} as wrong`
+            ? `${countLabel}: ${target.name}`
+            : `Flag ${target.name} as wrong`
       }
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors ${
         flagged || state.count > 0
@@ -425,13 +504,13 @@ function CheckFlagControl({
  * What sits under a stage once its flag is opened: the composer, the reason
  * this reader already filed, or the nudge to log in.
  */
-function CheckFlagPanel({
-  stage,
+function FlagPanel({
+  target,
   controls,
   open,
   onClose,
 }: {
-  stage: Stage;
+  target: FlagTarget;
   controls: FlagControls;
   open: boolean;
   onClose: () => void;
@@ -440,21 +519,18 @@ function CheckFlagPanel({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const checkId = stage.id;
-  if (checkId === null || stage.status === 'pending') return null;
-
-  const state = controls.flags[checkId];
+  const state = controls.flags[target.key];
   const flagged = state.mine !== null;
 
   const send = async () => {
     setBusy(true);
     setError(null);
     try {
-      await controls.submit(checkId, reason);
+      await controls.submit(target, reason);
       setReason('');
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not flag this check.');
+      setError(err instanceof Error ? err.message : `Could not flag this ${target.noun}.`);
     } finally {
       setBusy(false);
     }
@@ -464,7 +540,7 @@ function CheckFlagPanel({
     setBusy(true);
     setError(null);
     try {
-      await controls.withdraw(checkId);
+      await controls.withdraw(target);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not withdraw this flag.');
     } finally {
@@ -475,7 +551,7 @@ function CheckFlagPanel({
   if (flagged) {
     return (
       <div className="mt-1 ml-5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
-        <p className="font-medium text-amber-900">You flagged this check as wrong</p>
+        <p className="font-medium text-amber-900">You flagged this {target.noun} as wrong</p>
         <p className="mt-0.5 whitespace-pre-wrap text-sm text-amber-900/80">{state.mine}</p>
         {error && <p className="mt-1 text-destructive">{error}</p>}
         <button
@@ -498,7 +574,7 @@ function CheckFlagPanel({
         <Link href="/auth/login" className="underline hover:text-foreground">
           Log in
         </Link>{' '}
-        to say why this check is wrong.
+        to say why this {target.noun} is wrong.
       </p>
     );
   }
@@ -507,17 +583,17 @@ function CheckFlagPanel({
 
   return (
     <div className="mt-1 ml-5 rounded-md border bg-muted/30 p-2">
-      <label htmlFor={`flag-${checkId}`} className="sr-only">
-        Why is the {stage.name} check wrong?
+      <label htmlFor={`flag-${target.key}`} className="sr-only">
+        Why is the {target.name} {target.noun} wrong?
       </label>
       <textarea
-        id={`flag-${checkId}`}
+        id={`flag-${target.key}`}
         value={reason}
         maxLength={REASON_MAX}
         rows={3}
         autoFocus
         onChange={(e) => setReason(e.target.value)}
-        placeholder={`Why is the ${stage.name} check wrong?`}
+        placeholder={`Why is the ${target.name} ${target.noun} wrong?`}
         className="w-full resize-y rounded border bg-background p-2 text-sm outline-none focus-visible:border-ring"
       />
       {error && <p className="mt-1 text-destructive">{error}</p>}
@@ -640,46 +716,53 @@ function CheckBreakdown({
 
   return (
     <dl className="mt-3 space-y-2">
-      {stages.map((stage) => (
-        <div key={stage.name} className="text-xs">
-          {/* Capped so the flag reads as belonging to the check beside it,
-              rather than floating at the far edge of a wide card. */}
-          <div className="flex max-w-[16rem] items-center gap-2">
-            <dt className="flex items-center gap-1.5">
-              <StageIcon status={stage.status} />
-              <span
-                className={`font-mono ${
-                  stage.status === 'not_run' ? 'text-muted-foreground/50' : 'text-muted-foreground'
-                }`}
-              >
-                {stage.name}
+      {stages.map((stage) => {
+        const target = checkTarget(stage);
+        return (
+          <div key={stage.name} className="text-xs">
+            {/* Capped so the flag reads as belonging to the check beside it,
+                rather than floating at the far edge of a wide card. */}
+            <div className="flex max-w-[16rem] items-center gap-2">
+              <dt className="flex items-center gap-1.5">
+                <StageIcon status={stage.status} />
+                <span
+                  className={`font-mono ${
+                    stage.status === 'not_run' ? 'text-muted-foreground/50' : 'text-muted-foreground'
+                  }`}
+                >
+                  {stage.name}
+                </span>
+              </dt>
+              <span className="ml-auto flex-shrink-0">
+                {target && (
+                  <FlagControl
+                    target={target}
+                    controls={controls}
+                    open={openFlag === target.key}
+                    onToggle={() => setOpenFlag((current) => (current === target.key ? null : target.key))}
+                  />
+                )}
               </span>
-            </dt>
-            <span className="ml-auto flex-shrink-0">
-              <CheckFlagControl
-                stage={stage}
-                controls={controls}
-                open={openFlag === stage.id}
-                onToggle={() => setOpenFlag((current) => (current === stage.id ? null : stage.id))}
-              />
-            </span>
+            </div>
+            <dd>
+              {stage.status === 'failed' && (
+                <div className="mt-1 space-y-1 pl-5 text-sm leading-relaxed">
+                  <p className="font-medium text-destructive">{stage.summary ?? 'Did not pass this check.'}</p>
+                  <FailureReason stage={stage} jump={jump} />
+                </div>
+              )}
+              {target && (
+                <FlagPanel
+                  target={target}
+                  controls={controls}
+                  open={openFlag === target.key}
+                  onClose={() => setOpenFlag(null)}
+                />
+              )}
+            </dd>
           </div>
-          <dd>
-            {stage.status === 'failed' && (
-              <div className="mt-1 space-y-1 pl-5 text-sm leading-relaxed">
-                <p className="font-medium text-destructive">{stage.summary ?? 'Did not pass this check.'}</p>
-                <FailureReason stage={stage} jump={jump} />
-              </div>
-            )}
-            <CheckFlagPanel
-              stage={stage}
-              controls={controls}
-              open={openFlag === stage.id}
-              onClose={() => setOpenFlag(null)}
-            />
-          </dd>
-        </div>
-      ))}
+        );
+      })}
     </dl>
   );
 }
@@ -710,6 +793,43 @@ function FailureReason({ stage, jump }: { stage: Stage; jump: Jump }) {
     );
   }
   return stage.detail ? <p className="text-muted-foreground">{stage.detail}</p> : null;
+}
+
+/** The strength label at the foot of an opened card, where it can be flagged. */
+function StrengthRow({
+  argumentId,
+  strength,
+  position,
+  reason,
+  controls,
+}: {
+  argumentId: string;
+  strength: Strength;
+  position: ArgumentRecord['position'];
+  reason: string | null;
+  controls: FlagControls;
+}) {
+  const [flagOpen, setFlagOpen] = useState(false);
+  const target = strengthTarget(argumentId);
+
+  return (
+    <div role="group" aria-label="Strength label" className="mt-3 border-t pt-2 text-xs">
+      <div className="flex max-w-[16rem] items-center gap-2">
+        <span className="font-mono text-muted-foreground">strength</span>
+        <StrengthChip strength={strength} position={position} />
+        <span className="ml-auto flex-shrink-0">
+          <FlagControl
+            target={target}
+            controls={controls}
+            open={flagOpen}
+            onToggle={() => setFlagOpen((v) => !v)}
+          />
+        </span>
+      </div>
+      {reason && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{reason}</p>}
+      <FlagPanel target={target} controls={controls} open={flagOpen} onClose={() => setFlagOpen(false)} />
+    </div>
+  );
 }
 
 function ArgumentCard({
@@ -749,6 +869,11 @@ function ArgumentCard({
       }`}
     >
       <div className="flex w-full flex-col gap-2 p-3 hover:bg-muted/40 sm:flex-row sm:items-start">
+        {argument.strength && (
+          <div className="flex-shrink-0 pt-0.5">
+            <StrengthChip strength={argument.strength} position={argument.position} />
+          </div>
+        )}
         <button
           type="button"
           aria-expanded={open}
@@ -777,6 +902,15 @@ function ArgumentCard({
             )
           )}
           <CheckBreakdown checks={argument.checks} controls={controls} jump={jump} />
+          {argument.strength && (
+            <StrengthRow
+              argumentId={argument.id}
+              strength={argument.strength}
+              position={argument.position}
+              reason={argument.strength_reason}
+              controls={controls}
+            />
+          )}
           <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
             <ActorBadge actorType="agent" actorName={argument.author_name} actorId={argument.author_id} />
             <RelativeTime date={argument.created_at} />
