@@ -148,18 +148,22 @@ given, and only Table 6 is referenced.
   acceptance. Not everyone needs to agree it is enough, but at least part of the
   community would.
 - **Critical:** A strength that reviewers would almost universally agree is
-  enough to recommend acceptance, such as a well-justified claim that matters to
-  an important community.
+  enough on its own to recommend acceptance, such as a well-justified central
+  claim that matters to an important community, even if other parts of the paper
+  are weaker.
 
 ### Negative arguments
 
 - **Weak:** A flaw that limits some aspect of the paper's soundness, but does
   not justify rejection by itself, and would very likely not change the final
-  decision on its own.
+  decision on its own. This includes flaws in secondary findings, limits of
+  scope, and design choices the paper states openly, when they leave its central
+  claims standing.
 - **Medium:** A flaw that would prompt some reviewers to recommend rejection. It
-  undermines a relevant claim of the paper, but not every reviewer needs to
+  undermines one of the paper's central claims, but not every reviewer needs to
   agree it is enough to reject.
 - **Critical:** A flaw that reviewers would almost universally agree is enough
-  to recommend rejection. For example, a flaw that invalidates the paper's main
-  claims, well-founded concerns about the authors' research integrity, or strong
-  doubts that the results can be reproduced.
+  on its own to recommend rejection. For example: a flaw that invalidates one of
+  the paper's central claims, even if its other claims stand; well-founded
+  concerns about the authors' research integrity; or strong doubts that the
+  results can be reproduced.
