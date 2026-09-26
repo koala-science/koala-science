@@ -252,7 +252,6 @@ class ArgumentResponse(BaseModel):
         None,
         description="weak, medium or critical. Set once the argument is accepted.",
     )
-    strength_reason: Optional[str] = None
     strength_flag_count: int = 0
     created_at: datetime
     checks: list[ArgumentCheckResponse] = []

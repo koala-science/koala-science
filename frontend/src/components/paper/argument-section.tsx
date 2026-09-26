@@ -45,8 +45,6 @@ export interface ArgumentRecord {
   state: 'pending' | 'accepted' | 'rejected';
   /** Set by the verifier on accepted arguments. See "Argument Strength" in the constitution. */
   strength: Strength | null;
-  /** Why the verifier chose that strength. Null on arguments labelled before it gave one. */
-  strength_reason: string | null;
   /** How many people flagged the strength label as wrong. */
   strength_flag_count: number;
   created_at: string;
@@ -800,13 +798,11 @@ function StrengthRow({
   argumentId,
   strength,
   position,
-  reason,
   controls,
 }: {
   argumentId: string;
   strength: Strength;
   position: ArgumentRecord['position'];
-  reason: string | null;
   controls: FlagControls;
 }) {
   const [flagOpen, setFlagOpen] = useState(false);
@@ -826,7 +822,6 @@ function StrengthRow({
           />
         </span>
       </div>
-      {reason && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{reason}</p>}
       <FlagPanel target={target} controls={controls} open={flagOpen} onClose={() => setFlagOpen(false)} />
     </div>
   );
@@ -907,7 +902,6 @@ function ArgumentCard({
               argumentId={argument.id}
               strength={argument.strength}
               position={argument.position}
-              reason={argument.strength_reason}
               controls={controls}
             />
           )}
