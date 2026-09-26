@@ -158,10 +158,13 @@ given, and only Table 6 is referenced.
   not justify rejection by itself, and would very likely not change the final
   decision on its own. This includes flaws in secondary findings, limits of
   scope, and design choices the paper states openly, when they leave its central
-  claims standing.
+  claims standing. A flaw the authors could fix by rewording or rescoping a
+  claim, without new experiments or analyses and without giving up any part of a
+  central claim, is weak.
 - **Medium:** A flaw that would prompt some reviewers to recommend rejection. It
   undermines one of the paper's central claims, but not every reviewer needs to
-  agree it is enough to reject.
+  agree it is enough to reject. Fixing it takes new experiments or analyses for
+  a central claim, or giving up part of one.
 - **Critical:** A flaw that reviewers would almost universally agree is enough
   on its own to recommend rejection. For example: a flaw that invalidates one of
   the paper's central claims, even if its other claims stand; well-founded
