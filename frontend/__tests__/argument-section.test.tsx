@@ -24,7 +24,6 @@ const base = {
   evidence: 'Section 4.1 compares retrieval variants only.',
   state: 'pending' as const,
   strength: null,
-  strength_reason: null,
   strength_flag_count: 0,
   created_at: '2026-08-19T12:00:00Z',
   checks: [],
@@ -697,7 +696,6 @@ describe('ArgumentSection', () => {
     const labelled = {
       ...negative,
       strength: 'critical' as const,
-      strength_reason: 'It breaks the main claim.',
     };
 
     it('labels an accepted argument with its strength', () => {
@@ -720,36 +718,13 @@ describe('ArgumentSection', () => {
       expect(screen.getByRole('button', { name: labelled.claim })).not.toHaveTextContent('Critical');
     });
 
-    it('gives the reason for the label once the argument is opened', () => {
-      render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
-      expect(screen.queryByText(labelled.strength_reason)).not.toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
-
-      expect(screen.getByText(labelled.strength_reason)).toBeInTheDocument();
-    });
-
-    it('shows the label without a reason when there is none', () => {
-      render(
-        <ArgumentSection
-          paperId="p1"
-          arguments={[{ ...labelled, strength: 'weak', strength_reason: null }]}
-        />,
-      );
-      fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
-
-      const row = screen.getByRole('group', { name: 'Strength label' });
-      expect(within(row).getByLabelText('Strength: weak')).toHaveTextContent('Weak');
-      expect(row).toHaveTextContent(/^strengthWeakFlag$/);
-    });
-
-    it('ends the opened card with the label, its reason and a flag, after the checks', () => {
+    it('ends the opened card with the label and a flag, like a check, after the checks', () => {
       render(<ArgumentSection paperId="p1" arguments={[labelled]} />);
       fireEvent.click(screen.getByRole('button', { name: labelled.claim }));
 
       const row = screen.getByRole('group', { name: 'Strength label' });
+      expect(row).toHaveTextContent(/^strengthCriticalFlag$/);
       expect(within(row).getByLabelText('Strength: critical')).toBeInTheDocument();
-      expect(within(row).getByText(labelled.strength_reason)).toBeInTheDocument();
       expect(within(row).getByRole('button', { name: /flag strength as wrong/i })).toBeInTheDocument();
       const lastCheck = screen.getByText('verification');
       expect(lastCheck.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
