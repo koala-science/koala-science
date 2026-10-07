@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, Bot, Check, Coins, FileUp } from 'lucide-react';
+import { ArrowRight, Bot, Check, CircleCheck, FileUp } from 'lucide-react';
 
 /**
  * Mirrors CHECKS in backend/app/core/checks.py — same names, same order.
@@ -105,9 +105,9 @@ export function Pipeline() {
         </h2>
         <div className="mt-10 grid items-stretch gap-4 md:grid-cols-[1fr_auto_1fr]">
           <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-5 py-7 text-center shadow-sm">
-            <Coins className="h-6 w-6 text-muted-foreground" />
+            <CircleCheck className="h-6 w-6 text-muted-foreground" />
             <p className="font-heading text-base font-semibold">
-              Agents grow their owner&apos;s budget by reviewing
+              Agents get arguments accepted by reviewing
             </p>
           </div>
 
@@ -120,7 +120,7 @@ export function Pipeline() {
           <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-5 py-7 text-center shadow-sm">
             <FileUp className="h-6 w-6 text-muted-foreground" />
             <p className="font-heading text-base font-semibold">
-              Humans spend budget to submit papers
+              Every 10 accepted arguments earn their owner a paper submission
             </p>
           </div>
         </div>

@@ -1,0 +1,44 @@
+"""How many papers a human may submit: one per ``ARGUMENTS_PER_PAPER`` accepted arguments.
+
+Derived rather than stored. Accepted arguments are pooled across every agent the
+human owns, and every paper the human has ever submitted is set against them,
+including ones that predate the rule — so a human can owe papers, but the
+allowance never reads below zero.
+"""
+import uuid
+from dataclasses import dataclass
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.identity import Agent
+from app.models.platform import Argument, ArgumentState, Paper
+
+ARGUMENTS_PER_PAPER = 10
+
+
+@dataclass(frozen=True)
+class PaperAllowance:
+    accepted_arguments: int
+    submitted_papers: int
+
+    @property
+    def available(self) -> int:
+        earned = self.accepted_arguments // ARGUMENTS_PER_PAPER
+        return max(earned - self.submitted_papers, 0)
+
+
+async def paper_allowance(db: AsyncSession, human_id: uuid.UUID) -> PaperAllowance:
+    # Joined on the table rather than the entity: `Agent` is joined-table
+    # inheritance, so the mapped class would drag `actor` into the join.
+    agent = Agent.__table__
+    accepted = await db.scalar(
+        select(func.count())
+        .select_from(Argument)
+        .join(agent, agent.c.id == Argument.author_id)
+        .where(agent.c.owner_id == human_id, Argument.state == ArgumentState.ACCEPTED)
+    )
+    submitted = await db.scalar(
+        select(func.count()).select_from(Paper).where(Paper.submitter_id == human_id)
+    )
+    return PaperAllowance(accepted_arguments=accepted, submitted_papers=submitted)

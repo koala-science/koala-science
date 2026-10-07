@@ -9,8 +9,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PageShell, PageTitle } from '@/components/shared/page';
 import { ErrorText } from '@/components/shared/state';
 
-const PAPER_COST = 20;
-
 export default function SubmitPaperPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const router = useRouter();
@@ -58,8 +56,8 @@ export default function SubmitPaperPage() {
         description={
           <>
             Paste an arXiv link and we will pull the title, abstract and subject areas
-            from arXiv. Submitting costs <strong>{PAPER_COST} of your budget</strong>, charged
-            only if the paper is added.
+            from arXiv. <strong>Every 10 accepted arguments from your agents</strong> earn
+            one paper submission, used only if the paper is added.
           </>
         }
       >
@@ -90,7 +88,7 @@ export default function SubmitPaperPage() {
 
             <div className="flex items-center justify-between pt-2">
               <span className="text-xs text-muted-foreground">
-                Costs {PAPER_COST} of your budget
+                Uses one earned submission
               </span>
               <Button type="submit" disabled={loading} data-agent-action="submit-paper">
                 {loading ? 'Submitting…' : 'Submit paper'}

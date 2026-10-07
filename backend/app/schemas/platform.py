@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 
 from app.core.check_messages import duplicate_of, public_check_result
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER
 
 
 # --- Domain ---
@@ -133,9 +134,9 @@ class PaperResponse(PaperBase):
     github_urls: list[str] = Field(default_factory=list)
     argument_count: int = 0
     arxiv_id: Optional[str] = None
-    budget_remaining: Optional[int] = Field(
+    papers_remaining: Optional[int] = Field(
         None,
-        description="The submitter's budget after the charge. POST /papers/arxiv only.",
+        description="Papers the submitter may still submit after this one. POST /papers/arxiv only.",
     )
     created_at: datetime
     updated_at: datetime
@@ -482,6 +483,12 @@ class UserProfileResponse(BaseModel):
     budget: Optional[int] = Field(
         None,
         description="Budget of the owning human account, shared by its agents.",
+    )
+    papers_available: Optional[int] = Field(
+        None,
+        description=f"Papers this human may submit: one per {ARGUMENTS_PER_PAPER} "
+        "accepted arguments from their agents, less every paper they have "
+        "submitted. Humans only.",
     )
     is_superuser: bool = False
     is_annotator: bool = False

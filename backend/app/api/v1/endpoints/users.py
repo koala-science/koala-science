@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +10,11 @@ from datetime import datetime
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
 from app.core.argument_visibility import publicly_visible_argument_clause
+from app.core.paper_allowance import paper_allowance
 from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.models.platform import Paper, Argument, Domain, Subscription
-from app.schemas.platform import UserProfileResponse, PaperResponse, DomainResponse, UserPaperResponse, UserArgumentResponse
+from app.schemas.platform import UserProfileResponse, DomainResponse, UserPaperResponse, UserArgumentResponse
 
 router = APIRouter()
 
@@ -129,6 +130,7 @@ async def get_current_user_profile(
     google_scholar_id = None
     github_repo = None
     budget = None
+    papers_available = None
     is_superuser = False
     is_annotator = False
     if actor.actor_type == ActorType.HUMAN:
@@ -140,6 +142,7 @@ async def get_current_user_profile(
             is_superuser = human.is_superuser
             is_annotator = human.is_annotator
             budget = human.budget
+            papers_available = (await paper_allowance(db, human.id)).available
     elif actor.actor_type == ActorType.AGENT:
         agent_row = (
             await db.execute(
@@ -161,6 +164,7 @@ async def get_current_user_profile(
         google_scholar_id=google_scholar_id,
         github_repo=github_repo,
         budget=budget,
+        papers_available=papers_available,
         is_superuser=is_superuser,
         is_annotator=is_annotator,
     )

@@ -3,7 +3,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import complete_signup, promote_to_superuser
+from tests.conftest import complete_signup, db_now, grant_accepted_arguments, promote_to_superuser
 
 
 def _unique_email(prefix: str = "exp") -> str:
@@ -85,6 +85,7 @@ async def test_export_actors_requires_auth(client: AsyncClient):
 
 async def test_export_arguments_returns_posted_arguments(client: AsyncClient):
     """Posted arguments appear in /export/arguments with author joined."""
+    since = await db_now()
     token, actor_id = await _signup_and_token(client, "exp_commenter")
     paper_id = await _submit_paper(client, token, actor_id)
     agent_key = await _create_agent_key(client, token, "exp_commenter_agent")
@@ -93,6 +94,7 @@ async def test_export_arguments_returns_posted_arguments(client: AsyncClient):
 
     resp = await client.get(
         "/api/v1/export/arguments",
+        params={"since": since},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
@@ -109,6 +111,7 @@ async def test_export_arguments_returns_posted_arguments(client: AsyncClient):
 
 async def test_export_arguments_pagination(client: AsyncClient):
     """limit + offset slice the result and ordering is stable."""
+    since = await db_now()
     token, actor_id = await _signup_and_token(client, "exp_pager")
     paper_id = await _submit_paper(client, token, actor_id)
     agent_key = await _create_agent_key(client, token, "exp_pager_agent")
@@ -116,11 +119,13 @@ async def test_export_arguments_pagination(client: AsyncClient):
         await _post_argument(client, agent_key, paper_id, f"Claim {i}")
 
     page1 = await client.get(
-        "/api/v1/export/arguments?limit=1&offset=0",
+        "/api/v1/export/arguments",
+        params={"since": since, "limit": 1, "offset": 0},
         headers={"Authorization": f"Bearer {token}"},
     )
     page2 = await client.get(
-        "/api/v1/export/arguments?limit=1&offset=1",
+        "/api/v1/export/arguments",
+        params={"since": since, "limit": 1, "offset": 1},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert page1.status_code == 200
@@ -128,6 +133,25 @@ async def test_export_arguments_pagination(client: AsyncClient):
     assert len(page1.json()) == 1
     assert len(page2.json()) == 1
     assert page1.json()[0]["id"] != page2.json()[0]["id"]
+
+
+async def test_export_pages_rows_that_share_a_timestamp_exactly_once(client: AsyncClient):
+    """Rows written in one transaction share ``created_at``, so ordering on it
+    alone lets offset pages repeat one row and skip another."""
+    since = await db_now()
+    token, _ = await _signup_and_token(client, "exp_ties")
+    await grant_accepted_arguments(client, token, 20)
+
+    seen = []
+    for offset in range(20):
+        page = await client.get(
+            "/api/v1/export/arguments",
+            params={"since": since, "limit": 1, "offset": offset},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert page.status_code == 200, page.text
+        seen += [row["id"] for row in page.json()]
+    assert len(seen) == len(set(seen)) == 20
 
 
 async def test_export_actors_returns_registered_users(client: AsyncClient):

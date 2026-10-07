@@ -1,5 +1,4 @@
 import logging
-import os
 from pathlib import Path
 from typing import List, Literal, Optional
 import tempfile
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.config import settings
-from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
+from app.core.deps import get_current_actor, require_superuser
 from app.core.argument_payload import public_arguments
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.arxiv import (
@@ -22,6 +21,7 @@ from app.core.arxiv import (
     extract_arxiv_id,
     fetch_metadata,
 )
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance, paper_allowance
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, HumanAccount
@@ -46,8 +46,6 @@ from app.core.storage import storage
 logger = logging.getLogger(__name__)
 
 _PDF_UPLOAD_CHUNK = 1024 * 1024  # 1 MiB streaming chunks
-
-PAPER_COST = 20
 
 router = APIRouter()
 
@@ -293,11 +291,12 @@ async def create_paper_from_arxiv(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Submit a paper by arXiv URL. Humans only, and it costs budget.
+    """Submit a paper by arXiv URL. Humans only, and it uses one paper of the
+    allowance their agents' accepted arguments have earned.
 
-    Nothing is charged unless a paper is created, so the order matters: reject a
-    URL we cannot read and a paper we already have before spending anything, and
-    reach arXiv before taking the balance lock rather than holding a row while
+    No allowance is used unless a paper is created, so the order matters: reject
+    a URL we cannot read and a paper we already have before anything else, and
+    reach arXiv before taking the submitter lock rather than holding a row while
     waiting on someone else's server.
     """
     if actor.actor_type != ActorType.HUMAN:
@@ -318,20 +317,11 @@ async def create_paper_from_arxiv(
             status_code=409, detail="That paper is already on the platform"
         )
 
-    # Cheap gate before any network work: a submitter who cannot pay must not
+    # Cheap gate before any network work: a submitter with no allowance must not
     # cost us an arXiv round trip, a PDF download, or a stored preview image that
-    # nothing will ever reference. The balance is read again under the lock
+    # nothing will ever reference. The allowance is read again under the lock
     # below — this one only keeps the expensive path off the refused case.
-    affordable = (
-        await db.execute(
-            select(HumanAccount.budget).where(HumanAccount.id == actor.id)
-        )
-    ).scalar_one()
-    if affordable < PAPER_COST:
-        raise HTTPException(
-            status_code=402,
-            detail=f"Insufficient budget: {PAPER_COST} required, {affordable} available",
-        )
+    _refuse_without_allowance(await paper_allowance(db, actor.id))
 
     # Hoist what the response needs, then let the connection go: fetching arXiv
     # and rendering a preview can take a minute between them, and holding a
@@ -353,22 +343,15 @@ async def create_paper_from_arxiv(
     preview_image_url, full_text = await _extract_pdf_assets(metadata.pdf_url)
     domains = [_normalize_domain(category) for category in metadata.categories]
 
-    submitter = (
-        await db.execute(
-            select(HumanAccount)
-            .where(HumanAccount.id == actor_id)
-            .with_for_update(of=HumanAccount.__table__)
-        )
-    ).scalar_one()
-    if submitter.budget < PAPER_COST:
-        raise HTTPException(
-            status_code=402,
-            detail=(
-                f"Insufficient budget: {PAPER_COST} required, "
-                f"{submitter.budget} available"
-            ),
-        )
-    submitter.budget -= PAPER_COST
+    # The lock serialises one human's submissions, so two of them cannot both
+    # count the same last paper of the allowance before either inserts it.
+    await db.execute(
+        select(HumanAccount.id)
+        .where(HumanAccount.id == actor_id)
+        .with_for_update(of=HumanAccount.__table__)
+    )
+    allowance = await paper_allowance(db, actor_id)
+    _refuse_without_allowance(allowance)
 
     paper = Paper(
         title=metadata.title,
@@ -387,7 +370,7 @@ async def create_paper_from_arxiv(
         await db.flush()
     except IntegrityError:
         # Another submission of the same id won the race between the check above
-        # and this insert. The rollback takes the deduction with it.
+        # and this insert.
         await db.rollback()
         raise HTTPException(
             status_code=409, detail="That paper is already on the platform"
@@ -427,14 +410,25 @@ async def create_paper_from_arxiv(
             "abstract_length": len(paper.abstract),
         },
     )
-    remaining = submitter.budget
     await db.commit()
 
     response_paper = await _load_paper_for_response(db, paper.id)
     await _trigger_paper_embedding_refresh(paper.id, metadata.abstract)
     response = _paper_to_response(response_paper, actor_type, actor_name)
-    response.budget_remaining = remaining
+    response.papers_remaining = allowance.available - 1
     return response
+
+
+def _refuse_without_allowance(allowance: PaperAllowance) -> None:
+    if allowance.available < 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Each paper takes {ARGUMENTS_PER_PAPER} accepted arguments from your "
+                f"agents: they have {allowance.accepted_arguments} accepted, and you "
+                f"have submitted {allowance.submitted_papers} so far"
+            ),
+        )
 
 
 @router.get("/{paper_id}/arguments", response_model=List[ArgumentResponse])

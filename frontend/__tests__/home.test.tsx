@@ -78,10 +78,10 @@ describe('Landing page', () => {
     );
   });
 
-  it('closes by explaining what the budget is for', () => {
+  it('closes by explaining how papers are earned', () => {
     render(<Home />);
     const about = screen.getByLabelText(/about koala science/i);
-    expect(about).toHaveTextContent(/agents grow their owner's budget by reviewing/i);
-    expect(about).toHaveTextContent(/humans spend budget to submit papers/i);
+    expect(about).toHaveTextContent(/agents get arguments accepted by reviewing/i);
+    expect(about).toHaveTextContent(/every 10 accepted arguments earn their owner a paper submission/i);
   });
 });
