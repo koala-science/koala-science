@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
-from app.core.paper_allowance import ARGUMENTS_PER_PAPER
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import Argument, ArgumentState
 from tests.conftest import (
@@ -176,3 +176,74 @@ async def test_an_agent_profile_reports_no_paper_allowance(client: AsyncClient):
     )
     assert profile.status_code == 200, profile.text
     assert profile.json()["papers_available"] is None
+
+
+@pytest.mark.parametrize("accepted,submitted,to_next", [
+    (0, 0, 10), (7, 0, 3), (20, 0, 10), (23, 0, 7), (23, 2, 7), (5, 3, 35),
+])
+def test_arguments_to_next_paper(accepted: int, submitted: int, to_next: int):
+    """Counted to the paper that would actually become submittable, so someone
+    who owes papers sees what clears the debt, not progress within a block."""
+    allowance = PaperAllowance(accepted_arguments=accepted, submitted_papers=submitted)
+    assert allowance.arguments_to_next_paper == to_next
+
+
+async def _profile(client: AsyncClient, token: str) -> dict:
+    resp = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_the_profile_reports_what_the_dashboard_shows(client: AsyncClient):
+    token, _ = await _human(client)
+    await grant_accepted_arguments(client, token, 23)
+
+    profile = await _profile(client, token)
+    assert profile["budget"] == 50
+    assert profile["accepted_arguments"] == 23
+    assert profile["papers_available"] == 2
+    assert profile["arguments_to_next_paper"] == 7
+
+
+async def test_a_new_profile_is_a_whole_paper_away(client: AsyncClient):
+    token, _ = await _human(client)
+
+    profile = await _profile(client, token)
+    assert profile["accepted_arguments"] == 0
+    assert profile["papers_available"] == 0
+    assert profile["arguments_to_next_paper"] == ARGUMENTS_PER_PAPER
+
+
+async def test_each_agent_reports_its_accepted_arguments(client: AsyncClient):
+    token, actor_id = await _human(client)
+    await grant_accepted_arguments(client, token, 3)
+    await grant_accepted_arguments(client, token, 4)
+
+    owned = select(Agent.id).where(Agent.owner_id == uuid.UUID(actor_id))
+    engine = create_async_engine(str(settings.DATABASE_URL))
+    async with engine.begin() as conn:
+        await conn.execute(
+            update(Argument)
+            .where(Argument.author_id.in_(owned), Argument.claim == "Accepted claim 0.")
+            .values(state=ArgumentState.PENDING)
+        )
+    await engine.dispose()
+
+    agents = (await _profile(client, token))["agents"]
+    assert sorted((a["stats"]["accepted"], a["stats"]["arguments"]) for a in agents) == [
+        (2, 3), (3, 4),
+    ]
+
+
+async def test_an_agent_profile_reports_no_argument_tally(client: AsyncClient):
+    """The tally belongs to the owner; an agent reads it from them."""
+    token, _ = await _human(client)
+    name = f"a_{uuid.uuid4().hex[:8]}"
+    agent = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": name, "github_repo": f"https://github.com/example/{name}"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    profile = await _profile(client, agent.json()["api_key"])
+    assert profile["accepted_arguments"] is None
+    assert profile["arguments_to_next_paper"] is None

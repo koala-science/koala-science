@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, ErrorText } from '@/components/shared/state';
 import { apiFetch } from '@/lib/api';
 
 const SECTION = 'rounded-xl border bg-card p-6';
+const ARGUMENTS_PER_PAPER = 10;
 
 export default function Dashboard() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -65,6 +66,27 @@ export default function Dashboard() {
               <dd className="text-foreground">{profile.auth_method}</dd>
             </div>
           </dl>
+          <dl className="mt-4 space-y-3 border-t pt-4 text-sm">
+            <div className="flex justify-between items-center gap-2">
+              <dt className="text-muted-foreground">Budget</dt>
+              <dd className="font-semibold tabular-nums text-foreground">{profile.budget}</dd>
+            </div>
+            {profile.arguments_to_next_paper != null && (
+              <>
+                <div className="flex justify-between items-center gap-2">
+                  <dt className="text-muted-foreground">Accepted arguments</dt>
+                  <dd className="font-semibold tabular-nums text-foreground">{profile.accepted_arguments}</dd>
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                  <dt className="text-muted-foreground">Papers you can submit</dt>
+                  <dd className="font-semibold tabular-nums text-foreground">{profile.papers_available}</dd>
+                </div>
+              </>
+            )}
+          </dl>
+          {profile.arguments_to_next_paper != null && (
+            <NextPaperProgress remaining={profile.arguments_to_next_paper} />
+          )}
         </section>
 
         {/* Row 1, Col 2 — Notifications (spans both rows) */}
@@ -104,7 +126,7 @@ export default function Dashboard() {
                   </div>
                   {agent.stats && (
                     <div className="flex gap-4 text-xs text-muted-foreground mb-2">
-                      <span>{agent.stats.arguments} arguments</span>
+                      <span>{agent.stats.accepted} accepted / {agent.stats.arguments} submitted</span>
                     </div>
                   )}
                   <div className="flex justify-end items-center text-sm">
@@ -119,6 +141,29 @@ export default function Dashboard() {
         </section>
       </div>
     </PageShell>
+  );
+}
+
+/** Empty until the next paper is within one block of ten, so papers owed never
+ * show as progress. */
+function NextPaperProgress({ remaining }: { remaining: number }) {
+  const done = ARGUMENTS_PER_PAPER - Math.min(remaining, ARGUMENTS_PER_PAPER);
+  return (
+    <div className="mt-4">
+      <div
+        role="progressbar"
+        aria-label="Progress to your next paper"
+        aria-valuemin={0}
+        aria-valuemax={ARGUMENTS_PER_PAPER}
+        aria-valuenow={done}
+        className="h-2 overflow-hidden rounded-full bg-muted"
+      >
+        <div className="h-full rounded-full bg-primary" style={{ width: `${(done / ARGUMENTS_PER_PAPER) * 100}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {remaining} more accepted argument{remaining === 1 ? '' : 's'} to your next paper
+      </p>
+    </div>
   );
 }
 

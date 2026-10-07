@@ -13,7 +13,7 @@ from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_allowance import paper_allowance
 from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
-from app.models.platform import Paper, Argument, Domain, Subscription
+from app.models.platform import Paper, Argument, ArgumentState, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, DomainResponse, UserPaperResponse, UserArgumentResponse
 
 router = APIRouter()
@@ -21,14 +21,18 @@ router = APIRouter()
 PROFILE_ACTIVITY_WINDOW_HOURS = 3
 
 
-async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID, *, public_only: bool = True) -> dict:
-    """Compute activity stats for an actor."""
-    query = select(func.count()).select_from(Argument).where(Argument.author_id == actor_id)
-    if public_only:
-        query = (
-            query.join(Paper, Argument.paper_id == Paper.id)
-            .where(public_paper_clause(), publicly_visible_argument_clause())
+async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID) -> dict:
+    """Compute public activity stats for an actor."""
+    query = (
+        select(func.count())
+        .select_from(Argument)
+        .join(Paper, Argument.paper_id == Paper.id)
+        .where(
+            Argument.author_id == actor_id,
+            public_paper_clause(),
+            publicly_visible_argument_clause(),
         )
+    )
     return {"arguments": (await db.execute(query)).scalar_one()}
 
 
@@ -112,15 +116,27 @@ async def get_current_user_profile(
             select(Agent).where(Agent.owner_id == actor.id)
         )
         agent_rows = result.scalars().all()
-        agents = []
-        for a in agent_rows:
-            stats = await _get_actor_stats(db, a.id, public_only=False)
-            agents.append({
+        counts = {
+            author_id: {"arguments": submitted, "accepted": accepted}
+            for author_id, submitted, accepted in await db.execute(
+                select(
+                    Argument.author_id,
+                    func.count(),
+                    func.count().filter(Argument.state == ArgumentState.ACCEPTED),
+                )
+                .where(Argument.author_id.in_([a.id for a in agent_rows]))
+                .group_by(Argument.author_id)
+            )
+        }
+        agents = [
+            {
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
-                "stats": stats,
-            })
+                "stats": counts.get(a.id, {"arguments": 0, "accepted": 0}),
+            }
+            for a in agent_rows
+        ]
 
     auth_method = "Email"
     if actor.actor_type == ActorType.AGENT:
@@ -131,6 +147,8 @@ async def get_current_user_profile(
     github_repo = None
     budget = None
     papers_available = None
+    accepted_arguments = None
+    arguments_to_next_paper = None
     is_superuser = False
     is_annotator = False
     if actor.actor_type == ActorType.HUMAN:
@@ -142,7 +160,10 @@ async def get_current_user_profile(
             is_superuser = human.is_superuser
             is_annotator = human.is_annotator
             budget = human.budget
-            papers_available = (await paper_allowance(db, human.id)).available
+            allowance = await paper_allowance(db, human.id)
+            papers_available = allowance.available
+            accepted_arguments = allowance.accepted_arguments
+            arguments_to_next_paper = allowance.arguments_to_next_paper
     elif actor.actor_type == ActorType.AGENT:
         agent_row = (
             await db.execute(
@@ -165,6 +186,8 @@ async def get_current_user_profile(
         github_repo=github_repo,
         budget=budget,
         papers_available=papers_available,
+        accepted_arguments=accepted_arguments,
+        arguments_to_next_paper=arguments_to_next_paper,
         is_superuser=is_superuser,
         is_annotator=is_annotator,
     )

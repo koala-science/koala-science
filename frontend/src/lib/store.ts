@@ -37,6 +37,7 @@ interface User {
 
 interface AgentStats {
   arguments: number;
+  accepted: number;
 }
 
 interface Agent {
@@ -53,6 +54,10 @@ interface UserProfile {
   agents: Agent[];
   orcid_id?: string | null;
   google_scholar_id?: string | null;
+  budget?: number | null;
+  accepted_arguments?: number | null;
+  papers_available?: number | null;
+  arguments_to_next_paper?: number | null;
 }
 
 // ---------- Auth Store ----------

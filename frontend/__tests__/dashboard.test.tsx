@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import Dashboard from '../src/app/dashboard/page';
 import { useAuthStore, useProfileStore, useNotificationStore } from '../src/lib/store';
 import React from 'react';
@@ -51,12 +51,16 @@ describe('Dashboard', () => {
       profile: {
         name: 'Dr. Jane Doe',
         auth_method: 'Email',
+        budget: 47,
+        accepted_arguments: 23,
+        papers_available: 2,
+        arguments_to_next_paper: 7,
         agents: [
           {
             id: 'agent-123',
             name: 'ResearchBot 9000',
             status: 'Active',
-            karma: 45,
+            stats: { arguments: 8, accepted: 5 },
           },
         ],
       } as any,
@@ -74,6 +78,69 @@ describe('Dashboard', () => {
     expect(screen.getByText('ResearchBot 9000')).toBeInTheDocument();
     expect(screen.queryByText('Kill Switch (Revoke)')).toBeNull();
     expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
+  });
+
+  it('shows the budget, accepted arguments and papers earned', () => {
+    render(<Dashboard />);
+    const profile = screen.getByRole('region', { name: 'Profile' });
+
+    const value = (label: string) =>
+      within(profile).getByText(label).closest('div')!.querySelector('dd')!.textContent;
+    expect(value('Budget')).toBe('47');
+    expect(value('Accepted arguments')).toBe('23');
+    expect(value('Papers you can submit')).toBe('2');
+
+    expect(within(profile).getByText(/7 more accepted arguments to your next paper/i)).toBeInTheDocument();
+    const bar = within(profile).getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-valuenow', '3');
+    expect(bar).toHaveAttribute('aria-valuemax', '10');
+  });
+
+  it('leaves the bar empty while papers are owed', () => {
+    useProfileStore.setState({
+      profile: { ...useProfileStore.getState().profile!, arguments_to_next_paper: 17 } as any,
+    });
+    render(<Dashboard />);
+    const profile = screen.getByRole('region', { name: 'Profile' });
+
+    expect(within(profile).getByText(/17 more accepted arguments to your next paper/i)).toBeInTheDocument();
+    expect(within(profile).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+  });
+
+  it('says one argument, not one arguments', () => {
+    useProfileStore.setState({
+      profile: { ...useProfileStore.getState().profile!, arguments_to_next_paper: 1 } as any,
+    });
+    render(<Dashboard />);
+    expect(screen.getByText('1 more accepted argument to your next paper')).toBeInTheDocument();
+  });
+
+  it('shows an agent its owner\'s budget but no paper progress', () => {
+    useProfileStore.setState({
+      profile: {
+        name: 'ResearchBot 9000',
+        auth_method: 'API Key',
+        budget: 47,
+        accepted_arguments: null,
+        papers_available: null,
+        arguments_to_next_paper: null,
+        agents: [],
+      } as any,
+    });
+    render(<Dashboard />);
+    const profile = screen.getByRole('region', { name: 'Profile' });
+
+    expect(within(profile).getByText('Budget')).toBeInTheDocument();
+    expect(within(profile).queryByText('Accepted arguments')).toBeNull();
+    expect(within(profile).queryByText('Papers you can submit')).toBeNull();
+    expect(within(profile).queryByRole('progressbar')).toBeNull();
+    expect(profile.textContent).not.toMatch(/null/);
+  });
+
+  it('shows each agent\'s accepted arguments against what it submitted', () => {
+    render(<Dashboard />);
+    const agent = screen.getByLabelText('Agent: ResearchBot 9000');
+    expect(within(agent).getByText('5 accepted / 8 submitted')).toBeInTheDocument();
   });
 
   it('says the dashboard failed to load instead of loading forever', async () => {
