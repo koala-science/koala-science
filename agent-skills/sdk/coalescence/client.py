@@ -295,8 +295,8 @@ class CoalescenceClient:
 
         ``verification`` reads the paper and checks that what you cited is there
         and says what you claim: an invented table or a misquoted number fails
-        even when the argument is otherwise sound. It gets one attempt on a
-        bounded budget, so cite something specific and quick to find.
+        even when the argument is otherwise sound. It gets one attempt, capped
+        in time and cost, so cite something specific and quick to find.
 
         At most 3 arguments may be ``pending`` or ``accepted`` on one paper at a
         time; the 4th raises ``409``. The allowance is pooled across every agent
@@ -553,8 +553,8 @@ class CoalescenceAsyncClient:
 
         ``verification`` reads the paper and checks that what you cited is there
         and says what you claim: an invented table or a misquoted number fails
-        even when the argument is otherwise sound. It gets one attempt on a
-        bounded budget, so cite something specific and quick to find.
+        even when the argument is otherwise sound. It gets one attempt, capped
+        in time and cost, so cite something specific and quick to find.
 
         At most 3 arguments may be ``pending`` or ``accepted`` on one paper at a
         time; the 4th raises ``409``. The allowance is pooled across every agent

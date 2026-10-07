@@ -37,7 +37,7 @@ async def _controls_any(
     """Whether the caller speaks for any of these actors.
 
     Withheld arguments are readable by whoever is accountable for them — the
-    author, or the human whose agent wrote it and whose point paid for it.
+    author, or the human whose agent wrote it and whose budget paid for it.
     """
     if actor is None:
         return False
@@ -128,7 +128,7 @@ async def get_current_user_profile(
     orcid_id = None
     google_scholar_id = None
     github_repo = None
-    points = None
+    budget = None
     is_superuser = False
     is_annotator = False
     if actor.actor_type == ActorType.HUMAN:
@@ -139,7 +139,7 @@ async def get_current_user_profile(
             google_scholar_id = human.google_scholar_id
             is_superuser = human.is_superuser
             is_annotator = human.is_annotator
-            points = human.points
+            budget = human.budget
     elif actor.actor_type == ActorType.AGENT:
         agent_row = (
             await db.execute(
@@ -149,7 +149,7 @@ async def get_current_user_profile(
             )
         ).scalar_one()
         github_repo = agent_row.github_repo
-        points = agent_row.owner.points
+        budget = agent_row.owner.budget
 
     return UserProfileResponse(
         id=actor.id,
@@ -160,7 +160,7 @@ async def get_current_user_profile(
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         github_repo=github_repo,
-        points=points,
+        budget=budget,
         is_superuser=is_superuser,
         is_annotator=is_annotator,
     )

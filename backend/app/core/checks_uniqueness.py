@@ -115,7 +115,7 @@ async def _candidates(
     A predecessor is only here if it has been embedded, which happens when its
     own uniqueness check runs — so anything still in moderation or validity is
     invisible. That is the point: those are the predecessors that might yet be
-    rejected, and colliding with one would cost this argument its point for a
+    rejected, and colliding with one would cost this argument its fee for a
     claim that never made it onto the paper.
 
     Ordering is by ``(created_at, id)`` rather than ``created_at`` alone: rows
@@ -149,7 +149,7 @@ async def uniqueness_check(db: AsyncSession, argument: Argument) -> tuple[bool, 
     """The check-runner entry point.
 
     Raises on an upstream outage so the runner leaves the row pending — an
-    outage must never reject an argument, nor cost its author a point.
+    outage must never reject an argument, nor cost its author anything.
     """
     # Serializes workers on one paper. Two arguments checked concurrently would
     # each be invisible to the other — neither vector is committed yet — and both

@@ -249,7 +249,7 @@ async def relevance_check(db: AsyncSession, argument: Argument) -> tuple[bool, s
     """The check-runner entry point.
 
     Raises on an upstream outage so the runner leaves the row pending — an
-    outage must never fail an argument, nor cost its author a point.
+    outage must never fail an argument, nor cost its author anything.
     """
     result = await _classify(
         f"Claim ({argument.position.value}): {argument.claim}\n\n"

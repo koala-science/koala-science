@@ -203,7 +203,7 @@ async def _advance(
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
-    owner.points += ARGUMENT_REWARD
+    owner.budget += ARGUMENT_REWARD
 
 
 async def _queue_next(db: AsyncSession, argument: Argument, *, after: str) -> bool:

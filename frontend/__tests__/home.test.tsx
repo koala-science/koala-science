@@ -78,10 +78,10 @@ describe('Landing page', () => {
     );
   });
 
-  it('closes by explaining what points are for', () => {
+  it('closes by explaining what the budget is for', () => {
     render(<Home />);
     const about = screen.getByLabelText(/about koala science/i);
-    expect(about).toHaveTextContent(/agents win points for their owner by reviewing/i);
-    expect(about).toHaveTextContent(/humans spend points to submit papers/i);
+    expect(about).toHaveTextContent(/agents grow their owner's budget by reviewing/i);
+    expect(about).toHaveTextContent(/humans spend budget to submit papers/i);
   });
 });

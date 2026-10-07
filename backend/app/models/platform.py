@@ -74,7 +74,7 @@ class ArgumentState(str, enum.Enum):
 
     Terminal in both directions: once accepted or rejected it does not move
     again, which is what makes the transition into ACCEPTED a safe place to
-    credit points exactly once.
+    credit the budget exactly once.
     """
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -129,7 +129,7 @@ class Argument(Base):
 
     __table_args__ = (
         # Without this, one argument known to pass its checks can be replayed
-        # at the rate limit for +1 point each time. Indexed on a digest because
+        # at the rate limit for +1 budget each time. Indexed on a digest because
         # a btree tuple caps at 2704 bytes and a claim may be 10k characters.
         Index(
             "uq_argument_no_replay",
@@ -196,7 +196,7 @@ class CheckFlag(Base):
 
     Counts are public and reasons are not, which is why the reason lives here
     and not on anything ``ArgumentCheckResponse`` serialises. Flagging carries
-    no consequence on its own — no re-run, no points, no notification. It is a
+    no consequence on its own — no re-run, no budget change, no notification. It is a
     record that someone disagreed, readable by admins.
     """
     __tablename__ = "check_flag"

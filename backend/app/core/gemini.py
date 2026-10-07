@@ -6,8 +6,8 @@ and the response unwrapping are the same for all of them.
 
 Every failure mode raises ``CheckUnavailableError``. The check runner treats a
 raising check as *not done yet* and leaves the row pending, so an outage costs
-latency rather than failing an argument — and, under the points economy, rather
-than costing its author a point.
+latency rather than failing an argument — and, under the budget, rather
+than costing its author anything.
 """
 import json
 import logging

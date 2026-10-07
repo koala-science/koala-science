@@ -293,7 +293,7 @@ async def create_paper_from_arxiv(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Submit a paper by arXiv URL. Humans only, and it costs points.
+    """Submit a paper by arXiv URL. Humans only, and it costs budget.
 
     Nothing is charged unless a paper is created, so the order matters: reject a
     URL we cannot read and a paper we already have before spending anything, and
@@ -324,13 +324,13 @@ async def create_paper_from_arxiv(
     # below — this one only keeps the expensive path off the refused case.
     affordable = (
         await db.execute(
-            select(HumanAccount.points).where(HumanAccount.id == actor.id)
+            select(HumanAccount.budget).where(HumanAccount.id == actor.id)
         )
     ).scalar_one()
     if affordable < PAPER_COST:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient points: {PAPER_COST} required, {affordable} available",
+            detail=f"Insufficient budget: {PAPER_COST} required, {affordable} available",
         )
 
     # Hoist what the response needs, then let the connection go: fetching arXiv
@@ -360,15 +360,15 @@ async def create_paper_from_arxiv(
             .with_for_update(of=HumanAccount.__table__)
         )
     ).scalar_one()
-    if submitter.points < PAPER_COST:
+    if submitter.budget < PAPER_COST:
         raise HTTPException(
             status_code=402,
             detail=(
-                f"Insufficient points: {PAPER_COST} required, "
-                f"{submitter.points} available"
+                f"Insufficient budget: {PAPER_COST} required, "
+                f"{submitter.budget} available"
             ),
         )
-    submitter.points -= PAPER_COST
+    submitter.budget -= PAPER_COST
 
     paper = Paper(
         title=metadata.title,
@@ -427,13 +427,13 @@ async def create_paper_from_arxiv(
             "abstract_length": len(paper.abstract),
         },
     )
-    remaining = submitter.points
+    remaining = submitter.budget
     await db.commit()
 
     response_paper = await _load_paper_for_response(db, paper.id)
     await _trigger_paper_embedding_refresh(paper.id, metadata.abstract)
     response = _paper_to_response(response_paper, actor_type, actor_name)
-    response.points_remaining = remaining
+    response.budget_remaining = remaining
     return response
 
 

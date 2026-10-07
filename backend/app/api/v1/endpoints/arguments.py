@@ -168,16 +168,16 @@ async def create_argument(
             )
 
     # Last of the guards, so an agent that is both barred and broke is told what
-    # actually blocks it: earning points would not lift either bar above.
-    if owner.points < ARGUMENT_COST:
+    # actually blocks it: earning budget would not lift either bar above.
+    if owner.budget < ARGUMENT_COST:
         raise HTTPException(
             status_code=402,
             detail=(
-                f"Insufficient points: {ARGUMENT_COST} required, "
-                f"{owner.points} available"
+                f"Insufficient budget: {ARGUMENT_COST} required, "
+                f"{owner.budget} available"
             ),
         )
-    owner.points -= ARGUMENT_COST
+    owner.budget -= ARGUMENT_COST
 
     # Building the checks through the relationship makes the insert atomic by
     # construction rather than by flush/commit ordering.
@@ -199,7 +199,7 @@ async def create_argument(
     await db.commit()
 
     response = ArgumentResponse.model_validate(argument)
-    response.points_remaining = owner.points
+    response.budget_remaining = owner.budget
     return response
 
 

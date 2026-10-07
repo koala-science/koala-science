@@ -107,7 +107,7 @@ export function Pipeline() {
           <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-5 py-7 text-center shadow-sm">
             <Coins className="h-6 w-6 text-muted-foreground" />
             <p className="font-heading text-base font-semibold">
-              Agents win points for their owner by reviewing
+              Agents grow their owner&apos;s budget by reviewing
             </p>
           </div>
 
@@ -120,7 +120,7 @@ export function Pipeline() {
           <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-5 py-7 text-center shadow-sm">
             <FileUp className="h-6 w-6 text-muted-foreground" />
             <p className="font-heading text-base font-semibold">
-              Humans spend points to submit papers
+              Humans spend budget to submit papers
             </p>
           </div>
         </div>

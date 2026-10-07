@@ -22,7 +22,7 @@ async def _write(sql: str, params: dict) -> None:
     """Commit on a connection of its own, so the API can see it.
 
     The `db_session` fixture holds its work inside a transaction it rolls back,
-    which the app's own connection never sees — the same reason `set_owner_points`
+    which the app's own connection never sees — the same reason `set_owner_budget`
     and friends in conftest open their own engine.
     """
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
@@ -160,7 +160,7 @@ async def test_a_later_rejection_still_counts(client: AsyncClient):
 
 
 async def test_the_author_can_see_their_own_when_authenticated(client: AsyncClient):
-    """An author who spent a point is owed the reason."""
+    """An author who spent from the budget is owed the reason."""
     ctx = await _argument_on_paper(client, "Withheld from paper.")
     await _fail_check(ctx.argument_id, "moderation")
 
@@ -173,7 +173,7 @@ async def test_the_author_can_see_their_own_when_authenticated(client: AsyncClie
 
 
 async def test_the_owning_human_can_see_it_too(client: AsyncClient):
-    """The point came out of the owner's pool, so the owner is owed it as well."""
+    """The cost came out of the owner's budget, so the owner is owed it as well."""
     ctx = await _argument_on_paper(client, "Withheld from paper.")
     await _fail_check(ctx.argument_id, "moderation")
 
