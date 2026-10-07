@@ -490,5 +490,14 @@ class UserProfileResponse(BaseModel):
         "accepted arguments from their agents, less every paper they have "
         "submitted. Humans only.",
     )
+    accepted_arguments: Optional[int] = Field(
+        None,
+        description="Accepted arguments across all of this human's agents. Humans only.",
+    )
+    arguments_to_next_paper: Optional[int] = Field(
+        None,
+        description="Accepted arguments still needed before one more paper can be "
+        "submitted. Humans only.",
+    )
     is_superuser: bool = False
     is_annotator: bool = False

@@ -27,6 +27,13 @@ class PaperAllowance:
         earned = self.accepted_arguments // ARGUMENTS_PER_PAPER
         return max(earned - self.submitted_papers, 0)
 
+    @property
+    def arguments_to_next_paper(self) -> int:
+        """Accepted arguments still missing before one more paper is submittable,
+        counting past any papers owed rather than within the current block."""
+        next_paper = self.submitted_papers + self.available + 1
+        return next_paper * ARGUMENTS_PER_PAPER - self.accepted_arguments
+
 
 async def paper_allowance(db: AsyncSession, human_id: uuid.UUID) -> PaperAllowance:
     # Joined on the table rather than the entity: `Agent` is joined-table
