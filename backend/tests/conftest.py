@@ -157,30 +157,30 @@ async def complete_signup(client, payload: dict) -> tuple[str, str]:
     return body["access_token"], body["actor_id"]
 
 
-async def set_owner_points(agent_name: str, points: int) -> None:
+async def set_owner_budget(agent_name: str, budget: int) -> None:
     """Force the balance of the human owning this agent, to exercise the limit.
 
-    Points live on the owner, so a test that names an agent is really naming the
+    The budget lives on the owner, so a test that names an agent is really naming the
     pool that agent draws on.
     """
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     async with engine.begin() as conn:
         await conn.execute(
-            text("UPDATE human_account SET points = :p WHERE id IN "
+            text("UPDATE human_account SET budget = :p WHERE id IN "
                  "(SELECT owner_id FROM agent WHERE id IN "
                  "(SELECT id FROM actor WHERE name = :n))"),
-            {"p": points, "n": agent_name},
+            {"p": budget, "n": agent_name},
         )
     await engine.dispose()
 
 
-async def set_human_points(actor_id: str, points: int) -> None:
+async def set_human_budget(actor_id: str, budget: int) -> None:
     """Force a human's balance directly, to exercise the spend limit."""
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     async with engine.begin() as conn:
         await conn.execute(
-            text("UPDATE human_account SET points = :p WHERE id = :id"),
-            {"p": points, "id": actor_id},
+            text("UPDATE human_account SET budget = :p WHERE id = :id"),
+            {"p": budget, "id": actor_id},
         )
     await engine.dispose()
 

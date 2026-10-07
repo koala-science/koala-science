@@ -15,7 +15,7 @@ from tests.conftest import (
     grant_authorship,
     promote_to_superuser,
     set_argument_state,
-    set_human_points,
+    set_human_budget,
 )
 
 
@@ -216,10 +216,10 @@ def test_no_mutating_argument_routes():
     assert methods == {"POST"}
 
 
-async def _points(client: AsyncClient, token: str) -> int:
+async def _budget(client: AsyncClient, token: str) -> int:
     resp = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200, resp.text
-    return resp.json()["points"]
+    return resp.json()["budget"]
 
 
 async def test_an_agent_cannot_argue_about_a_paper_its_owner_authored(client: AsyncClient):
@@ -229,7 +229,7 @@ async def test_an_agent_cannot_argue_about_a_paper_its_owner_authored(client: As
     api_key = await _create_agent_key(client, token, "selfreview_agent")
     await grant_authorship(paper_id, actor_id)
 
-    before = await _points(client, token)
+    before = await _budget(client, token)
     resp = await client.post(
         "/api/v1/arguments/",
         json={**PAYLOAD, "paper_id": paper_id},
@@ -237,7 +237,7 @@ async def test_an_agent_cannot_argue_about_a_paper_its_owner_authored(client: As
     )
     assert resp.status_code == 403
     assert "author" in resp.json()["detail"].lower()
-    assert await _points(client, token) == before
+    assert await _budget(client, token) == before
 
 
 async def test_a_superusers_agent_may_argue_about_its_owners_paper(client: AsyncClient):
@@ -290,10 +290,10 @@ async def test_a_superuser_pays_the_full_price_for_every_argument(client: AsyncC
     """Exact, not merely less: a balance charged once for three would also decrease."""
     token, _, api_key, paper_id = await _exempt_agent_on_own_paper(client, "admincharged")
 
-    before = await _points(client, token)
+    before = await _budget(client, token)
     await _fill_the_cap(client, api_key, paper_id)
 
-    assert await _points(client, token) == (
+    assert await _budget(client, token) == (
         before - MAX_LIVE_ARGUMENTS_PER_PAPER * ARGUMENT_COST
     )
 
@@ -301,7 +301,7 @@ async def test_a_superuser_pays_the_full_price_for_every_argument(client: AsyncC
 async def test_a_superuser_who_cannot_pay_is_still_refused(client: AsyncClient):
     """The exemption lifts the authorship bar, not the price."""
     _, actor_id, api_key, paper_id = await _exempt_agent_on_own_paper(client, "adminbroke")
-    await set_human_points(actor_id, 0)
+    await set_human_budget(actor_id, 0)
 
     resp = await _argue(client, api_key, paper_id, "An argument nobody can afford.")
     assert resp.status_code == 402, resp.text
@@ -365,7 +365,7 @@ async def test_the_bar_follows_the_owner_not_the_agent(client: AsyncClient):
         assert resp.status_code == 403
 
 
-async def test_an_author_out_of_points_is_told_they_are_barred_not_broke(
+async def test_an_author_out_of_budget_is_told_they_are_barred_not_broke(
     client: AsyncClient,
 ):
     """The bar is checked ahead of the balance, so it never takes the row lock."""
@@ -373,7 +373,7 @@ async def test_an_author_out_of_points_is_told_they_are_barred_not_broke(
     paper_id = await _submit_paper(client, token, actor_id)
     await grant_authorship(paper_id, actor_id)
     api_key = await _create_agent_key(client, token, "brokeauthor_agent")
-    await set_human_points(actor_id, 0)
+    await set_human_budget(actor_id, 0)
 
     resp = await client.post(
         "/api/v1/arguments/",
@@ -560,17 +560,17 @@ async def test_the_cap_is_per_paper(client: AsyncClient):
     assert resp.status_code == 201, resp.text
 
 
-async def test_a_refused_fourth_argument_costs_no_points(client: AsyncClient):
+async def test_a_refused_fourth_argument_costs_nothing(client: AsyncClient):
     """A submission the platform declines must not be charged for."""
     token, actor_id = await _signup(client, "nocharge")
     paper_id = await _submit_paper(client, token, actor_id)
     api_key = await _create_agent_key(client, token, "nocharge_agent")
     await _fill_the_cap(client, api_key, paper_id)
 
-    before = await _points(client, token)
+    before = await _budget(client, token)
     resp = await _argue(client, api_key, paper_id, "One argument too many.")
     assert resp.status_code == 409
-    assert await _points(client, token) == before
+    assert await _budget(client, token) == before
 
 
 async def _live_argument_count(db_session, paper_id: str) -> int:
@@ -597,7 +597,7 @@ async def test_the_cap_survives_two_sibling_agents_racing_the_last_slot(
     token, actor_id = await _signup(client, "caprace")
     first_key = await _create_agent_key(client, token, "caprace_first")
     second_key = await _create_agent_key(client, token, "caprace_second")
-    await set_human_points(actor_id, 1000)
+    await set_human_budget(actor_id, 1000)
 
     for round_number in range(8):
         paper_id = await _submit_paper(client, token, actor_id)
@@ -615,15 +615,15 @@ async def test_the_cap_survives_two_sibling_agents_racing_the_last_slot(
         assert live == MAX_LIVE_ARGUMENTS_PER_PAPER, f"round {round_number}: {live} live"
 
 
-async def test_an_agent_at_the_cap_and_out_of_points_is_told_about_the_cap(
+async def test_an_agent_at_the_cap_and_out_of_budget_is_told_about_the_cap(
     client: AsyncClient,
 ):
-    """Earning points would not lift the cap, so 402 would be the wrong advice."""
+    """Earning budget would not lift the cap, so 402 would be the wrong advice."""
     token, actor_id = await _signup(client, "cappedbroke")
     paper_id = await _submit_paper(client, token, actor_id)
     api_key = await _create_agent_key(client, token, "cappedbroke_agent")
     await _fill_the_cap(client, api_key, paper_id)
-    await set_human_points(actor_id, 0)
+    await set_human_budget(actor_id, 0)
 
     resp = await _argue(client, api_key, paper_id, "One argument too many.")
     assert resp.status_code == 409

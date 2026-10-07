@@ -1,4 +1,4 @@
-"""Submitting a paper by arXiv URL, for points.
+"""Submitting a paper by arXiv URL, paid from the budget.
 
 The rule the failure cases exist to hold: nothing is charged unless a paper is
 created. A bad URL, a paper already here, an arXiv outage and an empty balance
@@ -21,7 +21,7 @@ from app.core.arxiv import (
 )
 from app.models.identity import HumanAccount
 from app.models.platform import Paper
-from tests.conftest import complete_signup, promote_to_superuser, set_human_points
+from tests.conftest import complete_signup, promote_to_superuser, set_human_budget
 
 PAPER_COST = 20
 
@@ -59,10 +59,10 @@ async def _human(client: AsyncClient) -> tuple[str, str]:
     })
 
 
-async def _points(db_session, actor_id: str) -> int:
+async def _budget(db_session, actor_id: str) -> int:
     return (
         await db_session.execute(
-            select(HumanAccount.points).where(HumanAccount.id == uuid.UUID(actor_id))
+            select(HumanAccount.budget).where(HumanAccount.id == uuid.UUID(actor_id))
         )
     ).scalar_one()
 
@@ -117,7 +117,7 @@ def test_urls_that_do_not(url):
 
 def test_the_version_is_dropped():
     """v1 and v2 are one paper. Keeping the suffix would let the same work be
-    submitted once per revision, at 20 points a time."""
+    submitted once per revision, at 20 of the budget a time."""
     assert extract_arxiv_id("https://arxiv.org/abs/2401.12345v7") == extract_arxiv_id(
         "https://arxiv.org/abs/2401.12345"
     )
@@ -129,7 +129,7 @@ async def test_a_submission_creates_the_paper_and_costs_twenty(
     client: AsyncClient, db_session
 ):
     token, actor_id = await _human(client)
-    assert await _points(db_session, actor_id) == 100
+    assert await _budget(db_session, actor_id) == 50
 
     arxiv_id = _new_id()
     resp = await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")
@@ -139,7 +139,7 @@ async def test_a_submission_creates_the_paper_and_costs_twenty(
     assert body["arxiv_id"] == arxiv_id
     assert body["title"] == _metadata(arxiv_id).title
     assert body["domains"] == ["d/cs.CL", "d/cs.IR"]
-    assert await _points(db_session, actor_id) == 100 - PAPER_COST
+    assert await _budget(db_session, actor_id) == 50 - PAPER_COST
 
 
 async def test_the_paper_is_immediately_visible(client: AsyncClient):
@@ -159,7 +159,7 @@ async def test_a_bad_url_costs_nothing(client: AsyncClient, db_session):
     resp = await _submit(client, token, "https://example.com/not-arxiv")
     assert resp.status_code == 422
     assert resp.json()["detail"] == "That does not look like an arXiv URL"
-    assert await _points(db_session, actor_id) == 100
+    assert await _budget(db_session, actor_id) == 50
 
 
 async def test_a_duplicate_costs_nothing(client: AsyncClient, db_session):
@@ -171,7 +171,7 @@ async def test_a_duplicate_costs_nothing(client: AsyncClient, db_session):
     resp = await _submit(client, other_token, url)
 
     assert resp.status_code == 409
-    assert await _points(db_session, other_id) == 100
+    assert await _budget(db_session, other_id) == 50
 
 
 async def test_the_same_paper_at_another_version_is_still_a_duplicate(
@@ -183,7 +183,7 @@ async def test_the_same_paper_at_another_version_is_still_a_duplicate(
 
     resp = await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}v4")
     assert resp.status_code == 409
-    assert await _points(db_session, actor_id) == 100 - PAPER_COST
+    assert await _budget(db_session, actor_id) == 50 - PAPER_COST
 
 
 async def test_an_arxiv_outage_costs_nothing(client: AsyncClient, db_session, monkeypatch):
@@ -196,7 +196,7 @@ async def test_an_arxiv_outage_costs_nothing(client: AsyncClient, db_session, mo
     resp = await _submit(client, token, _new_url())
 
     assert resp.status_code == 503
-    assert await _points(db_session, actor_id) == 100
+    assert await _budget(db_session, actor_id) == 50
 
 
 async def test_an_unknown_paper_costs_nothing(client: AsyncClient, db_session, monkeypatch):
@@ -210,24 +210,24 @@ async def test_an_unknown_paper_costs_nothing(client: AsyncClient, db_session, m
 
     assert resp.status_code == 422
     assert resp.json()["detail"] == "arXiv has no paper with that id"
-    assert await _points(db_session, actor_id) == 100
+    assert await _budget(db_session, actor_id) == 50
 
 
-async def test_too_few_points_is_refused(client: AsyncClient, db_session):
+async def test_too_little_budget_is_refused(client: AsyncClient, db_session):
     token, actor_id = await _human(client)
-    for _ in range(5):
+    for _ in range(2):
         assert (await _submit(client, token, _new_url())).status_code == 201
-    assert await _points(db_session, actor_id) == 0
+    assert await _budget(db_session, actor_id) == 10
 
     resp = await _submit(client, token, _new_url())
     assert resp.status_code == 402
-    assert "20 required" in resp.json()["detail"]
-    assert await _points(db_session, actor_id) == 0
+    assert "20 required, 10 available" in resp.json()["detail"]
+    assert await _budget(db_session, actor_id) == 10
 
 
 async def test_a_refused_submission_creates_no_paper(client: AsyncClient):
     token, _ = await _human(client)
-    for _ in range(5):
+    for _ in range(2):
         await _submit(client, token, _new_url())
 
     arxiv_id = _new_id()
@@ -278,7 +278,7 @@ async def test_the_superuser_endpoint_still_charges_nothing(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
-    assert await _points(db_session, actor_id) == 100
+    assert await _budget(db_session, actor_id) == 50
 
 
 # --- concurrency: the only two places the invariant can break ---------------
@@ -296,9 +296,9 @@ def _slow_arxiv(monkeypatch):
 async def test_one_balance_cannot_pay_for_two_papers(
     client: AsyncClient, db_session, _slow_arxiv
 ):
-    """Exactly 20 points and two submissions at once: the lock decides."""
+    """A budget of exactly 20 and two submissions at once: the lock decides."""
     token, actor_id = await _human(client)
-    await set_human_points(actor_id, PAPER_COST)
+    await set_human_budget(actor_id, PAPER_COST)
 
     first, second = await asyncio.gather(
         _submit(client, token, _new_url()), _submit(client, token, _new_url())
@@ -306,7 +306,7 @@ async def test_one_balance_cannot_pay_for_two_papers(
 
     codes = sorted([first.status_code, second.status_code])
     assert codes == [201, 402], f"{codes}: {first.text} / {second.text}"
-    assert await _points(db_session, actor_id) == 0
+    assert await _budget(db_session, actor_id) == 0
 
 
 async def test_two_people_racing_one_paper_are_charged_once(
@@ -325,15 +325,15 @@ async def test_two_people_racing_one_paper_are_charged_once(
     codes = sorted([first.status_code, second.status_code])
     assert codes == [201, 409], f"{codes}: {first.text} / {second.text}"
 
-    combined = await _points(db_session, first_id) + await _points(db_session, second_id)
-    assert combined == 200 - PAPER_COST
+    combined = await _budget(db_session, first_id) + await _budget(db_session, second_id)
+    assert combined == 100 - PAPER_COST
 
 
 async def test_the_response_reports_the_new_balance(client: AsyncClient):
     token, _ = await _human(client)
     resp = await _submit(client, token, _new_url())
     assert resp.status_code == 201, resp.text
-    assert resp.json()["points_remaining"] == 100 - PAPER_COST
+    assert resp.json()["budget_remaining"] == 50 - PAPER_COST
 
 
 async def test_the_categories_become_browsable_domains(client: AsyncClient):

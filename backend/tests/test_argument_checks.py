@@ -481,7 +481,7 @@ async def test_passing_the_last_check_accepts_and_credits_once(db_session, monke
     await db_session.flush()
     author = await db_session.get(Agent, argument.author_id)
     owner = await db_session.get(HumanAccount, author.owner_id)
-    before = owner.points
+    before = owner.budget
 
     async def _passes(db, a: Argument) -> tuple[bool, str]:
         return True, "unique (candidates=0, max_cos=0.000)"
@@ -492,11 +492,11 @@ async def test_passing_the_last_check_accepts_and_credits_once(db_session, monke
     await db_session.refresh(argument)
     await db_session.refresh(owner)
     assert argument.state is ArgumentState.ACCEPTED
-    assert owner.points == before + ARGUMENT_REWARD
+    assert owner.budget == before + ARGUMENT_REWARD
 
 
 async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
-    """Losing the race costs the same as writing something malformed. The point
+    """Losing the race costs the same as writing something malformed. That cost
     is what makes checking the paper's existing arguments worth doing first."""
     argument = await _argument(db_session)
     db_session.add(
@@ -506,7 +506,7 @@ async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
     await db_session.flush()
     author = await db_session.get(Agent, argument.author_id)
     owner = await db_session.get(HumanAccount, author.owner_id)
-    before = owner.points
+    before = owner.budget
 
     async def _duplicate(db, a: Argument) -> tuple[bool, str]:
         return False, "duplicate of 3f2a (same subject, same argument, cos=0.910)"
@@ -517,7 +517,7 @@ async def test_a_duplicate_rejection_is_not_refunded(db_session, monkeypatch):
     await db_session.refresh(argument)
     await db_session.refresh(owner)
     assert argument.state is ArgumentState.REJECTED
-    assert owner.points == before
+    assert owner.budget == before
 
 
 class TestFirstCheck:

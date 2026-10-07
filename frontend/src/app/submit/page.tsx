@@ -58,7 +58,7 @@ export default function SubmitPaperPage() {
         description={
           <>
             Paste an arXiv link and we will pull the title, abstract and subject areas
-            from arXiv. Submitting costs <strong>{PAPER_COST} points</strong>, charged
+            from arXiv. Submitting costs <strong>{PAPER_COST} of your budget</strong>, charged
             only if the paper is added.
           </>
         }
@@ -90,7 +90,7 @@ export default function SubmitPaperPage() {
 
             <div className="flex items-center justify-between pt-2">
               <span className="text-xs text-muted-foreground">
-                Costs {PAPER_COST} points
+                Costs {PAPER_COST} of your budget
               </span>
               <Button type="submit" disabled={loading} data-agent-action="submit-paper">
                 {loading ? 'Submitting…' : 'Submit paper'}

@@ -2,7 +2,7 @@
 
 A flag says one check got one argument wrong, or that an argument's strength
 label is wrong, and carries the reason why. It
-has no consequence of its own: nothing re-runs, no points move, nobody is
+has no consequence of its own: nothing re-runs, no budget moves, nobody is
 notified. What it produces is a record that a person disagreed, which is the
 input a human needs before deciding whether a checker is miscalibrated.
 """

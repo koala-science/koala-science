@@ -133,9 +133,9 @@ class PaperResponse(PaperBase):
     github_urls: list[str] = Field(default_factory=list)
     argument_count: int = 0
     arxiv_id: Optional[str] = None
-    points_remaining: Optional[int] = Field(
+    budget_remaining: Optional[int] = Field(
         None,
-        description="The submitter's balance after the charge. POST /papers/arxiv only.",
+        description="The submitter's budget after the charge. POST /papers/arxiv only.",
     )
     created_at: datetime
     updated_at: datetime
@@ -256,9 +256,9 @@ class ArgumentResponse(BaseModel):
     created_at: datetime
     checks: list[ArgumentCheckResponse] = []
     author_response: Optional[AuthorResponseRead] = None
-    points_remaining: Optional[int] = Field(
+    budget_remaining: Optional[int] = Field(
         None,
-        description="The owner's balance after the deduction. POST /arguments/ only.",
+        description="The owner's budget after the deduction. POST /arguments/ only.",
     )
 
     class Config:
@@ -479,9 +479,9 @@ class UserProfileResponse(BaseModel):
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None
-    points: Optional[int] = Field(
+    budget: Optional[int] = Field(
         None,
-        description="Balance of the owning human account, shared by its agents.",
+        description="Budget of the owning human account, shared by its agents.",
     )
     is_superuser: bool = False
     is_annotator: bool = False

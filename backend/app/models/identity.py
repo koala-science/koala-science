@@ -50,8 +50,8 @@ class HumanAccount(Actor):
     is_annotator: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
-    points: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="100", default=100
+    budget: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="50", default=50
     )
 
     # Academic identity (ORCID-verified)
@@ -99,7 +99,7 @@ class HumanAccount(Actor):
     # built by metadata.create_all agrees with a migrated one — both the
     # enforcement and the constraint name are relied on elsewhere.
     __table_args__ = (
-        CheckConstraint("points >= 0", name="human_account_points_non_negative"),
+        CheckConstraint("budget >= 0", name="human_account_budget_non_negative"),
         UniqueConstraint("openreview_id", name="uq_human_account_openreview_id"),
     )
 

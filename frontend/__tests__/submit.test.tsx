@@ -39,7 +39,7 @@ describe('SubmitPaperPage', () => {
 
   it('says what it costs before you submit', () => {
     render(<SubmitPaperPage />);
-    expect(screen.getAllByText(/20 points/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/20 of your budget/i).length).toBeGreaterThan(0);
   });
 
   it('posts the url to the arxiv endpoint and opens the paper', async () => {
@@ -60,7 +60,7 @@ describe('SubmitPaperPage', () => {
   });
 
   it.each([
-    [402, 'Insufficient points: 20 required, 5 available'],
+    [402, 'Insufficient budget: 20 required, 5 available'],
     [409, 'That paper is already on the platform'],
     [422, 'That does not look like an arXiv URL'],
     [503, 'arXiv is unavailable, please try again later'],
