@@ -37,9 +37,11 @@ describe('SubmitPaperPage', () => {
     expect(screen.queryByLabelText(/^domain$/i)).not.toBeInTheDocument();
   });
 
-  it('says what it costs before you submit', () => {
+  it('says how papers are earned before you submit', () => {
     render(<SubmitPaperPage />);
-    expect(screen.getAllByText(/20 of your budget/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/every 10 accepted arguments from your agents/i).length,
+    ).toBeGreaterThan(0);
   });
 
   it('posts the url to the arxiv endpoint and opens the paper', async () => {
@@ -60,7 +62,7 @@ describe('SubmitPaperPage', () => {
   });
 
   it.each([
-    [402, 'Insufficient budget: 20 required, 5 available'],
+    [403, 'Each paper takes 10 accepted arguments from your agents: they have 4 accepted, and you have submitted 0 so far'],
     [409, 'That paper is already on the platform'],
     [422, 'That does not look like an arXiv URL'],
     [503, 'arXiv is unavailable, please try again later'],

@@ -76,7 +76,9 @@ async def export_arguments(
         select(Argument)
         .options(joinedload(Argument.author), selectinload(Argument.checks))
         .where(publicly_visible_argument_clause())
-        .order_by(Argument.created_at.asc())
+        # `created_at` is the transaction's clock, so rows written together tie
+        # on it; the id breaks the tie, or offset pages repeat and skip rows.
+        .order_by(Argument.created_at.asc(), Argument.id.asc())
     )
     if since:
         query = query.where(Argument.created_at >= since)

@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
-from tests.conftest import complete_signup, promote_to_superuser
+from tests.conftest import complete_signup, db_now, promote_to_superuser
 
 
 async def _write(sql: str, params: dict) -> None:
@@ -208,15 +208,19 @@ async def test_a_stranger_cannot_read_it_from_the_authors_profile(client: AsyncC
 async def test_the_bulk_export_does_not_route_around_it(client: AsyncClient):
     """Signup is open and any actor may export, so this would otherwise be the
     cheapest way to read everything moderation removed."""
+    since = await db_now()
     spam = "Buy cheap follower packages at spam dot example."
     ctx = await _argument_on_paper(client, spam)
     await _fail_check(ctx.argument_id, "moderation")
+    visible = await _argument_on_paper(client, "An argument moderation let through.")
 
     resp = await client.get(
         "/api/v1/export/arguments",
+        params={"since": since},
         headers={"Authorization": f"Bearer {ctx.api_key}"},
     )
     assert resp.status_code == 200, resp.text
+    assert visible.argument_id in resp.text
     assert spam not in resp.text
 
 

@@ -6,12 +6,15 @@ _ENV_TEST = Path(__file__).resolve().parent.parent / ".env.test"
 if _ENV_TEST.exists():
     load_dotenv(_ENV_TEST, override=True)
 
+import uuid
+
 import pytest
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
+from app.core.arxiv import ArxivPaper
 from app.db.base import Base
 from app.core.config import settings
 from app.core.rate_limit import limiter
@@ -182,6 +185,85 @@ async def set_human_budget(actor_id: str, budget: int) -> None:
             text("UPDATE human_account SET budget = :p WHERE id = :id"),
             {"p": budget, "id": actor_id},
         )
+    await engine.dispose()
+
+
+def arxiv_metadata(arxiv_id: str) -> ArxivPaper:
+    return ArxivPaper(
+        arxiv_id=arxiv_id,
+        title="Retrieval-Augmented Reasoning for Multi-Hop Scientific QA",
+        abstract="We introduce RARE, a retrieval-augmented framework.",
+        categories=["cs.CL", "cs.IR"],
+        pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
+    )
+
+
+@pytest.fixture
+def stub_arxiv(monkeypatch):
+    """arXiv answers, and the PDF is not fetched for a preview."""
+    async def _fetch(arxiv_id: str):
+        return arxiv_metadata(arxiv_id)
+
+    async def _no_pdf(pdf_url):
+        return None, None
+
+    monkeypatch.setattr("app.api.v1.endpoints.papers.fetch_metadata", _fetch)
+    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_pdf_assets", _no_pdf)
+
+
+async def papers_available(client: AsyncClient, token: str) -> int:
+    profile = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert profile.status_code == 200, profile.text
+    return profile.json()["papers_available"]
+
+
+async def db_now() -> str:
+    """The database's clock, as ``since`` for an endpoint that filters on ``created_at``.
+
+    The test database keeps rows between runs, so an endpoint read without a
+    floor serves whatever earlier runs left, ahead of what the test just wrote.
+    """
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.connect() as conn:
+        now = await conn.scalar(text("SELECT localtimestamp"))
+    await engine.dispose()
+    return now.isoformat()
+
+
+async def grant_accepted_arguments(client: AsyncClient, token: str, count: int) -> None:
+    """Give the human behind ``token`` ``count`` accepted arguments, written by a
+    new agent of theirs on a paper that agent submitted.
+
+    Written straight to the database: earning them through the API would need
+    a paper per three arguments and a pass of the checks for each.
+    """
+    from app.models.platform import Argument, ArgumentPosition, ArgumentState, Paper
+
+    name = f"earner_{uuid.uuid4().hex[:8]}"
+    agent = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": name, "github_repo": f"https://github.com/example/{name}"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert agent.status_code == 201, agent.text
+    agent_id = uuid.UUID(agent.json()["id"])
+
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with async_sessionmaker(engine)() as session:
+        paper = Paper(title="Earning paper", abstract="a", domains=["d/NLP"], submitter_id=agent_id)
+        session.add(paper)
+        session.add_all(
+            Argument(
+                paper=paper,
+                author_id=agent_id,
+                claim=f"Accepted claim {i}.",
+                position=ArgumentPosition.NEGATIVE,
+                evidence="Table 1.",
+                state=ArgumentState.ACCEPTED,
+            )
+            for i in range(count)
+        )
+        await session.commit()
     await engine.dispose()
 
 

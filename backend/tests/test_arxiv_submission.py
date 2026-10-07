@@ -1,8 +1,8 @@
-"""Submitting a paper by arXiv URL, paid from the budget.
+"""Submitting a paper by arXiv URL, against the allowance accepted arguments earn.
 
-The rule the failure cases exist to hold: nothing is charged unless a paper is
-created. A bad URL, a paper already here, an arXiv outage and an empty balance
-must each leave the submitter exactly as they were.
+The rule the failure cases exist to hold: no allowance is used unless a paper is
+created. A bad URL, a paper already here, an arXiv outage and an exhausted
+allowance must each leave the submitter exactly as they were.
 """
 import asyncio
 import random
@@ -19,52 +19,31 @@ from app.core.arxiv import (
     ArxivUnavailable,
     extract_arxiv_id,
 )
-from app.models.identity import HumanAccount
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER
 from app.models.platform import Paper
-from tests.conftest import complete_signup, promote_to_superuser, set_human_budget
-
-PAPER_COST = 20
-
-
-def _metadata(arxiv_id: str) -> ArxivPaper:
-    return ArxivPaper(
-        arxiv_id=arxiv_id,
-        title="Retrieval-Augmented Reasoning for Multi-Hop Scientific QA",
-        abstract="We introduce RARE, a retrieval-augmented framework.",
-        categories=["cs.CL", "cs.IR"],
-        pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
-    )
+from tests.conftest import (
+    arxiv_metadata,
+    complete_signup,
+    grant_accepted_arguments,
+    papers_available,
+    promote_to_superuser,
+)
 
 
-@pytest.fixture(autouse=True)
-def _stub_arxiv(monkeypatch):
-    """arXiv answers, and the PDF is not fetched for a preview."""
-    async def _fetch(arxiv_id: str) -> ArxivPaper:
-        return _metadata(arxiv_id)
-
-    async def _no_pdf(pdf_url):
-        return None, None
-
-    monkeypatch.setattr("app.api.v1.endpoints.papers.fetch_metadata", _fetch)
-    monkeypatch.setattr("app.api.v1.endpoints.papers._extract_pdf_assets", _no_pdf)
+pytestmark = pytest.mark.usefixtures("stub_arxiv")
 
 
-async def _human(client: AsyncClient) -> tuple[str, str]:
+async def _human(client: AsyncClient, papers: int = 1) -> tuple[str, str]:
+    """A human whose agents have earned ``papers`` submissions."""
     prefix = uuid.uuid4().hex[:8]
-    return await complete_signup(client, {
+    token, actor_id = await complete_signup(client, {
         "name": "Submitter",
         "email": f"sub_{prefix}@example.com",
         "password": "secure_password_123",
         "openreview_id": f"~Sub_Mitter_{prefix}1",
     })
-
-
-async def _budget(db_session, actor_id: str) -> int:
-    return (
-        await db_session.execute(
-            select(HumanAccount.budget).where(HumanAccount.id == uuid.UUID(actor_id))
-        )
-    ).scalar_one()
+    await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER * papers)
+    return token, actor_id
 
 
 async def _submit(client: AsyncClient, token: str, url: str):
@@ -117,7 +96,7 @@ def test_urls_that_do_not(url):
 
 def test_the_version_is_dropped():
     """v1 and v2 are one paper. Keeping the suffix would let the same work be
-    submitted once per revision, at 20 of the budget a time."""
+    submitted once per revision, for a fresh allowance each time."""
     assert extract_arxiv_id("https://arxiv.org/abs/2401.12345v7") == extract_arxiv_id(
         "https://arxiv.org/abs/2401.12345"
     )
@@ -125,11 +104,11 @@ def test_the_version_is_dropped():
 
 # --- the happy path -------------------------------------------------------
 
-async def test_a_submission_creates_the_paper_and_costs_twenty(
-    client: AsyncClient, db_session
+async def test_a_submission_creates_the_paper_and_uses_one_allowance(
+    client: AsyncClient,
 ):
-    token, actor_id = await _human(client)
-    assert await _budget(db_session, actor_id) == 50
+    token, _ = await _human(client)
+    assert await papers_available(client, token) == 1
 
     arxiv_id = _new_id()
     resp = await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")
@@ -137,9 +116,9 @@ async def test_a_submission_creates_the_paper_and_costs_twenty(
 
     body = resp.json()
     assert body["arxiv_id"] == arxiv_id
-    assert body["title"] == _metadata(arxiv_id).title
+    assert body["title"] == arxiv_metadata(arxiv_id).title
     assert body["domains"] == ["d/cs.CL", "d/cs.IR"]
-    assert await _budget(db_session, actor_id) == 50 - PAPER_COST
+    assert await papers_available(client, token) == 0
 
 
 async def test_the_paper_is_immediately_visible(client: AsyncClient):
@@ -151,43 +130,43 @@ async def test_the_paper_is_immediately_visible(client: AsyncClient):
     assert fetched.status_code == 200, fetched.text
 
 
-# --- nothing is charged unless a paper is created -------------------------
+# --- no allowance is used unless a paper is created ------------------------
 
-async def test_a_bad_url_costs_nothing(client: AsyncClient, db_session):
-    token, actor_id = await _human(client)
+async def test_a_bad_url_costs_nothing(client: AsyncClient):
+    token, _ = await _human(client)
 
     resp = await _submit(client, token, "https://example.com/not-arxiv")
     assert resp.status_code == 422
     assert resp.json()["detail"] == "That does not look like an arXiv URL"
-    assert await _budget(db_session, actor_id) == 50
+    assert await papers_available(client, token) == 1
 
 
-async def test_a_duplicate_costs_nothing(client: AsyncClient, db_session):
-    token, actor_id = await _human(client)
+async def test_a_duplicate_costs_nothing(client: AsyncClient):
+    token, _ = await _human(client)
     url = _new_url()
     assert (await _submit(client, token, url)).status_code == 201
 
-    other_token, other_id = await _human(client)
+    other_token, _ = await _human(client)
     resp = await _submit(client, other_token, url)
 
     assert resp.status_code == 409
-    assert await _budget(db_session, other_id) == 50
+    assert await papers_available(client, other_token) == 1
 
 
 async def test_the_same_paper_at_another_version_is_still_a_duplicate(
-    client: AsyncClient, db_session
+    client: AsyncClient,
 ):
-    token, actor_id = await _human(client)
+    token, _ = await _human(client, papers=2)
     arxiv_id = _new_id()
     assert (await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")).status_code == 201
 
     resp = await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}v4")
     assert resp.status_code == 409
-    assert await _budget(db_session, actor_id) == 50 - PAPER_COST
+    assert await papers_available(client, token) == 1
 
 
-async def test_an_arxiv_outage_costs_nothing(client: AsyncClient, db_session, monkeypatch):
-    token, actor_id = await _human(client)
+async def test_an_arxiv_outage_costs_nothing(client: AsyncClient, monkeypatch):
+    token, _ = await _human(client)
 
     async def _down(arxiv_id: str):
         raise ArxivUnavailable("arXiv returned 503")
@@ -196,11 +175,11 @@ async def test_an_arxiv_outage_costs_nothing(client: AsyncClient, db_session, mo
     resp = await _submit(client, token, _new_url())
 
     assert resp.status_code == 503
-    assert await _budget(db_session, actor_id) == 50
+    assert await papers_available(client, token) == 1
 
 
-async def test_an_unknown_paper_costs_nothing(client: AsyncClient, db_session, monkeypatch):
-    token, actor_id = await _human(client)
+async def test_an_unknown_paper_costs_nothing(client: AsyncClient, monkeypatch):
+    token, _ = await _human(client)
 
     async def _missing(arxiv_id: str):
         raise ArxivPaperNotFound(arxiv_id)
@@ -210,28 +189,14 @@ async def test_an_unknown_paper_costs_nothing(client: AsyncClient, db_session, m
 
     assert resp.status_code == 422
     assert resp.json()["detail"] == "arXiv has no paper with that id"
-    assert await _budget(db_session, actor_id) == 50
-
-
-async def test_too_little_budget_is_refused(client: AsyncClient, db_session):
-    token, actor_id = await _human(client)
-    for _ in range(2):
-        assert (await _submit(client, token, _new_url())).status_code == 201
-    assert await _budget(db_session, actor_id) == 10
-
-    resp = await _submit(client, token, _new_url())
-    assert resp.status_code == 402
-    assert "20 required, 10 available" in resp.json()["detail"]
-    assert await _budget(db_session, actor_id) == 10
+    assert await papers_available(client, token) == 1
 
 
 async def test_a_refused_submission_creates_no_paper(client: AsyncClient):
-    token, _ = await _human(client)
-    for _ in range(2):
-        await _submit(client, token, _new_url())
+    token, _ = await _human(client, papers=0)
 
     arxiv_id = _new_id()
-    assert (await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")).status_code == 402
+    assert (await _submit(client, token, f"https://arxiv.org/abs/{arxiv_id}")).status_code == 403
 
     listed = await client.get("/api/v1/papers/?limit=1000")
     assert arxiv_id not in {p["arxiv_id"] for p in listed.json() if p["arxiv_id"]}
@@ -240,7 +205,7 @@ async def test_a_refused_submission_creates_no_paper(client: AsyncClient):
 # --- who may submit -------------------------------------------------------
 
 async def test_an_agent_cannot_submit(client: AsyncClient):
-    token, _ = await _human(client)
+    token, _ = await _human(client, papers=0)
     prefix = uuid.uuid4().hex[:8]
     agent = await client.post(
         "/api/v1/auth/agents",
@@ -264,12 +229,9 @@ async def test_anonymous_cannot_submit(client: AsyncClient):
     assert resp.status_code in (401, 403)
 
 
-async def test_the_superuser_endpoint_still_charges_nothing(
-    client: AsyncClient, db_session
-):
+async def test_the_superuser_endpoint_needs_no_allowance(client: AsyncClient):
     """The hand-entry path is unchanged, and free."""
-    
-    token, actor_id = await _human(client)
+    token, actor_id = await _human(client, papers=0)
     await promote_to_superuser(actor_id)
 
     resp = await client.post(
@@ -278,7 +240,6 @@ async def test_the_superuser_endpoint_still_charges_nothing(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
-    assert await _budget(db_session, actor_id) == 50
 
 
 # --- concurrency: the only two places the invariant can break ---------------
@@ -288,35 +249,32 @@ def _slow_arxiv(monkeypatch):
     """Give two in-flight requests a chance to interleave."""
     async def _fetch(arxiv_id: str) -> ArxivPaper:
         await asyncio.sleep(0.05)
-        return _metadata(arxiv_id)
+        return arxiv_metadata(arxiv_id)
 
     monkeypatch.setattr("app.api.v1.endpoints.papers.fetch_metadata", _fetch)
 
 
-async def test_one_balance_cannot_pay_for_two_papers(
-    client: AsyncClient, db_session, _slow_arxiv
-):
-    """A budget of exactly 20 and two submissions at once: the lock decides."""
-    token, actor_id = await _human(client)
-    await set_human_budget(actor_id, PAPER_COST)
+async def test_one_allowance_cannot_pay_for_two_papers(client: AsyncClient, _slow_arxiv):
+    """One paper earned and two submissions at once: the lock decides."""
+    token, _ = await _human(client)
 
     first, second = await asyncio.gather(
         _submit(client, token, _new_url()), _submit(client, token, _new_url())
     )
 
     codes = sorted([first.status_code, second.status_code])
-    assert codes == [201, 402], f"{codes}: {first.text} / {second.text}"
-    assert await _budget(db_session, actor_id) == 0
+    assert codes == [201, 403], f"{codes}: {first.text} / {second.text}"
+    assert await papers_available(client, token) == 0
 
 
-async def test_two_people_racing_one_paper_are_charged_once(
-    client: AsyncClient, db_session, _slow_arxiv
+async def test_two_people_racing_one_paper_use_one_allowance(
+    client: AsyncClient, _slow_arxiv
 ):
-    """Both pass the duplicate check, so the unique index decides — and the
-    loser's deduction has to roll back with the insert."""
+    """Both pass the duplicate check, so the unique index decides, and only the
+    winner's allowance is used."""
     url = _new_url()
-    first_token, first_id = await _human(client)
-    second_token, second_id = await _human(client)
+    first_token, _ = await _human(client)
+    second_token, _ = await _human(client)
 
     first, second = await asyncio.gather(
         _submit(client, first_token, url), _submit(client, second_token, url)
@@ -325,15 +283,15 @@ async def test_two_people_racing_one_paper_are_charged_once(
     codes = sorted([first.status_code, second.status_code])
     assert codes == [201, 409], f"{codes}: {first.text} / {second.text}"
 
-    combined = await _budget(db_session, first_id) + await _budget(db_session, second_id)
-    assert combined == 100 - PAPER_COST
+    combined = await papers_available(client, first_token) + await papers_available(client, second_token)
+    assert combined == 1
 
 
-async def test_the_response_reports_the_new_balance(client: AsyncClient):
-    token, _ = await _human(client)
+async def test_the_response_reports_what_is_left(client: AsyncClient):
+    token, _ = await _human(client, papers=2)
     resp = await _submit(client, token, _new_url())
     assert resp.status_code == 201, resp.text
-    assert resp.json()["budget_remaining"] == 50 - PAPER_COST
+    assert resp.json()["papers_remaining"] == 1
 
 
 async def test_the_categories_become_browsable_domains(client: AsyncClient):
@@ -353,7 +311,7 @@ async def test_the_categories_become_browsable_domains(client: AsyncClient):
 
 async def test_submitting_twice_reuses_the_domain(client: AsyncClient):
     """Two papers in cs.CL must not race a second Domain row into the unique index."""
-    token, actor_id = await _human(client)
+    token, _ = await _human(client, papers=2)
     assert (await _submit(client, token, _new_url())).status_code == 201
     assert (await _submit(client, token, _new_url())).status_code == 201
 
