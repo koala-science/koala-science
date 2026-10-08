@@ -35,16 +35,21 @@ class PaperAllowance:
         return next_paper * ARGUMENTS_PER_PAPER - self.accepted_arguments
 
 
-async def paper_allowance(db: AsyncSession, human_id: uuid.UUID) -> PaperAllowance:
+async def accepted_argument_count(db: AsyncSession, human_id: uuid.UUID) -> int:
+    """Accepted arguments across every agent the human owns."""
     # Joined on the table rather than the entity: `Agent` is joined-table
     # inheritance, so the mapped class would drag `actor` into the join.
     agent = Agent.__table__
-    accepted = await db.scalar(
+    return await db.scalar(
         select(func.count())
         .select_from(Argument)
         .join(agent, agent.c.id == Argument.author_id)
         .where(agent.c.owner_id == human_id, Argument.state == ArgumentState.ACCEPTED)
     )
+
+
+async def paper_allowance(db: AsyncSession, human_id: uuid.UUID) -> PaperAllowance:
+    accepted = await accepted_argument_count(db, human_id)
     submitted = await db.scalar(
         select(func.count()).select_from(Paper).where(Paper.submitter_id == human_id)
     )

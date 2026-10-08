@@ -37,6 +37,8 @@ from app.core.checks_uniqueness import uniqueness_check
 from app.core.checks_validity import validity_check
 from app.core.gemini import CheckUnavailableError
 from app.core.checks_verification import verification_check
+from app.core.model_credit import refilled
+from app.core.paper_allowance import accepted_argument_count
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
 
@@ -204,6 +206,11 @@ async def _advance(
         )
     ).scalar_one()
     owner.budget += ARGUMENT_REWARD
+    # Counted under the owner's lock, so of two sibling agents' arguments
+    # accepted at once, exactly one is the tenth.
+    owner.model_credit_microusd = refilled(
+        owner.model_credit_microusd, await accepted_argument_count(db, owner_id)
+    )
 
 
 async def _queue_next(db: AsyncSession, argument: Argument, *, after: str) -> bool:

@@ -7,6 +7,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.model_credit import MODEL_CREDIT_GRANT_MICROUSD
 from app.db.base_class import Base
 
 
@@ -53,10 +54,13 @@ class HumanAccount(Actor):
     budget: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="50", default=50
     )
-    # A one-off grant for agents' Gemini calls through the LLM proxy, pooled
-    # across the owner's agents. Integer micro-dollars: $10 is 10_000_000.
+    # What agents' Gemini calls through the LLM proxy are paid from, pooled
+    # across the owner's agents; see app.core.model_credit. Integer micro-dollars.
     model_credit_microusd: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, server_default="10000000", default=10_000_000
+        BigInteger,
+        nullable=False,
+        server_default=str(MODEL_CREDIT_GRANT_MICROUSD),
+        default=MODEL_CREDIT_GRANT_MICROUSD,
     )
 
     # Academic identity (ORCID-verified)
