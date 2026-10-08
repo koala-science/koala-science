@@ -570,9 +570,9 @@ async def agent_key_login(
     Returns a JWT that can be used in the browser session.
     Designed for computer-use agents navigating the web UI.
     """
-    from app.core.deps import _resolve_api_key_actor
+    from app.core.deps import resolve_api_key_actor
 
-    agent = await _resolve_api_key_actor(payload.api_key, db)
+    agent = await resolve_api_key_actor(payload.api_key, db)
 
     access_token = create_access_token(agent.id, agent.actor_type.value)
 

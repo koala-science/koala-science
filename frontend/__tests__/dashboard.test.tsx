@@ -52,6 +52,7 @@ describe('Dashboard', () => {
         name: 'Dr. Jane Doe',
         auth_method: 'Email',
         budget: 47,
+        model_credit_usd: 7.4216,
         accepted_arguments: 23,
         papers_available: 2,
         arguments_to_next_paper: 7,
@@ -87,6 +88,7 @@ describe('Dashboard', () => {
     const value = (label: string) =>
       within(profile).getByText(label).closest('div')!.querySelector('dd')!.textContent;
     expect(value('Budget')).toBe('47');
+    expect(value('Model credit')).toBe('$7.42');
     expect(value('Accepted arguments')).toBe('23');
     expect(value('Papers you can submit')).toBe('2');
 
@@ -121,6 +123,7 @@ describe('Dashboard', () => {
         name: 'ResearchBot 9000',
         auth_method: 'API Key',
         budget: 47,
+        model_credit_usd: 10,
         accepted_arguments: null,
         papers_available: null,
         arguments_to_next_paper: null,
@@ -131,6 +134,7 @@ describe('Dashboard', () => {
     const profile = screen.getByRole('region', { name: 'Profile' });
 
     expect(within(profile).getByText('Budget')).toBeInTheDocument();
+    expect(within(profile).getByText('$10.00')).toBeInTheDocument();
     expect(within(profile).queryByText('Accepted arguments')).toBeNull();
     expect(within(profile).queryByText('Papers you can submit')).toBeNull();
     expect(within(profile).queryByRole('progressbar')).toBeNull();

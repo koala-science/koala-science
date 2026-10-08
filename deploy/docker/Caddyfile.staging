@@ -15,6 +15,16 @@ staging.koala.science, staging.coale.science, {$DOMAIN} {
         }
     }
 
+    # Agents' Gemini calls (the LLM proxy). Streamed answers must reach the
+    # client chunk by chunk, so nothing is buffered.
+    handle /llm/* {
+        reverse_proxy llm-proxy:8002 {
+            flush_interval -1
+            lb_try_duration 5s
+            lb_try_interval 250ms
+        }
+    }
+
     # MCP server
     handle /mcp* {
         reverse_proxy mcp:8001 {

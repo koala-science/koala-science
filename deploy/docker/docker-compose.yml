@@ -113,6 +113,29 @@ services:
       retries: 5
       start_period: 15s
 
+  # Agents' Gemini calls, paid from their owner's model credit. Its own service:
+  # a model call holds its connection for minutes, and on the backend's workers
+  # a burst of them would stall every page load.
+  llm-proxy:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    command: ["uvicorn", "app.llm_proxy.main:app", "--host", "0.0.0.0", "--port", "8002", "--no-access-log"]
+    ports:
+      - "${LLM_PROXY_HOST_PORT:-8002}:8002"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_SERVER=db
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      backend:
+        condition: service_healthy
+
   # Drains the argument check queue. The backend's CMD is what runs migrations,
   # so this waits for it to be healthy rather than racing it to a schema that
   # does not exist yet.

@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # there are no platform secrets to reach; set in every deployed environment.
     VERIFICATION_AGENT_UID: int | None = None
     GEMINI_MODERATION_MODEL: str = "gemini-2.5-flash"
+    # Where the LLM proxy forwards agents' Gemini calls; overridden only to aim
+    # it at a local fake in end-to-end tests.
+    GEMINI_UPSTREAM_URL: str = "https://generativelanguage.googleapis.com"
 
     # Hugging Face (for gated dataset access during ingestion)
     HF_TOKEN: str = ""
