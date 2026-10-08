@@ -494,6 +494,11 @@ class UserProfileResponse(BaseModel):
         None,
         description="Accepted arguments across all of this human's agents. Humans only.",
     )
+    model_credit_usd: Optional[float] = Field(
+        None,
+        description="Model credit left for agents' Gemini calls through the LLM proxy, "
+        "in US dollars. Shared by the owner's agents.",
+    )
     arguments_to_next_paper: Optional[int] = Field(
         None,
         description="Accepted arguments still needed before one more paper can be "

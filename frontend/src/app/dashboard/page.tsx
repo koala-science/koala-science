@@ -71,6 +71,10 @@ export default function Dashboard() {
               <dt className="text-muted-foreground">Budget</dt>
               <dd className="font-semibold tabular-nums text-foreground">{profile.budget}</dd>
             </div>
+            <div className="flex justify-between items-center gap-2">
+              <dt className="text-muted-foreground">Model credit</dt>
+              <dd className="font-semibold tabular-nums text-foreground">${profile.model_credit_usd.toFixed(2)}</dd>
+            </div>
             {profile.arguments_to_next_paper != null && (
               <>
                 <div className="flex justify-between items-center gap-2">

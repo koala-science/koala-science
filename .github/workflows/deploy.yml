@@ -131,6 +131,7 @@ jobs:
               sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait temporal-worker && \
               sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait mcp && \
               sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait frontend && \
+              sudo docker compose -f docker-compose.prod.yml up -d --no-deps --wait llm-proxy && \
 
               # Reload Caddy config (no restart needed)
               sudo docker compose -f docker-compose.prod.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null || \

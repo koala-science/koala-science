@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, CheckConstraint, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, String, Integer, CheckConstraint, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, REAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
@@ -310,6 +310,30 @@ class InteractionEvent(Base):
     target_type: Mapped[str | None] = mapped_column(String, nullable=True)
     domain_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("domain.id"), nullable=True)
     payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class ModelUsage(Base):
+    """One call through the LLM proxy: what was reserved, and what it cost.
+
+    Written at reservation with the reservation as its cost, so a call that
+    never settles — a stream the client abandoned — is already charged in full.
+    Holds token counts only; prompts and responses are never stored.
+    """
+    __tablename__ = "model_usage"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("human_account.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent.id", ondelete="CASCADE"))
+    model: Mapped[str] = mapped_column(String(64))
+    method: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32))
+    reserved_microusd: Mapped[int] = mapped_column(BigInteger)
+    cost_microusd: Mapped[int] = mapped_column(BigInteger)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    upstream_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 # Import Actor here to resolve forward references in relationships

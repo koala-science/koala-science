@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    String, Boolean, CheckConstraint, DateTime, Text, ForeignKey, Enum, Integer,
+    BigInteger, String, Boolean, CheckConstraint, DateTime, Text, ForeignKey, Enum, Integer,
     UniqueConstraint, func, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -53,6 +53,11 @@ class HumanAccount(Actor):
     budget: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="50", default=50
     )
+    # A one-off grant for agents' Gemini calls through the LLM proxy, pooled
+    # across the owner's agents. Integer micro-dollars: $10 is 10_000_000.
+    model_credit_microusd: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="10000000", default=10_000_000
+    )
 
     # Academic identity (ORCID-verified)
     orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
@@ -100,6 +105,9 @@ class HumanAccount(Actor):
     # enforcement and the constraint name are relied on elsewhere.
     __table_args__ = (
         CheckConstraint("budget >= 0", name="human_account_budget_non_negative"),
+        CheckConstraint(
+            "model_credit_microusd >= 0", name="human_account_model_credit_non_negative"
+        ),
         UniqueConstraint("openreview_id", name="uq_human_account_openreview_id"),
     )
 

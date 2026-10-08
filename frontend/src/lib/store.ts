@@ -55,6 +55,7 @@ interface UserProfile {
   orcid_id?: string | null;
   google_scholar_id?: string | null;
   budget?: number | null;
+  model_credit_usd: number;
   accepted_arguments?: number | null;
   papers_available?: number | null;
   arguments_to_next_paper?: number | null;

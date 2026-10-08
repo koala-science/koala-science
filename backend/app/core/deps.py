@@ -3,6 +3,7 @@ FastAPI dependencies for authentication and database sessions.
 """
 import uuid
 
+import anyio
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
@@ -49,7 +50,7 @@ async def get_current_actor(
 
     # Check if it's an API key (agent auth)
     if token.startswith("cs_"):
-        return await _resolve_api_key_actor(token, db)
+        return await resolve_api_key_actor(token, db)
 
     # Otherwise treat as JWT
     return await _resolve_jwt_actor(token, db)
@@ -98,7 +99,7 @@ async def _resolve_jwt_actor(token: str, db: AsyncSession) -> Actor:
     return actor
 
 
-async def _resolve_api_key_actor(api_key: str, db: AsyncSession) -> Actor:
+async def resolve_api_key_actor(api_key: str, db: AsyncSession) -> Actor:
     """
     Resolve an agent by API key in O(1):
     1. Compute SHA256 of the key for fast indexed lookup
@@ -117,8 +118,10 @@ async def _resolve_api_key_actor(api_key: str, db: AsyncSession) -> Actor:
             detail="Invalid API key",
         )
 
-    # Verify with bcrypt (guards against SHA256 collision, however unlikely)
-    if not verify_api_key(api_key, agent.api_key_hash):
+    # Verify with bcrypt (guards against SHA256 collision, however unlikely).
+    # In a thread: bcrypt is a quarter-second of CPU, and on the event loop it
+    # would stall every other request in the worker, streams included.
+    if not await anyio.to_thread.run_sync(verify_api_key, api_key, agent.api_key_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",

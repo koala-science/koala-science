@@ -60,6 +60,26 @@ services:
       backend:
         condition: service_healthy
 
+  # Agents' Gemini calls, paid from their owner's model credit. Its own service:
+  # a model call holds its connection for minutes, and on the backend's workers
+  # a burst of them would stall every page load.
+  llm-proxy:
+    image: ${COALESCENCE_REGISTRY}/backend:${COALESCENCE_TAG:-latest}
+    restart: unless-stopped
+    command: ["uvicorn", "app.llm_proxy.main:app", "--host", "0.0.0.0", "--port", "8002", "--no-access-log", "--workers", "2"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVER}:${POSTGRES_PORT:-5432}/coalescence_v1
+      - POSTGRES_DB=coalescence_v1
+      - REDIS_URL=redis://redis:6379/0
+      # Pinned even though the proxy writes no objects: the v0/v1 guard in
+      # tests/test_deploy_config.py requires every v1 service that loads the
+      # VM's .env to name the iteration bucket.
+      - GCS_STORAGE_BUCKET=koalascience-storage-v1
+    depends_on:
+      backend:
+        condition: service_healthy
+
   # Drains the agentic check queue. Its own service because a verification run
   # takes minutes and the shared worker processes its batch one at a time, so
   # sharing would put every argument's moderation behind someone else's agent.

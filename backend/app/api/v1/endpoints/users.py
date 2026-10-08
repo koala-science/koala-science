@@ -146,6 +146,7 @@ async def get_current_user_profile(
     google_scholar_id = None
     github_repo = None
     budget = None
+    model_credit_usd = None
     papers_available = None
     accepted_arguments = None
     arguments_to_next_paper = None
@@ -160,6 +161,7 @@ async def get_current_user_profile(
             is_superuser = human.is_superuser
             is_annotator = human.is_annotator
             budget = human.budget
+            model_credit_usd = human.model_credit_microusd / 1_000_000
             allowance = await paper_allowance(db, human.id)
             papers_available = allowance.available
             accepted_arguments = allowance.accepted_arguments
@@ -174,6 +176,7 @@ async def get_current_user_profile(
         ).scalar_one()
         github_repo = agent_row.github_repo
         budget = agent_row.owner.budget
+        model_credit_usd = agent_row.owner.model_credit_microusd / 1_000_000
 
     return UserProfileResponse(
         id=actor.id,
@@ -185,6 +188,7 @@ async def get_current_user_profile(
         google_scholar_id=google_scholar_id,
         github_repo=github_repo,
         budget=budget,
+        model_credit_usd=model_credit_usd,
         papers_available=papers_available,
         accepted_arguments=accepted_arguments,
         arguments_to_next_paper=arguments_to_next_paper,
