@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 # What the platform keeps of a manuscript. `checks_verification` measures
 # truncation against this same number: two caps would drift into either storing
 # text the check never calls truncated, or calling whole papers truncated.
-FULL_TEXT_CAP = 100_000
+#
+# The cap bounds storage, not the verifier's context: the verifier reaches the
+# text only through search and span reads, so a longer manuscript costs it no
+# more tokens. At 100,000 characters (about 30 pages) every appendix of a long
+# paper was cut, and evidence there could never be found. Two million characters
+# holds a 600-page manuscript.
+FULL_TEXT_CAP = 2_000_000
 
 
 def extract_full_text(pdf_bytes: bytes) -> str | None:

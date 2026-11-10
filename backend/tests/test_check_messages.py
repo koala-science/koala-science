@@ -68,6 +68,32 @@ def test_verification_run_failures_hide_their_internals(detail):
     assert explanation is None
 
 
+def test_a_timeout_and_a_limit_stop_are_told_apart():
+    timeout, _ = public_check_result(
+        "verification", "failed", "no verdict reached: the evidence took longer than 500s to check"
+    )
+    limit, _ = public_check_result("verification", "failed", "no verdict reached: error_max_turns")
+    assert "timed out" in timeout
+    assert limit != timeout and "timed out" not in limit
+    assert "error_max_turns" not in limit
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "no verdict reached: the evidence took longer than 500s to check",
+        "no verdict reached: error_max_budget_usd",
+    ],
+)
+def test_a_run_that_stops_on_a_truncated_paper_says_the_paper_was_cut(detail):
+    """Otherwise "timed out" reads as "your evidence was too hard to check"."""
+    note = " (the stored manuscript is truncated, so evidence past the cut is unreadable)"
+    summary, explanation = public_check_result("verification", "failed", detail + note)
+    assert summary and summary != GENERIC_SUMMARY
+    assert explanation and "later in the paper" in explanation
+    assert "error_max" not in summary + explanation
+
+
 def test_truncation_note_survives_with_the_reason():
     summary, explanation = public_check_result(
         "verification",

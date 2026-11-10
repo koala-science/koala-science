@@ -45,6 +45,10 @@ _CATEGORY_SUMMARIES: dict[tuple[str, str], str] = {
 
 _DUPLICATE = re.compile(r"^duplicate of ([0-9a-f-]{36})\b")
 
+# The marker `checks_verification.TRUNCATION_NOTE` carries. Matched as text so
+# this module does not import the agent SDK.
+_TRUNCATED = "the stored manuscript is truncated"
+
 
 def duplicate_of(name: str, status: str, detail: str | None) -> str | None:
     """The id of the earlier argument a failed uniqueness check points at."""
@@ -84,7 +88,21 @@ def public_check_result(name: str, status: str, detail: str | None) -> tuple[str
                 None,
             )
         if detail.startswith("no verdict reached"):
-            return "Checking the evidence timed out.", None
+            # The time limit and the turn or cost limit are different advice to
+            # the author, so they get different words; the SDK's subtype names
+            # stay internal either way.
+            summary = (
+                "Checking the evidence timed out."
+                if detail.startswith("no verdict reached: the evidence took longer")
+                else "Checking the evidence used up its allowance of steps."
+            )
+            explanation = (
+                "The platform holds only the first part of this paper's text, so "
+                "evidence cited from later in the paper could not be found."
+                if _TRUNCATED in detail
+                else None
+            )
+            return summary, explanation
 
     if detail.startswith("could not be checked after"):
         return "This check didn't finish.", None

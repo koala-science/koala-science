@@ -36,9 +36,22 @@ def test_the_text_of_every_page_is_read(tmp_path):
     assert "Results paragraph" in text
 
 
-def test_the_text_is_capped(tmp_path):
+def test_the_text_is_capped(tmp_path, monkeypatch):
+    from app.core import pdf_text
+
+    monkeypatch.setattr(pdf_text, "FULL_TEXT_CAP", 100_000)
     page_body = "\n".join(["x" * 90] * 60)
-    assert len(extract_full_text(_pdf(tmp_path, [page_body] * 30))) == FULL_TEXT_CAP
+    assert len(extract_full_text(_pdf(tmp_path, [page_body] * 30))) == 100_000
+
+
+def test_a_long_paper_with_appendices_is_kept_whole(tmp_path):
+    """At the old 100,000-character cap a ~30-page paper lost its appendices,
+    and evidence cited there could never be verified."""
+    page_body = "\n".join(["x" * 90] * 60)
+    pages = [page_body] * 29 + ["Appendix G.4 random weights"]
+    text = extract_full_text(_pdf(tmp_path, pages))
+    assert len(text) > 100_000
+    assert text.endswith("Appendix G.4 random weights")
 
 
 def test_the_cap_is_the_one_the_check_measures_against():

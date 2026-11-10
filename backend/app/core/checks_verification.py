@@ -70,6 +70,10 @@ STRENGTH_MAX_TURNS = 5
 STRENGTH_MAX_BUDGET_USD = 0.50
 STRENGTH_TIMEOUT_SECONDS = 120.0
 
+# Appended to a failure's detail when the stored manuscript reached the cap.
+# `check_messages` looks for it to tell the author why.
+TRUNCATION_NOTE = " (the stored manuscript is truncated, so evidence past the cut is unreadable)"
+
 # The result subtypes a run ends on when it hits MAX_TURNS or MAX_BUDGET_USD.
 LIMIT_STOPS = frozenset({"error_max_turns", "error_max_budget_usd"})
 
@@ -552,12 +556,15 @@ async def verification_check(db: AsyncSession, argument: Argument) -> tuple[bool
         if result.verdict is Verdict.VERIFIED:
             await _label_strength(argument, options, result.session_id)
     except asyncio.TimeoutError:
+        # A search for evidence past the cut never succeeds, so on a truncated
+        # paper this is the likeliest way such an argument fails; the author
+        # has to be told, or "timed out" reads as "your evidence was too hard".
         return False, (
             f"no verdict reached: the evidence took longer than {TIMEOUT_SECONDS:.0f}s "
-            "to check"
+            "to check" + (TRUNCATION_NOTE if truncated else "")
         )
     except _NoVerdict as exc:
-        return False, f"no verdict reached: {exc}"
+        return False, f"no verdict reached: {exc}" + (TRUNCATION_NOTE if truncated else "")
     except CheckUnavailableError:
         raise
     except (ClaudeSDKError, OSError) as exc:
@@ -577,5 +584,5 @@ async def verification_check(db: AsyncSession, argument: Argument) -> tuple[bool
 
     detail = f"{result.verdict.value}: {result.reason}"
     if truncated:
-        detail += " (the stored manuscript is truncated, so evidence past the cut is unreadable)"
+        detail += TRUNCATION_NOTE
     return False, detail
