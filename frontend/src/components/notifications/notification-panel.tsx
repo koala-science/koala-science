@@ -51,7 +51,7 @@ export function NotificationPanel() {
   const rows = notifications as StoreNotification[];
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4 border-b pb-2">
         <SectionTitle className="flex items-center gap-2">
           Notifications
@@ -74,7 +74,7 @@ export function NotificationPanel() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {loading && notifications.length === 0 ? (
           <div className="p-4 space-y-3">
             {[...Array(5)].map((_, i) => (

@@ -65,6 +65,7 @@ export default function Dashboard() {
               <dt className="text-muted-foreground">Auth method</dt>
               <dd className="min-w-0 break-words text-right text-foreground">{profile.auth_method}</dd>
             </div>
+            <ScholarRow scholarId={profile.google_scholar_id} />
           </dl>
           <dl className="mt-4 space-y-3 border-t pt-4 text-sm">
             <div className="flex justify-between items-center gap-2">
@@ -93,16 +94,15 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Row 1, Col 2 — Notifications (spans both rows) */}
-        <section className={`${SECTION} lg:row-span-2`} aria-label="Notifications">
-          <NotificationPanel />
+        {/* Row 1, Cols 2–3 — Notifications */}
+        <section className={`${SECTION} lg:relative lg:col-span-2`} aria-label="Notifications">
+          <div className="lg:absolute lg:inset-6">
+            <NotificationPanel />
+          </div>
         </section>
 
-        {/* Row 1, Col 3 — Academic Identity */}
-        <AcademicIdentitySection scholarId={profile.google_scholar_id} />
-
-        {/* Row 2, Col 1 — Agents */}
-        <section className={`${SECTION} lg:col-span-2`} aria-label="Agents">
+        {/* Row 2 — Agents */}
+        <section className={`${SECTION} lg:col-span-3`} aria-label="Agents">
           <div className="flex justify-between items-center gap-2 mb-4">
             <SectionTitle>Agents</SectionTitle>
             <RegisterAgentModal />
@@ -168,11 +168,24 @@ function NextPaperProgress({ remaining }: { remaining: number }) {
   );
 }
 
-function AcademicIdentitySection({ scholarId }: { scholarId?: string | null }) {
+function ScholarRow({ scholarId }: { scholarId?: string | null }) {
+  const [adding, setAdding] = React.useState(false);
   const [scholarInput, setScholarInput] = React.useState('');
   const [linking, setLinking] = React.useState(false);
   const [scholarError, setScholarError] = React.useState<string | null>(null);
+  const value = React.useRef<HTMLElement>(null);
   const fetchProfile = useProfileStore((s) => s.fetchProfile);
+
+  const close = () => {
+    setAdding(false);
+    setScholarInput('');
+    setScholarError(null);
+  };
+
+  const cancel = () => {
+    close();
+    requestAnimationFrame(() => value.current!.querySelector('button')!.focus());
+  };
 
   const handleLinkScholar = async () => {
     if (!scholarInput.trim()) return;
@@ -184,7 +197,7 @@ function AcademicIdentitySection({ scholarId }: { scholarId?: string | null }) {
       });
       if (res.ok) {
         fetchProfile();
-        setScholarInput('');
+        close();
       } else {
         const data = await res.json().catch(() => ({}));
         setScholarError(data.detail || 'Could not link Google Scholar.');
@@ -197,50 +210,53 @@ function AcademicIdentitySection({ scholarId }: { scholarId?: string | null }) {
   };
 
   return (
-    <section className={SECTION} aria-label="Academic identity">
-      <SectionTitle className="mb-4">Academic identity</SectionTitle>
-
-      <div className="space-y-4 text-sm">
-        {/* Google Scholar */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">Google Scholar</span>
-            {scholarId && (
-              <span className="shrink-0 text-xs px-2 py-1 rounded bg-green-50 text-green-700 font-medium">Linked</span>
-            )}
-          </div>
-          {scholarId ? (
-            <a
-              href={`https://scholar.google.com/citations?user=${scholarId}`}
-              target="_blank"
-              rel="noreferrer"
-              className="block break-all font-mono text-primary hover:underline"
+    <div className="flex flex-wrap justify-between items-center gap-2">
+      <dt className="text-muted-foreground">Google Scholar</dt>
+      <dd ref={value} className={adding ? 'w-full space-y-2' : 'min-w-0 text-right'}>
+        {scholarId ? (
+          <a
+            href={`https://scholar.google.com/citations?user=${scholarId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all font-mono text-primary hover:underline"
+          >
+            {scholarId}
+          </a>
+        ) : adding ? (
+          <div className="flex items-center gap-2">
+            <Input
+              type="text"
+              aria-label="Google Scholar ID"
+              value={scholarInput}
+              onChange={(e) => setScholarInput(e.target.value)}
+              placeholder="Scholar ID"
+              className="min-w-0 flex-1"
+              autoFocus
+            />
+            <Button
+              variant="link"
+              className="h-auto shrink-0 px-0"
+              onClick={handleLinkScholar}
+              disabled={linking || !scholarInput.trim()}
             >
-              {scholarId}
-            </a>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Input
-                type="text"
-                aria-label="Google Scholar ID"
-                value={scholarInput}
-                onChange={(e) => setScholarInput(e.target.value)}
-                placeholder="Scholar ID (e.g. dkAFaXoAAAAJ)"
-                className="min-w-0 flex-1"
-              />
-              <Button
-                variant="link"
-                className="h-auto shrink-0 px-0"
-                onClick={handleLinkScholar}
-                disabled={linking || !scholarInput.trim()}
-              >
-                {linking ? 'Linking…' : 'Link'}
-              </Button>
-            </div>
-          )}
-          {scholarError && <ErrorText>{scholarError}</ErrorText>}
-        </div>
-      </div>
-    </section>
+              {linking ? 'Linking…' : 'Link'}
+            </Button>
+            <Button variant="link" className="h-auto shrink-0 px-0 text-muted-foreground" onClick={cancel}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="link"
+            className="h-auto px-0"
+            aria-label="Add Google Scholar"
+            onClick={() => setAdding(true)}
+          >
+            Add
+          </Button>
+        )}
+        {scholarError && <ErrorText>{scholarError}</ErrorText>}
+      </dd>
+    </div>
   );
 }
