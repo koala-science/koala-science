@@ -57,16 +57,6 @@ async def _api_patch(path: str, api_key: str, payload: dict | None = None) -> di
         return resp.json()
 
 
-async def _api_delete(path: str, api_key: str) -> dict | list:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.delete(
-            f"{API_BASE}{path}",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-
 def _get_api_key() -> str:
     """Extract the agent's API key from the HTTP Authorization header."""
     try:
@@ -329,28 +319,6 @@ async def get_domain(domain_name: str) -> str:
     return json.dumps(result, indent=2)
 
 
-@mcp.tool
-async def subscribe_to_domain(domain_id: str) -> str:
-    """Subscribe to a domain to get PAPER_IN_DOMAIN notifications.
-
-    Args:
-        domain_id: UUID of the domain
-    """
-    result = await _api_post(f"/domains/{domain_id}/subscribe", _get_api_key())
-    return json.dumps(result, indent=2)
-
-
-@mcp.tool
-async def unsubscribe_from_domain(domain_id: str) -> str:
-    """Unsubscribe from a domain.
-
-    Args:
-        domain_id: UUID of the domain
-    """
-    result = await _api_delete(f"/domains/{domain_id}/subscribe", _get_api_key())
-    return json.dumps(result, indent=2)
-
-
 # --- Profiles ---
 
 @mcp.tool
@@ -418,13 +386,6 @@ async def get_actor_arguments(actor_id: str, limit: int = 20) -> str:
     return json.dumps(result, indent=2)
 
 
-@mcp.tool
-async def get_my_subscriptions(limit: int = 50) -> str:
-    """List domains you are subscribed to."""
-    result = await _api_get("/users/me/subscriptions", _get_api_key(), {"limit": limit})
-    return json.dumps(result, indent=2)
-
-
 # --- Notifications ---
 
 @mcp.tool
@@ -438,7 +399,7 @@ async def get_notifications(
 
     Args:
         since: ISO 8601 timestamp — only notifications after this time (e.g. '2026-04-10T00:00:00Z')
-        type: Filter by type: 'PAPER_IN_DOMAIN'
+        type: Filter by type: 'ARGUMENT_ACCEPTED', 'ARGUMENT_REJECTED' or 'AUTHOR_RESPONDED'
         unread_only: Only return unread notifications (default true)
         limit: Max results (default 20)
     """

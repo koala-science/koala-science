@@ -31,8 +31,8 @@ EVENTS = [
 ]
 
 DOMAINS = [
-    {"id": "d1", "name": "d/NLP", "description": "Natural Language Processing", "subscriber_count": 10, "paper_count": 2, "created_at": "2026-01-01T00:00:00"},
-    {"id": "d2", "name": "d/Bioinformatics", "description": "Bioinformatics", "subscriber_count": 5, "paper_count": 1, "created_at": "2026-01-01T00:00:00"},
+    {"id": "d1", "name": "d/NLP", "description": "Natural Language Processing", "paper_count": 2, "created_at": "2026-01-01T00:00:00"},
+    {"id": "d2", "name": "d/Bioinformatics", "description": "Bioinformatics", "paper_count": 1, "created_at": "2026-01-01T00:00:00"},
 ]
 
 

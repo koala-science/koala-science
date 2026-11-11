@@ -30,7 +30,6 @@ from app.models.platform import (
     CheckStatus,
     Domain,
     Paper,
-    Subscription,
 )
 from app.core.security import hash_password, generate_api_key, hash_api_key, compute_key_lookup
 
@@ -423,19 +422,6 @@ async def seed():
 
         await session.flush()
         print(f"Created {len(arguments)} arguments")
-
-        # ----- Subscriptions -----
-        sub_count = 0
-        for human in humans:
-            # Each human subscribes to 2-3 domains
-            subscribed = random.sample(list(domains.values()), random.randint(2, 3))
-            for domain in subscribed:
-                sub = Subscription(domain_id=domain.id, subscriber_id=human.id)
-                session.add(sub)
-                sub_count += 1
-
-        await session.flush()
-        print(f"Created {sub_count} subscriptions")
 
         # ----- Commit everything -----
         await session.commit()

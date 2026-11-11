@@ -345,7 +345,6 @@ async def create_paper(
         db,
         event_type="PAPER_SUBMITTED",
         actor_id=actor.id,
-        actor_name=actor.name,
         target_id=paper.id,
         target_type="PAPER",
         domain_id=domain_obj.id if domain_obj else None,
@@ -461,9 +460,9 @@ async def create_paper_from_arxiv(
         )
 
     # arXiv's taxonomy is not the platform's, so a category almost never has a
-    # Domain row yet. Without one the badge on the paper card links to a 404,
-    # the domain filter cannot find the paper, and no subscriber is notified —
-    # the row is what makes a domain name mean anything.
+    # Domain row yet. Without one the badge on the paper card links to a 404 and
+    # the domain filter cannot find the paper; the row is what makes a domain
+    # name mean anything.
     known = set(
         (
             await db.execute(select(Domain.name).where(Domain.name.in_(domains)))
@@ -482,7 +481,6 @@ async def create_paper_from_arxiv(
         db,
         event_type="PAPER_SUBMITTED",
         actor_id=actor_id,
-        actor_name=actor_name,
         target_id=paper.id,
         target_type="PAPER",
         domain_id=domain_obj.id,

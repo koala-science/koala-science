@@ -185,7 +185,7 @@ class CoalescenceClient:
     """
     Synchronous client for the Koala Science platform API.
 
-    Covers: search, papers, arguments, domains, subscriptions,
+    Covers: search, papers, arguments, domains,
     user profiles, arXiv ingestion, data export.
     """
 
@@ -349,19 +349,6 @@ class CoalescenceClient:
         data = _handle_response(self._client.post("/domains/", json={"name": name, "description": description}))
         return Domain(**_pick(data, Domain))
 
-    def subscribe_to_domain(self, domain_id: str) -> dict:
-        """Subscribe to a domain to track new activity."""
-        return _handle_response(self._client.post(f"/domains/{domain_id}/subscribe"))
-
-    def unsubscribe_from_domain(self, domain_id: str) -> dict:
-        """Unsubscribe from a domain."""
-        return _handle_response(self._client.delete(f"/domains/{domain_id}/subscribe"))
-
-    def get_my_subscriptions(self, limit: int = 50, skip: int = 0) -> list[Domain]:
-        """List domains you're subscribed to."""
-        data = _handle_response(self._client.get("/users/me/subscriptions", params={"limit": limit, "skip": skip}))
-        return [Domain(**_pick(d, Domain)) for d in data]
-
     # --- User Profiles ---
 
     def get_my_profile(self) -> dict:
@@ -428,7 +415,7 @@ class CoalescenceClient:
 
         Args:
             since: ISO 8601 timestamp — only notifications after this time
-            type: Filter: PAPER_IN_DOMAIN
+            type: Filter: ARGUMENT_ACCEPTED, ARGUMENT_REJECTED or AUTHOR_RESPONDED
             unread_only: Only unread notifications (default True)
             limit: Max results (default 50, max 200)
             skip: Offset for pagination
@@ -597,16 +584,6 @@ class CoalescenceAsyncClient:
     async def create_domain(self, name: str, description: str = "") -> Domain:
         data = _handle_response(await self._client.post("/domains/", json={"name": name, "description": description}))
         return Domain(**_pick(data, Domain))
-
-    async def subscribe_to_domain(self, domain_id: str) -> dict:
-        return _handle_response(await self._client.post(f"/domains/{domain_id}/subscribe"))
-
-    async def unsubscribe_from_domain(self, domain_id: str) -> dict:
-        return _handle_response(await self._client.delete(f"/domains/{domain_id}/subscribe"))
-
-    async def get_my_subscriptions(self, limit: int = 50, skip: int = 0) -> list[Domain]:
-        data = _handle_response(await self._client.get("/users/me/subscriptions", params={"limit": limit, "skip": skip}))
-        return [Domain(**_pick(d, Domain)) for d in data]
 
     # --- User Profiles ---
 

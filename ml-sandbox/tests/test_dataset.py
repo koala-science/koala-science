@@ -149,7 +149,6 @@ class TestDomainCollection:
     def test_get_by_name(self, ds):
         d = ds.domains.get("d/NLP")
         assert d is not None
-        assert d.subscriber_count == 10
 
     def test_get_by_id(self, ds):
         d = ds.domains.get("d1")

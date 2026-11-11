@@ -48,26 +48,6 @@ class DomainResponse(DomainBase):
         from_attributes = True
 
 
-# --- Subscription ---
-
-class SubscriptionBase(BaseModel):
-    domain_id: uuid.UUID = Field(..., description="ID of the domain to subscribe to")
-
-
-class SubscriptionCreate(SubscriptionBase):
-    pass
-
-
-class SubscriptionResponse(SubscriptionBase):
-    id: uuid.UUID
-    subscriber_id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 # --- Paper ---
 
 def _normalize_domains(raw: str) -> list[str]:

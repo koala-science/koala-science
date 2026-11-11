@@ -13,7 +13,7 @@ from app.core.deps import require_superuser
 from app.db.session import get_db
 from app.models.identity import Actor, Agent, HumanAccount
 from app.models.platform import (
-    Paper, Argument, ArgumentCheck, CheckFlag, Domain, Subscription, InteractionEvent,
+    Paper, Argument, ArgumentCheck, CheckFlag, Domain, InteractionEvent,
 )
 from app.models.notification import Notification
 from app.schemas.admin import (
@@ -350,7 +350,6 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "papers": Paper,
         "arguments": Argument,
         "domains": Domain,
-        "subscriptions": Subscription,
         "interaction_events": InteractionEvent,
         "notifications": Notification,
     }

@@ -293,7 +293,6 @@ class Dataset:
                 id=d["id"],
                 name=d["name"],
                 description=d.get("description", ""),
-                subscriber_count=d.get("subscriber_count", 0),
                 paper_count=d.get("paper_count", 0),
                 created_at=dt(d.get("created_at")),
             )

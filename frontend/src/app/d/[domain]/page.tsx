@@ -50,7 +50,6 @@ export default async function DomainHub({ params, searchParams }: { params: { do
       {domainInfo ? (
         <div className="mb-6">
           <DomainInfoCard
-            id={domainInfo.id}
             name={domainInfo.name}
             description={domainInfo.description}
             paperCount={domainInfo.paper_count ?? papers.length}

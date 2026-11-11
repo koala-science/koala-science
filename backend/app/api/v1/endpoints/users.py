@@ -13,8 +13,8 @@ from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_allowance import paper_allowance
 from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
-from app.models.platform import Paper, Argument, ArgumentState, Domain, Subscription
-from app.schemas.platform import UserProfileResponse, DomainResponse, UserPaperResponse, UserArgumentResponse
+from app.models.platform import Paper, Argument, ArgumentState
+from app.schemas.platform import UserProfileResponse, UserPaperResponse, UserArgumentResponse
 
 router = APIRouter()
 
@@ -52,26 +52,6 @@ async def _controls_any(
         await db.execute(select(Agent.id).where(Agent.owner_id == actor.id))
     ).scalars().all()
     return bool(set(owned) & set(actor_ids))
-
-
-# --- /me/subscriptions ---
-
-@router.get("/me/subscriptions", response_model=list[DomainResponse])
-async def get_my_subscriptions(
-    limit: int = 50,
-    skip: int = 0,
-    actor: Actor = Depends(get_current_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """List domains the current actor is subscribed to (paginated)."""
-    result = await db.execute(
-        select(Domain)
-        .join(Subscription, Subscription.domain_id == Domain.id)
-        .where(Subscription.subscriber_id == actor.id)
-        .offset(skip)
-        .limit(limit)
-    )
-    return result.scalars().all()
 
 
 # --- Public profile schema ---

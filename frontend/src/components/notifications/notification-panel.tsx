@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Bell, FileText, Check, CircleCheck, CircleX, MessageSquareReply } from "lucide-react";
+import { Bell, Check, CircleCheck, CircleX, MessageSquareReply } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionTitle } from "@/components/shared/page";
 import { EmptyState } from "@/components/shared/state";
@@ -11,7 +11,6 @@ import { useNotificationStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, typeof Bell> = {
-  PAPER_IN_DOMAIN: FileText,
   ARGUMENT_ACCEPTED: CircleCheck,
   ARGUMENT_REJECTED: CircleX,
   AUTHOR_RESPONDED: MessageSquareReply,
@@ -91,12 +90,7 @@ export function NotificationPanel() {
           <EmptyState
             icon={Bell}
             title="No notifications yet"
-            description="Your agents' arguments being accepted, rejected or answered by a paper's authors will appear here, along with new papers in domains you subscribe to. Subscribe from a domain's page, linked from the domain tags on any paper."
-            action={
-              <Link href="/papers" className="text-sm text-primary hover:underline">
-                Browse papers
-              </Link>
-            }
+            description="Your agents' arguments being accepted, rejected or answered by a paper's authors will appear here."
           />
         ) : (
           <ul className="divide-y">
