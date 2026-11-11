@@ -10,13 +10,21 @@ import uuid
 import json
 
 import pytest
-from claude_agent_sdk import ResultError, ResultMessage
+from claude_agent_sdk import (
+    AssistantMessage,
+    ResultError,
+    ResultMessage,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 
 from app.core import checks
 from app.core import checks_verification as verification
 from app.core.check_runner import CHECK_FUNCTIONS, missing_check_functions
 from app.core.checks_verification import verification_check
 from app.core.gemini import CheckUnavailableError
+from app.core.verification_trace import ADVICE
 from app.models.platform import Argument, ArgumentPosition, ArgumentStrength, Paper
 
 
@@ -199,9 +207,12 @@ async def test_a_truncated_manuscript_says_so_in_the_detail(monkeypatch):
     assert "truncated" in detail.lower()
 
 
-@pytest.mark.parametrize("subtype", ["error_max_budget_usd", "error_max_turns"])
+@pytest.mark.parametrize(("subtype", "expected_lead"), [
+    ("error_max_budget_usd", "after spending its $0.50 budget in 25 turns"),
+    ("error_max_turns", "after 25 turns"),
+])
 async def test_a_run_that_stops_on_a_limit_fails_even_though_the_sdk_then_raises(
-    monkeypatch, subtype
+    monkeypatch, subtype, expected_lead
 ):
     """What the SDK really does at a limit: yield the error result, then raise
     ``ResultError`` from the iterator as the CLI exits non-zero. Read as an
@@ -221,7 +232,7 @@ async def test_a_run_that_stops_on_a_limit_fails_even_though_the_sdk_then_raises
     passed, detail = await verification_check(None, _argument(_paper()))
 
     assert passed is False
-    assert detail == f"no verdict reached: {subtype}"
+    assert detail == f"no verdict reached: Stopped {expected_lead}, before using any tools."
 
 
 @pytest.mark.parametrize("api_error_status", [None, 401])
@@ -257,7 +268,7 @@ async def test_running_out_of_turns_fails_the_argument(monkeypatch):
     passed, detail = await verification_check(None, _argument(_paper()))
 
     assert passed is False
-    assert "max_turns_exceeded" in detail
+    assert detail.startswith(f"no verdict reached: Stopped after {verification.MAX_TURNS} turns")
 
 
 async def test_an_agent_that_hangs_fails_the_argument_rather_than_the_worker(monkeypatch):
@@ -273,7 +284,47 @@ async def test_an_agent_that_hangs_fails_the_argument_rather_than_the_worker(mon
     passed, detail = await verification_check(None, _argument(_paper()))
 
     assert passed is False
-    assert "longer than" in detail
+    assert detail == (
+        "no verdict reached: Stopped after 0s and 0 turns, before using any tools."
+    )
+
+
+async def test_a_timeout_says_what_the_agent_was_still_doing(monkeypatch, caplog):
+    """The trace has to outlive the cancelled run: it is all there is to explain it."""
+
+    async def works_then_hangs(*, prompt, options=None, **kwargs):
+        yield AssistantMessage(
+            content=[ToolUseBlock(id="t1", name="mcp__paper__search_paper",
+                                  input={"query": "Table 6"})],
+            model="claude-opus-5", message_id="m1",
+        )
+        yield UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="hit")])
+        yield AssistantMessage(
+            content=[ToolUseBlock(id="t2", name="Bash",
+                                  input={"command": "python eval.py --seed 0"})],
+            model="claude-opus-5", message_id="m2",
+        )
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(verification, "query", works_then_hangs)
+    monkeypatch.setattr(verification, "TIMEOUT_SECONDS", 0.05)
+    argument = _argument(_paper())
+
+    with caplog.at_level("INFO", logger=verification.__name__):
+        passed, detail = await verification_check(None, argument)
+
+    assert passed is False
+    assert detail == (
+        'no verdict reached: Stopped after 0s and 2 turns: 1 search of the paper '
+        '("Table 6"), 1 shell command. It was still running '
+        '`python eval.py --seed 0` when it stopped. To make it quicker to check, '
+        f'{ADVICE["general"]}'
+    )
+    assert any(
+        str(argument.id) in record.getMessage()
+        and detail.removeprefix("no verdict reached: ") in record.getMessage()
+        for record in caplog.records
+    )
 
 
 async def test_exhausting_the_budget_fails_the_argument(monkeypatch):
@@ -284,6 +335,23 @@ async def test_exhausting_the_budget_fails_the_argument(monkeypatch):
     passed, detail = await verification_check(None, _argument(_paper()))
 
     assert passed is False
+    assert detail.startswith(
+        "no verdict reached: Stopped after spending its $0.50 budget in 3 turns"
+    )
+
+
+async def test_a_run_that_ends_without_a_verdict_says_so(monkeypatch):
+    monkeypatch.setattr(verification, "query", _agent_returning(
+        _Result(structured_output=None, terminal_reason="end_turn")
+    ))
+
+    passed, detail = await verification_check(None, _argument(_paper()))
+
+    assert passed is False
+    assert detail == (
+        "no verdict reached: Stopped without a verdict after 3 turns, "
+        "before using any tools."
+    )
 
 
 async def test_a_missing_api_key_leaves_the_row_pending(monkeypatch):

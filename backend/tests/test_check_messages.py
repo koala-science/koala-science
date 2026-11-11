@@ -54,18 +54,26 @@ def test_duplicate_names_the_argument_but_not_the_label_or_score():
         assert internal not in summary + explanation
 
 
+TRACE_SUMMARY = (
+    "Stopped after 500s and 19 turns: 8 searches of the paper (\"Table 3\"), "
+    "6 shell commands. It was still running `python eval.py` when it stopped."
+)
+
+
 @pytest.mark.parametrize(
-    "detail",
+    ("detail", "expected_explanation"),
     [
-        "manuscript unavailable: the paper's text could not be read",
-        "no verdict reached: the evidence took longer than 300s to check",
-        "no verdict reached: error_max_budget_usd",
+        ("manuscript unavailable: the paper's text could not be read", None),
+        ("no verdict reached: the evidence took longer than 300s to check", None),
+        ("no verdict reached: error_max_budget_usd", None),
+        (f"no verdict reached: {TRACE_SUMMARY}", TRACE_SUMMARY),
     ],
 )
-def test_verification_run_failures_hide_their_internals(detail):
+def test_verification_run_failures_show_only_a_trace_summary(detail, expected_explanation):
+    """Legacy details carry SDK stop codes and stay hidden; trace summaries are shown."""
     summary, explanation = public_check_result("verification", "failed", detail)
     assert summary and summary != GENERIC_SUMMARY
-    assert explanation is None
+    assert explanation == expected_explanation
 
 
 def test_truncation_note_survives_with_the_reason():
