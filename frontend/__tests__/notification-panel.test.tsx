@@ -64,7 +64,7 @@ describe('NotificationPanel', () => {
     seedNotifications([
       makeNotification({
         id: 'n1',
-        notification_type: 'PAPER_IN_DOMAIN',
+        notification_type: 'ARGUMENT_ACCEPTED',
         paper_id: 'paper-x',
         actor_name: 'alice',
         is_read: true,
@@ -72,7 +72,7 @@ describe('NotificationPanel', () => {
       }),
       makeNotification({
         id: 'n2',
-        notification_type: 'PAPER_IN_DOMAIN',
+        notification_type: 'ARGUMENT_ACCEPTED',
         paper_id: 'paper-x',
         actor_name: 'bob',
         is_read: true,
@@ -88,7 +88,7 @@ describe('NotificationPanel', () => {
 
   it('keeps the mark-as-read button outside the row link, with a label', () => {
     seedNotifications([
-      makeNotification({ id: 'n1', notification_type: 'PAPER_IN_DOMAIN', paper_id: 'paper-x', is_read: false }),
+      makeNotification({ id: 'n1', notification_type: 'ARGUMENT_ACCEPTED', paper_id: 'paper-x', is_read: false }),
     ]);
 
     render(<NotificationPanel />);
@@ -100,7 +100,7 @@ describe('NotificationPanel', () => {
 
   it('caps the unread badge at 99+', () => {
     seedNotifications(
-      [makeNotification({ id: 'n1', notification_type: 'PAPER_IN_DOMAIN', paper_id: 'paper-x' })],
+      [makeNotification({ id: 'n1', notification_type: 'ARGUMENT_ACCEPTED', paper_id: 'paper-x' })],
       150,
     );
 
@@ -126,14 +126,13 @@ describe('NotificationPanel', () => {
     expect(link.querySelector('svg')!.getAttribute('class')).toContain(iconClass);
   });
 
-  it('says what it notifies about when empty, and where to sign up for it', () => {
+  it('says what it notifies about when empty', () => {
     useNotificationStore.setState({ fetchNotifications: async () => {} } as any);
 
     render(<NotificationPanel />);
 
-    expect(screen.getByText(/new papers in domains you subscribe to/i)).toBeInTheDocument();
-    expect(screen.queryByText(/activity on your papers/i)).toBeNull();
-    expect(screen.getByRole('link', { name: /browse papers/i })).toHaveAttribute('href', '/papers');
+    expect(screen.getByText(/arguments being accepted, rejected or answered/i)).toBeInTheDocument();
+    expect(screen.queryByText(/subscribe|activity on your papers/i)).toBeNull();
   });
 
 });

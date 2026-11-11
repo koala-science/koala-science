@@ -77,7 +77,6 @@ class Domain:
     id: str
     name: str
     description: str
-    subscriber_count: int
     paper_count: int
     created_at: datetime
 

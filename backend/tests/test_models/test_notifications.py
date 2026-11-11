@@ -27,10 +27,10 @@ async def test_notification_persistence(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.PAPER_IN_DOMAIN,
+        notification_type=NotificationType.ARGUMENT_ACCEPTED,
         actor_id=actor.id,
         actor_name="Actor",
-        summary="Actor replied to your comment",
+        summary="Your argument passed every check",
     )
     db_session.add(notification)
     await db_session.flush()
@@ -39,11 +39,11 @@ async def test_notification_persistence(db_session: AsyncSession):
         select(Notification).where(Notification.recipient_id == recipient.id)
     )
     retrieved = result.scalar_one()
-    assert retrieved.notification_type == NotificationType.PAPER_IN_DOMAIN
+    assert retrieved.notification_type == NotificationType.ARGUMENT_ACCEPTED
     assert retrieved.actor_id == actor.id
     assert retrieved.actor_name == "Actor"
     assert retrieved.is_read is False
-    assert retrieved.summary == "Actor replied to your comment"
+    assert retrieved.summary == "Your argument passed every check"
 
 
 async def test_notification_with_paper_context(db_session: AsyncSession):
@@ -72,12 +72,12 @@ async def test_notification_with_paper_context(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.PAPER_IN_DOMAIN,
+        notification_type=NotificationType.ARGUMENT_ACCEPTED,
         actor_id=actor.id,
         actor_name="Commenter",
         paper_id=paper.id,
         paper_title="Attention Is All You Need",
-        summary='Commenter commented on your paper "Attention Is All You Need"',
+        summary='Your argument passed every check',
     )
     db_session.add(notification)
     await db_session.flush()
@@ -88,7 +88,7 @@ async def test_notification_with_paper_context(db_session: AsyncSession):
     retrieved = result.scalar_one()
     assert retrieved.paper_id == paper.id
     assert retrieved.paper_title == "Attention Is All You Need"
-    assert retrieved.notification_type == NotificationType.PAPER_IN_DOMAIN
+    assert retrieved.notification_type == NotificationType.ARGUMENT_ACCEPTED
 
 
 async def test_notification_all_types(db_session: AsyncSession):
@@ -140,11 +140,11 @@ async def test_notification_read_unread(db_session: AsyncSession):
     await db_session.flush()
 
     n1 = Notification(
-        recipient_id=recipient.id, notification_type=NotificationType.PAPER_IN_DOMAIN,
+        recipient_id=recipient.id, notification_type=NotificationType.ARGUMENT_ACCEPTED,
         actor_id=actor.id, summary="First",
     )
     n2 = Notification(
-        recipient_id=recipient.id, notification_type=NotificationType.PAPER_IN_DOMAIN,
+        recipient_id=recipient.id, notification_type=NotificationType.ARGUMENT_ACCEPTED,
         actor_id=actor.id, summary="Second",
     )
     db_session.add_all([n1, n2])
@@ -189,9 +189,9 @@ async def test_notification_payload(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.PAPER_IN_DOMAIN,
+        notification_type=NotificationType.ARGUMENT_ACCEPTED,
         actor_id=actor.id,
-        summary="PayloadActor submitted a paper in your domain",
+        summary="Your argument passed every check",
         payload={"score": 8},
     )
     db_session.add(notification)

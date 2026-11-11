@@ -255,7 +255,7 @@ class DataExportActivities:
 
         from sqlalchemy import select, func
         from app.db.session import AsyncSessionLocal
-        from app.models.platform import Domain, Subscription, Paper
+        from app.models.platform import Domain, Paper
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Domain))
@@ -263,11 +263,6 @@ class DataExportActivities:
 
             records = []
             for d in domains:
-                sub_count = (await session.execute(
-                    select(func.count()).select_from(Subscription)
-                    .where(Subscription.domain_id == d.id)
-                )).scalar() or 0
-
                 paper_count = (await session.execute(
                     select(func.count()).select_from(Paper)
                     .where(Paper.domains.any(d.name))
@@ -277,7 +272,6 @@ class DataExportActivities:
                     "id": str(d.id),
                     "name": d.name,
                     "description": d.description,
-                    "subscriber_count": sub_count,
                     "paper_count": paper_count,
                     "created_at": d.created_at,
                 })

@@ -1,4 +1,3 @@
-import uuid
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
@@ -8,9 +7,8 @@ from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.paper_visibility import public_paper_clause
 from app.models.identity import Actor
-from app.models.platform import Domain, Subscription, Paper
-from app.schemas.platform import DomainResponse, SubscriptionResponse, DomainCreate, MessageResponse
-from app.core.events import emit_event
+from app.models.platform import Domain, Paper
+from app.schemas.platform import DomainResponse, DomainCreate
 
 router = APIRouter()
 
@@ -18,10 +16,6 @@ router = APIRouter()
 @router.get("/", response_model=List[DomainResponse])
 async def get_domains(limit: int = 50, skip: int = 0, db: AsyncSession = Depends(get_db)):
     """List all domains sorted by paper count (descending)."""
-    paper_count = (
-        func.count(func.unnest(Paper.domains))
-        .filter(func.unnest(Paper.domains) == Domain.name)
-    )
     # Use a subquery to count papers per domain
     from sqlalchemy import literal_column
     count_subq = (
@@ -115,64 +109,3 @@ async def get_domain_by_name(name: str, db: AsyncSession = Depends(get_db)):
         created_at=domain.created_at,
         updated_at=domain.updated_at,
     )
-
-
-@router.post("/{domain_id}/subscribe", response_model=SubscriptionResponse)
-async def subscribe_to_domain(
-    domain_id: uuid.UUID,
-    actor: Actor = Depends(get_current_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """Subscribe to a domain. Idempotent — subscribing again is a no-op."""
-    # Verify domain exists
-    domain_result = await db.execute(select(Domain).where(Domain.id == domain_id))
-    if not domain_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Domain not found")
-
-    # Check for existing subscription
-    existing = await db.execute(
-        select(Subscription).where(
-            Subscription.domain_id == domain_id,
-            Subscription.subscriber_id == actor.id,
-        )
-    )
-    sub = existing.scalar_one_or_none()
-    if sub:
-        return sub  # Already subscribed
-
-    sub = Subscription(domain_id=domain_id, subscriber_id=actor.id)
-    db.add(sub)
-    await db.flush()
-    await db.refresh(sub)
-    await emit_event(
-        db, event_type="SUBSCRIPTION_CHANGED", actor_id=actor.id,
-        domain_id=domain_id, payload={"action": "subscribe"},
-    )
-    await db.commit()
-    return sub
-
-
-@router.delete("/{domain_id}/subscribe", response_model=MessageResponse)
-async def unsubscribe_from_domain(
-    domain_id: uuid.UUID,
-    actor: Actor = Depends(get_current_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """Unsubscribe from a domain."""
-    result = await db.execute(
-        select(Subscription).where(
-            Subscription.domain_id == domain_id,
-            Subscription.subscriber_id == actor.id,
-        )
-    )
-    sub = result.scalar_one_or_none()
-    if not sub:
-        raise HTTPException(status_code=404, detail="Not subscribed to this domain")
-
-    await emit_event(
-        db, event_type="SUBSCRIPTION_CHANGED", actor_id=actor.id,
-        domain_id=domain_id, payload={"action": "unsubscribe"},
-    )
-    await db.delete(sub)
-    await db.commit()
-    return {"success": True, "message": "Successfully unsubscribed from domain"}

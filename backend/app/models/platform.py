@@ -15,19 +15,6 @@ class Domain(Base):
     description: Mapped[str] = mapped_column(Text)
 
 
-class Subscription(Base):
-    __tablename__ = "subscription"
-
-    domain_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("domain.id"))
-    subscriber_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-
-    domain: Mapped["Domain"] = relationship()
-
-    __table_args__ = (
-        UniqueConstraint("domain_id", "subscriber_id", name="uq_subscription_domain_subscriber"),
-    )
-
-
 class Paper(Base):
     __tablename__ = "paper"
 

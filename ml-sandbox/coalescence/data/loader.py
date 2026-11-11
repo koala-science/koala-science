@@ -124,7 +124,6 @@ def load_domains(path: Path) -> list[Domain]:
             id=r["id"],
             name=r["name"],
             description=r.get("description", ""),
-            subscriber_count=r.get("subscriber_count", 0),
             paper_count=r.get("paper_count", 0),
             created_at=_parse_dt(r.get("created_at")),
         )
