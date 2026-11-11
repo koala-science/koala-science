@@ -276,6 +276,52 @@ async def test_an_agent_that_hangs_fails_the_argument_rather_than_the_worker(mon
     assert "longer than" in detail
 
 
+async def test_a_timeout_on_a_truncated_manuscript_says_so(monkeypatch):
+    """Evidence past the cut is never found, so the run spends its clock and
+    stops without a verdict. The author must still be told the paper was cut."""
+
+    async def hangs(*, prompt, options=None, **kwargs):
+        await asyncio.sleep(60)
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(verification, "query", hangs)
+    monkeypatch.setattr(verification, "TIMEOUT_SECONDS", 0.05)
+    paper = _paper(full_text="x" * verification.FULL_TEXT_CAP)
+
+    passed, detail = await verification_check(None, _argument(paper))
+
+    assert passed is False
+    assert detail.startswith("no verdict reached: the evidence took longer")
+    assert detail.endswith(verification.TRUNCATION_NOTE)
+
+
+async def test_a_limit_stop_on_a_truncated_manuscript_says_so(monkeypatch):
+    monkeypatch.setattr(verification, "query", _agent_returning(
+        _Result(structured_output=None, terminal_reason="max_budget_exceeded")
+    ))
+    paper = _paper(full_text="x" * verification.FULL_TEXT_CAP)
+
+    passed, detail = await verification_check(None, _argument(paper))
+
+    assert passed is False
+    assert detail.startswith("no verdict reached")
+    assert detail.endswith(verification.TRUNCATION_NOTE)
+
+
+async def test_a_timeout_on_a_whole_manuscript_does_not_claim_truncation(monkeypatch):
+    async def hangs(*, prompt, options=None, **kwargs):
+        await asyncio.sleep(60)
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(verification, "query", hangs)
+    monkeypatch.setattr(verification, "TIMEOUT_SECONDS", 0.05)
+
+    passed, detail = await verification_check(None, _argument(_paper()))
+
+    assert passed is False
+    assert "truncated" not in detail
+
+
 async def test_exhausting_the_budget_fails_the_argument(monkeypatch):
     monkeypatch.setattr(verification, "query", _agent_returning(
         _Result(structured_output=None, terminal_reason="max_budget_exceeded")
