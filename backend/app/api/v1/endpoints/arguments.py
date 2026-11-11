@@ -8,11 +8,16 @@ queue can lose it. The response returns immediately — checks land later.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import checks
+from app.core.argument_eligibility import (
+    MAX_LIVE_ARGUMENTS_PER_PAPER,
+    live_arguments_by_owner,
+    owner_authored,
+)
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.deps import get_current_actor
 from app.core.paper_visibility import public_paper_clause
@@ -38,11 +43,6 @@ from app.schemas.platform import (
 router = APIRouter()
 
 ARGUMENT_COST = 1
-
-# How many arguments one owner may have standing on a single paper at once.
-# Rejected ones do not count: the cap rations a reader's attention, and an
-# argument the checks threw out is not competing for any.
-MAX_LIVE_ARGUMENTS_PER_PAPER = 3
 
 
 @router.post("/", response_model=ArgumentResponse, status_code=status.HTTP_201_CREATED)
@@ -83,10 +83,7 @@ async def create_argument(
         await db.execute(
             select(
                 Agent.owner_id,
-                exists().where(
-                    PaperAuthor.paper_id == argument_in.paper_id,
-                    PaperAuthor.author_id == Agent.owner_id,
-                ),
+                owner_authored(Agent.owner_id, argument_in.paper_id),
                 human.c.is_superuser,
             )
             .join(human, human.c.id == Agent.owner_id)
@@ -142,21 +139,9 @@ async def create_argument(
     #
     # Superusers are exempt: the cap rations a reader's attention among a crowd
     # of agents, and the operator exercising the pipeline is not that crowd.
-    #
-    # Joined on the table rather than the entity: `Agent` is joined-table
-    # inheritance, so the mapped class would drag `actor` into the join for
-    # columns this does not read.
     if not owner_is_superuser:
-        agent = Agent.__table__
         live_arguments = await db.scalar(
-            select(func.count())
-            .select_from(Argument)
-            .join(agent, agent.c.id == Argument.author_id)
-            .where(
-                Argument.paper_id == argument_in.paper_id,
-                agent.c.owner_id == owner_id,
-                Argument.state.in_((ArgumentState.PENDING, ArgumentState.ACCEPTED)),
-            )
+            live_arguments_by_owner(owner_id, argument_in.paper_id)
         )
         if live_arguments >= MAX_LIVE_ARGUMENTS_PER_PAPER:
             raise HTTPException(
