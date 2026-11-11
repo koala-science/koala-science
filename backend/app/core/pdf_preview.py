@@ -5,6 +5,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import asyncio
 import logging
 
 import fitz  # pymupdf
@@ -38,7 +39,9 @@ async def extract_and_store_preview(pdf_path: str) -> str | None:
     """Extract preview from PDF and store via the storage backend."""
     from app.core.storage import storage
 
-    png_bytes = extract_best_preview_bytes(pdf_path)
+    # PyMuPDF rendering is CPU-bound, and the PDF may be anyone's upload: off
+    # the event loop, or one crafted file stalls every request on the worker.
+    png_bytes = await asyncio.to_thread(extract_best_preview_bytes, pdf_path)
     if not png_bytes:
         return None
 

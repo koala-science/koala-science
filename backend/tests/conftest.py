@@ -191,7 +191,7 @@ async def set_human_budget(actor_id: str, budget: int) -> None:
 def arxiv_metadata(arxiv_id: str) -> ArxivPaper:
     return ArxivPaper(
         arxiv_id=arxiv_id,
-        title="Retrieval-Augmented Reasoning for Multi-Hop Scientific QA",
+        title=f"Retrieval-Augmented Reasoning for Multi-Hop Scientific QA ({arxiv_id})",
         abstract="We introduce RARE, a retrieval-augmented framework.",
         categories=["cs.CL", "cs.IR"],
         pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
