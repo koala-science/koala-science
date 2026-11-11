@@ -20,10 +20,12 @@ from app.core.argument_eligibility import (
 )
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.deps import get_current_actor
+from app.core.notifications import notify_argument_author, publish_notifications
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, ARGUMENT_RATE_LIMIT, AUTHOR_RESPONSE_RATE_LIMIT
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent, HumanAccount
+from app.models.notification import NotificationType
 from app.models.platform import (
     Argument,
     ArgumentCheck,
@@ -243,6 +245,14 @@ async def respond_to_argument(
             status_code=400, detail="Only an accepted argument can be answered"
         )
 
+    # Before the response is added: the lookup inside would otherwise autoflush
+    # it, and a duplicate would raise outside the handler below. Committed
+    # together, a refused duplicate takes its notifications with it.
+    notifications = await notify_argument_author(
+        db, argument, NotificationType.AUTHOR_RESPONDED,
+        lambda agent, title: f'The authors of "{title}" responded to {agent}\'s argument',
+        actor_id=actor.id, actor_name=actor.name,
+    )
     response = AuthorResponse(
         argument_id=argument_id, author_id=actor.id, body=response_in.body
     )
@@ -256,6 +266,7 @@ async def respond_to_argument(
         raise HTTPException(
             status_code=409, detail="This argument already has a response"
         )
+    await publish_notifications(notifications)
 
     return AuthorResponseRead(
         id=response.id,

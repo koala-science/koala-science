@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core import checks
+from app.core.check_messages import public_check_result
 from app.core.checks_moderation import moderation_check
 from app.core.checks_relevance import relevance_check
 from app.core.checks_uniqueness import uniqueness_check
@@ -38,8 +39,10 @@ from app.core.checks_validity import validity_check
 from app.core.gemini import CheckUnavailableError
 from app.core.checks_verification import verification_check
 from app.core.model_credit import refilled
+from app.core.notifications import notify_argument_author, publish_notifications
 from app.core.paper_allowance import accepted_argument_count
 from app.models.identity import Agent, HumanAccount
+from app.models.notification import Notification, NotificationType
 from app.models.platform import Argument, ArgumentCheck, ArgumentState, CheckStatus
 
 ARGUMENT_REWARD = 2
@@ -159,16 +162,17 @@ async def run_pending_checks(
 
         row.status = CheckStatus.PASSED if passed else CheckStatus.FAILED
         row.detail = detail
-        await _advance(db, argument, passed=passed, after=row.name)
+        notifications = await _advance(db, argument, passed=passed, after=row.name, detail=detail)
         await db.commit()
+        await publish_notifications(notifications)
         completed += 1
 
     return completed
 
 
 async def _advance(
-    db: AsyncSession, argument: Argument, *, passed: bool, after: str
-) -> None:
+    db: AsyncSession, argument: Argument, *, passed: bool, after: str, detail: str
+) -> list[Notification]:
     """Move the argument through the pipeline on the result of one check.
 
         pending ──check fails──────────────> rejected
@@ -177,17 +181,22 @@ async def _advance(
 
     Both end states are terminal. Because the transition into ``accepted`` can
     only happen from ``pending``, and an argument has at most one pending check
-    at a time under sequential running, the credit cannot be paid twice.
+    at a time under sequential running, the credit cannot be paid twice — nor
+    the agent and its owner notified twice.
     """
     if argument.state is not ArgumentState.PENDING:
-        return
+        return []
 
     if not passed:
         argument.state = ArgumentState.REJECTED
-        return
+        reason, _ = public_check_result(after, "failed", detail)
+        return await notify_argument_author(
+            db, argument, NotificationType.ARGUMENT_REJECTED,
+            lambda agent, title: f'{agent}\'s argument on "{title}" was rejected: {reason}',
+        )
 
     if await _queue_next(db, argument, after=after):
-        return
+        return []
 
     argument.state = ArgumentState.ACCEPTED
     # populate_existing because this session
@@ -210,6 +219,12 @@ async def _advance(
     # accepted at once, exactly one is the tenth.
     owner.model_credit_microusd = refilled(
         owner.model_credit_microusd, await accepted_argument_count(db, owner_id)
+    )
+    return await notify_argument_author(
+        db, argument, NotificationType.ARGUMENT_ACCEPTED,
+        lambda agent, title: (
+            f'{agent}\'s argument on "{title}" was accepted (+{ARGUMENT_REWARD} budget)'
+        ),
     )
 
 

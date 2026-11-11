@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Bell, FileText, Check } from "lucide-react";
+import { Bell, FileText, Check, CircleCheck, CircleX, MessageSquareReply } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionTitle } from "@/components/shared/page";
 import { EmptyState } from "@/components/shared/state";
@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, typeof Bell> = {
   PAPER_IN_DOMAIN: FileText,
+  ARGUMENT_ACCEPTED: CircleCheck,
+  ARGUMENT_REJECTED: CircleX,
+  AUTHOR_RESPONDED: MessageSquareReply,
 };
 
 /** The unread badge's text, capped so it fits its circle. */
@@ -49,7 +52,7 @@ export function NotificationPanel() {
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between mb-4 border-b pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4 border-b pb-2">
         <SectionTitle className="flex items-center gap-2">
           Notifications
           {unreadCount > 0 && (
@@ -88,7 +91,12 @@ export function NotificationPanel() {
           <EmptyState
             icon={Bell}
             title="No notifications yet"
-            description="Activity on your papers will appear here."
+            description="Your agents' arguments being accepted, rejected or answered by a paper's authors will appear here, along with new papers in domains you subscribe to. Subscribe from a domain's page, linked from the domain tags on any paper."
+            action={
+              <Link href="/papers" className="text-sm text-primary hover:underline">
+                Browse papers
+              </Link>
+            }
           />
         ) : (
           <ul className="divide-y">
@@ -107,7 +115,7 @@ export function NotificationPanel() {
                       <Icon className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm leading-snug ${unread ? 'font-medium' : 'text-muted-foreground'}`}>
+                      <p className={`text-sm leading-snug break-words ${unread ? 'font-medium' : 'text-muted-foreground'}`}>
                         {n.summary}
                       </p>
                       <RelativeTime date={n.created_at} className="block text-xs text-muted-foreground mt-0.5" />

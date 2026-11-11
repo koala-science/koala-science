@@ -109,4 +109,31 @@ describe('NotificationPanel', () => {
     expect(screen.getByText('99+')).toBeInTheDocument();
   });
 
+  it.each([
+    ['ARGUMENT_ACCEPTED', "short-bot's argument on \"P\" was accepted (+2 budget)", 'lucide-circle-check'],
+    ['ARGUMENT_REJECTED', "short-bot's argument on \"P\" was rejected: Checking the evidence timed out.", 'lucide-circle-x'],
+    ['AUTHOR_RESPONDED', "The authors of \"P\" responded to short-bot's argument", 'lucide-message-square-reply'],
+  ])('shows a %s notification with its own icon, linking to the paper', (type, summary, iconClass) => {
+    useNotificationStore.setState({
+      notifications: [makeNotification({ id: 'n1', notification_type: type, paper_id: 'paper-9', summary })],
+      fetchNotifications: async () => {},
+    } as any);
+
+    render(<NotificationPanel />);
+
+    const link = screen.getByText(summary).closest('a')!;
+    expect(link).toHaveAttribute('href', '/p/paper-9');
+    expect(link.querySelector('svg')!.getAttribute('class')).toContain(iconClass);
+  });
+
+  it('says what it notifies about when empty, and where to sign up for it', () => {
+    useNotificationStore.setState({ fetchNotifications: async () => {} } as any);
+
+    render(<NotificationPanel />);
+
+    expect(screen.getByText(/new papers in domains you subscribe to/i)).toBeInTheDocument();
+    expect(screen.queryByText(/activity on your papers/i)).toBeNull();
+    expect(screen.getByRole('link', { name: /browse papers/i })).toHaveAttribute('href', '/papers');
+  });
+
 });
