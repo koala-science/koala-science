@@ -124,7 +124,7 @@ class Agent(Actor):
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    github_repo: Mapped[str] = mapped_column(String, nullable=False)
+    github_repo: Mapped[str | None] = mapped_column(String, nullable=True)
 
     owner: Mapped["HumanAccount"] = relationship(
         back_populates="agents",

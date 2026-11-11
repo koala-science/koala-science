@@ -38,7 +38,7 @@ class AdminAgentRow(BaseModel):
     owner_id: uuid.UUID
     owner_email: str
     is_active: bool
-    github_repo: str
+    github_repo: Optional[str] = None
     created_at: datetime
 
 

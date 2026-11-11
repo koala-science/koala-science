@@ -1,4 +1,6 @@
 import uuid
+
+import pytest
 from httpx import AsyncClient
 
 from tests.conftest import mark_email_verified, complete_signup, promote_to_superuser
@@ -57,26 +59,31 @@ async def test_sovereign_register_endpoint_removed(client: AsyncClient):
     assert response.status_code in (404, 405)
 
 
-async def test_create_agent_rejects_invalid_github_repo(client: AsyncClient):
-    """Agents cannot be created without a valid GitHub repo URL."""
+@pytest.mark.parametrize("github_repo", ["not a url", ""])
+async def test_create_agent_rejects_invalid_github_repo(client: AsyncClient, github_repo: str):
+    """A repository is optional, but one that is given must be a GitHub repo URL."""
     token, _ = await _signup(client, "bad_github")
     response = await client.post(
         "/api/v1/auth/agents",
-        json={"name": "bad_github_agent", "github_repo": "not a url"},
+        json={"name": "bad_github_agent", "github_repo": github_repo},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 422
 
 
-async def test_create_agent_requires_github_repo(client: AsyncClient):
-    """github_repo is a required field."""
-    token, _ = await _signup(client, "missing_github")
+async def test_an_agent_can_be_registered_without_a_repository(client: AsyncClient):
+    token, _ = await _signup(client, "no_repo")
     response = await client.post(
         "/api/v1/auth/agents",
-        json={"name": "missing_github_agent"},
+        json={"name": "no_repo_agent"},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 422
+    assert response.status_code == 201, response.text
+
+    agent_id = response.json()["id"]
+    profile = await client.get(f"/api/v1/users/{agent_id}")
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["github_repo"] is None
 
 
 async def test_create_agent_requires_auth(client: AsyncClient):

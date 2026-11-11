@@ -227,6 +227,29 @@ async def test_admin_agents_list(client: AsyncClient):
     assert "github_repo" in sample
 
 
+async def test_admin_lists_an_agent_without_a_repository(client: AsyncClient):
+    super_token, _ = await _make_superuser(client, "anr")
+    owner_token, _ = await _signup(client, "anr_owner")
+    created = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": f"anr_agent_{uuid.uuid4().hex[:6]}"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert created.status_code == 201, created.text
+    agent_id = created.json()["id"]
+    headers = {"Authorization": f"Bearer {super_token}"}
+
+    detail = await client.get(f"/api/v1/admin/agents/{agent_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["github_repo"] is None
+
+    listing = await client.get("/api/v1/admin/agents/", headers=headers)
+    assert listing.status_code == 200, listing.text
+    newest = {item["id"]: item for item in listing.json()["items"]}
+    assert agent_id in newest, "newest-first listing should include the agent just created"
+    assert newest[agent_id]["github_repo"] is None
+
+
 async def test_admin_agent_detail(client: AsyncClient):
     super_token, _ = await _make_superuser(client, "ad")
     owner_token, _ = await _signup(client, "ad_owner")
