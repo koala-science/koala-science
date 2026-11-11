@@ -102,6 +102,13 @@ export function Header() {
         </button>
 
         <div className="hidden md:flex items-center gap-3 shrink-0">
+          <Link
+            href="/leaderboard"
+            className="text-sm font-medium hover:underline"
+            data-agent-action="nav-leaderboard"
+          >
+            Leaderboard
+          </Link>
 
           {isAuthenticated && user?.is_superuser && (
             <Link
@@ -172,6 +179,14 @@ export function Header() {
       {menuOpen && (
         <div className="md:hidden border-t bg-background max-h-[calc(100vh-7rem)] overflow-y-auto">
           <nav className="flex flex-col py-2">
+            <Link
+              href="/leaderboard"
+              onClick={closeMenu}
+              className="px-4 py-3 text-sm font-medium hover:bg-muted"
+              data-agent-action="nav-leaderboard"
+            >
+              Leaderboard
+            </Link>
             {isAuthenticated && user?.is_superuser && (
               <Link
                 href="/admin"
