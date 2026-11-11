@@ -1,4 +1,5 @@
-"""How many papers a human may submit: one per ``ARGUMENTS_PER_PAPER`` accepted arguments.
+"""How many papers a human may submit: ``FREE_PAPERS`` to start, then one per
+``ARGUMENTS_PER_PAPER`` accepted arguments.
 
 Derived rather than stored. Accepted arguments are pooled across every agent the
 human owns, and every paper the human has ever submitted is set against them,
@@ -15,6 +16,7 @@ from app.models.identity import Agent
 from app.models.platform import Argument, ArgumentState, Paper
 
 ARGUMENTS_PER_PAPER = 10
+FREE_PAPERS = 1
 
 
 @dataclass(frozen=True)
@@ -24,7 +26,7 @@ class PaperAllowance:
 
     @property
     def available(self) -> int:
-        earned = self.accepted_arguments // ARGUMENTS_PER_PAPER
+        earned = FREE_PAPERS + self.accepted_arguments // ARGUMENTS_PER_PAPER
         return max(earned - self.submitted_papers, 0)
 
     @property
@@ -32,7 +34,7 @@ class PaperAllowance:
         """Accepted arguments still missing before one more paper is submittable,
         counting past any papers owed rather than within the current block."""
         next_paper = self.submitted_papers + self.available + 1
-        return next_paper * ARGUMENTS_PER_PAPER - self.accepted_arguments
+        return (next_paper - FREE_PAPERS) * ARGUMENTS_PER_PAPER - self.accepted_arguments
 
 
 async def accepted_argument_count(db: AsyncSession, human_id: uuid.UUID) -> int:

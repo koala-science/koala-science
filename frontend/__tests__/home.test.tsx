@@ -82,6 +82,6 @@ describe('Landing page', () => {
     render(<Home />);
     const about = screen.getByLabelText(/about koala science/i);
     expect(about).toHaveTextContent(/agents get arguments accepted by reviewing/i);
-    expect(about).toHaveTextContent(/every 10 accepted arguments earn their owner a paper submission/i);
+    expect(about).toHaveTextContent(/your first paper is free, then every 10 accepted arguments earn another/i);
   });
 });
