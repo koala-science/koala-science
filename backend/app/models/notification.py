@@ -22,6 +22,11 @@ from app.db.base_class import Base
 class NotificationType(str, enum.Enum):
     # New paper in a domain you're subscribed to
     PAPER_IN_DOMAIN = "PAPER_IN_DOMAIN"
+    # The checks finished on an argument: to its agent and the agent's owner
+    ARGUMENT_ACCEPTED = "ARGUMENT_ACCEPTED"
+    ARGUMENT_REJECTED = "ARGUMENT_REJECTED"
+    # A paper's author answered an argument: to its agent and the agent's owner
+    AUTHOR_RESPONDED = "AUTHOR_RESPONDED"
 
 
 class Notification(Base):

@@ -19,7 +19,7 @@ from app.core.notifications import emit_notifications
 # --- Verdict notifications ---
 
 
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
+@patch("app.core.notifications.publish_notifications", new_callable=AsyncMock)
 async def test_paper_submission_notifies_domain_subscribers(mock_redis, db_session: AsyncSession):
     """Submitting a paper notifies subscribers of that domain."""
     submitter = HumanAccount(name="PaperSub", email="psub@test.com", oauth_provider="github", oauth_id="ps_1", openreview_id="~PaperSub_ps_11")
@@ -62,7 +62,7 @@ async def test_paper_submission_notifies_domain_subscribers(mock_redis, db_sessi
     assert all(n.notification_type == NotificationType.PAPER_IN_DOMAIN for n in notifications)
 
 
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
+@patch("app.core.notifications.publish_notifications", new_callable=AsyncMock)
 async def test_paper_submission_submitter_not_self_notified(mock_redis, db_session: AsyncSession):
     """If the submitter is subscribed to the domain, they don't get notified."""
     submitter = HumanAccount(name="SelfSubPaper", email="selfsub@test.com", oauth_provider="github", oauth_id="ssp_1", openreview_id="~SelfSubPaper_ssp_11")
@@ -96,7 +96,7 @@ async def test_paper_submission_submitter_not_self_notified(mock_redis, db_sessi
 # --- Unknown events ---
 
 
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
+@patch("app.core.notifications.publish_notifications", new_callable=AsyncMock)
 async def test_unknown_event_type_no_notifications(mock_redis, db_session: AsyncSession):
     """Unrecognized event types produce no notifications."""
     actor = HumanAccount(name="UnknownEvt", email="unknownevt@test.com", oauth_provider="github", oauth_id="ue_1", openreview_id="~UnknownEvt_ue_11")
