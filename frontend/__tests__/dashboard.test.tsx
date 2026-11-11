@@ -154,22 +154,25 @@ describe('Dashboard', () => {
     expect(await screen.findByText('Could not load your dashboard')).toBeInTheDocument();
     expect(screen.queryByText(/Loading dashboard/)).toBeNull();
   });
-  it('offers Google Scholar linking without asking for ORCID first', () => {
+  it('keeps Google Scholar in the profile card, with no separate identity card', () => {
     render(<Dashboard />);
 
-    const card = screen.getByRole('region', { name: 'Academic identity' });
-    expect(within(card).getByRole('textbox', { name: 'Google Scholar ID' })).toBeEnabled();
+    expect(screen.queryByRole('region', { name: 'Academic identity' })).toBeNull();
+    const profile = screen.getByRole('region', { name: 'Profile' });
+    expect(within(profile).getByRole('button', { name: 'Add Google Scholar' })).toBeInTheDocument();
+    expect(within(profile).queryByRole('textbox', { name: 'Google Scholar ID' })).toBeNull();
     expect(screen.queryByText(/orcid/i)).toBeNull();
   });
 
-  it('links Google Scholar by posting the entered ID', async () => {
+  it('links Google Scholar from the profile card by posting the entered ID', async () => {
     render(<Dashboard />);
 
-    const card = screen.getByRole('region', { name: 'Academic identity' });
-    fireEvent.change(within(card).getByRole('textbox', { name: 'Google Scholar ID' }), {
+    const profile = screen.getByRole('region', { name: 'Profile' });
+    fireEvent.click(within(profile).getByRole('button', { name: 'Add Google Scholar' }));
+    fireEvent.change(within(profile).getByRole('textbox', { name: 'Google Scholar ID' }), {
       target: { value: 'dkAFaXoAAAAJ' },
     });
-    fireEvent.click(within(card).getByRole('button', { name: 'Link' }));
+    fireEvent.click(within(profile).getByRole('button', { name: 'Link' }));
 
     await waitFor(() => {
       const calls = (global.fetch as jest.Mock).mock.calls.map(([url, init]) => [String(url), init?.method]);
@@ -178,5 +181,36 @@ describe('Dashboard', () => {
         'POST',
       ]);
     });
+  });
+
+  it('shows a linked Google Scholar profile as a link', () => {
+    const seeded = useProfileStore.getState().profile!;
+    useProfileStore.setState({ profile: { ...seeded, google_scholar_id: 'dkAFaXoAAAAJ' } });
+    render(<Dashboard />);
+
+    const profile = screen.getByRole('region', { name: 'Profile' });
+    expect(within(profile).getByRole('link', { name: 'dkAFaXoAAAAJ' })).toHaveAttribute(
+      'href',
+      'https://scholar.google.com/citations?user=dkAFaXoAAAAJ',
+    );
+    expect(within(profile).queryByRole('button', { name: 'Add Google Scholar' })).toBeNull();
+  });
+
+  it('cancelling an unfinished link clears it and returns focus to Add', async () => {
+    render(<Dashboard />);
+
+    const profile = screen.getByRole('region', { name: 'Profile' });
+    fireEvent.click(within(profile).getByRole('button', { name: 'Add Google Scholar' }));
+    fireEvent.change(within(profile).getByRole('textbox', { name: 'Google Scholar ID' }), {
+      target: { value: 'half-typed' },
+    });
+    fireEvent.click(within(profile).getByRole('button', { name: 'Cancel' }));
+
+    expect(within(profile).queryByRole('textbox', { name: 'Google Scholar ID' })).toBeNull();
+    const add = within(profile).getByRole('button', { name: 'Add Google Scholar' });
+    await waitFor(() => expect(add).toHaveFocus());
+
+    fireEvent.click(add);
+    expect(within(profile).getByRole('textbox', { name: 'Google Scholar ID' })).toHaveValue('');
   });
 });
