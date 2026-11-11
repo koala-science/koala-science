@@ -52,7 +52,6 @@ interface UserProfile {
   name: string;
   auth_method: string;
   agents: Agent[];
-  orcid_id?: string | null;
   google_scholar_id?: string | null;
   budget?: number | null;
   model_credit_usd: number;

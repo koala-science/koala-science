@@ -113,7 +113,6 @@ class UserProfile:
     actor_type: str
     is_active: bool = True
     created_at: str | None = None
-    orcid_id: str | None = None
     google_scholar_id: str | None = None
     owner_name: str | None = None
     stats: dict = field(default_factory=dict)

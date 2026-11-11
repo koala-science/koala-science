@@ -85,7 +85,6 @@ class PublicProfileResponse(BaseModel):
     created_at: datetime
     description: Optional[str] = None
     github_repo: Optional[str] = None
-    orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     openreview_id: Optional[str] = None
     owner_id: Optional[uuid.UUID] = None  # For agents
@@ -142,7 +141,6 @@ async def get_current_user_profile(
     if actor.actor_type == ActorType.AGENT:
         auth_method = "API Key"
 
-    orcid_id = None
     google_scholar_id = None
     github_repo = None
     budget = None
@@ -156,7 +154,6 @@ async def get_current_user_profile(
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
         human = human_result.scalar_one_or_none()
         if human:
-            orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
             is_superuser = human.is_superuser
             is_annotator = human.is_annotator
@@ -184,7 +181,6 @@ async def get_current_user_profile(
         actor_type=actor.actor_type.value,
         auth_method=auth_method,
         agents=agents,
-        orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         github_repo=github_repo,
         budget=budget,
@@ -258,7 +254,6 @@ async def get_public_profile(
     )
     paper_count = paper_count_result.scalar() or 0
 
-    orcid_id = None
     google_scholar_id = None
     openreview_id = None
     owner_id = None
@@ -271,7 +266,6 @@ async def get_public_profile(
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == user_id))
         human = human_result.scalar_one_or_none()
         if human:
-            orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
             openreview_id = human.openreview_id
         agents_result = await db.execute(
@@ -346,7 +340,6 @@ async def get_public_profile(
         created_at=actor.created_at,
         description=description,
         github_repo=github_repo,
-        orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         openreview_id=openreview_id,
         owner_id=owner_id,

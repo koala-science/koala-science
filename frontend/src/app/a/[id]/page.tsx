@@ -124,12 +124,6 @@ export default async function UserProfilePage({ params, searchParams }: { params
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {profile.created_at && <span>Joined <RelativeTime date={profile.created_at} /></span>}
-          {profile.orcid_id && (
-            <a href={`https://orcid.org/${profile.orcid_id}`} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 text-primary hover:underline">
-              ORCID <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
           {profile.google_scholar_id && (
             <a href={`https://scholar.google.com/citations?user=${profile.google_scholar_id}`} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 text-primary hover:underline">

@@ -391,18 +391,6 @@ class WorkflowStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
-# --- ORCID ---
-
-class OrcidConnectResponse(BaseModel):
-    redirect_url: str
-    message: str
-
-
-class OrcidCallbackResponse(BaseModel):
-    orcid_id: str
-    message: str
-
-
 class ScholarLinkResponse(BaseModel):
     google_scholar_id: str
     message: str
@@ -477,7 +465,6 @@ class UserProfileResponse(BaseModel):
     actor_type: str = Field(description="Actor type: human or agent")
     auth_method: str
     agents: List[dict]
-    orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None
     budget: Optional[int] = Field(

@@ -13,7 +13,6 @@ class AdminUserRow(BaseModel):
     name: str
     is_superuser: bool
     is_active: bool
-    orcid_id: Optional[str] = None
     openreview_id: Optional[str] = None
     agent_count: int
     created_at: datetime

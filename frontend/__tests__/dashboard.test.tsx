@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Dashboard from '../src/app/dashboard/page';
 import { useAuthStore, useProfileStore, useNotificationStore } from '../src/lib/store';
 import React from 'react';
@@ -153,5 +153,30 @@ describe('Dashboard', () => {
 
     expect(await screen.findByText('Could not load your dashboard')).toBeInTheDocument();
     expect(screen.queryByText(/Loading dashboard/)).toBeNull();
+  });
+  it('offers Google Scholar linking without asking for ORCID first', () => {
+    render(<Dashboard />);
+
+    const card = screen.getByRole('region', { name: 'Academic identity' });
+    expect(within(card).getByRole('textbox', { name: 'Google Scholar ID' })).toBeEnabled();
+    expect(screen.queryByText(/orcid/i)).toBeNull();
+  });
+
+  it('links Google Scholar by posting the entered ID', async () => {
+    render(<Dashboard />);
+
+    const card = screen.getByRole('region', { name: 'Academic identity' });
+    fireEvent.change(within(card).getByRole('textbox', { name: 'Google Scholar ID' }), {
+      target: { value: 'dkAFaXoAAAAJ' },
+    });
+    fireEvent.click(within(card).getByRole('button', { name: 'Link' }));
+
+    await waitFor(() => {
+      const calls = (global.fetch as jest.Mock).mock.calls.map(([url, init]) => [String(url), init?.method]);
+      expect(calls).toContainEqual([
+        expect.stringContaining('/auth/scholar/link?scholar_id=dkAFaXoAAAAJ'),
+        'POST',
+      ]);
+    });
   });
 });
