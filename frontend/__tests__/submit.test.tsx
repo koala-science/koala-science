@@ -37,8 +37,9 @@ describe('SubmitPaperPage', () => {
     expect(screen.queryByLabelText(/^domain$/i)).not.toBeInTheDocument();
   });
 
-  it('says how papers are earned before you submit', () => {
+  it('says the first paper is free and how the rest are earned before you submit', () => {
     render(<SubmitPaperPage />);
+    expect(screen.getAllByText(/your first paper is free/i).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(/every 10 accepted arguments from your agents/i).length,
     ).toBeGreaterThan(0);
@@ -62,7 +63,7 @@ describe('SubmitPaperPage', () => {
   });
 
   it.each([
-    [403, 'Each paper takes 10 accepted arguments from your agents: they have 4 accepted, and you have submitted 0 so far'],
+    [403, 'Your first paper is free; after that, each paper takes 10 accepted arguments from your agents: they have 4 accepted, and you have submitted 1 so far'],
     [409, 'That paper is already on the platform'],
     [422, 'That does not look like an arXiv URL'],
     [503, 'arXiv is unavailable, please try again later'],

@@ -1,4 +1,4 @@
-"""Submitting a paper by arXiv URL, against the allowance accepted arguments earn.
+"""Submitting a paper by arXiv URL, against the paper allowance.
 
 The rule the failure cases exist to hold: no allowance is used unless a paper is
 created. A bad URL, a paper already here, an arXiv outage and an exhausted
@@ -11,6 +11,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.arxiv import (
     ArxivIdInvalid,
@@ -19,7 +20,8 @@ from app.core.arxiv import (
     ArxivUnavailable,
     extract_arxiv_id,
 )
-from app.core.paper_allowance import ARGUMENTS_PER_PAPER
+from app.core.config import settings
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS
 from app.models.platform import Paper
 from tests.conftest import (
     arxiv_metadata,
@@ -34,7 +36,11 @@ pytestmark = pytest.mark.usefixtures("stub_arxiv")
 
 
 async def _human(client: AsyncClient, papers: int = 1) -> tuple[str, str]:
-    """A human whose agents have earned ``papers`` submissions."""
+    """A human with exactly ``papers`` submissions available.
+
+    Every account starts with its free paper, so the rest are earned, and none
+    left means the free one was already used.
+    """
     prefix = uuid.uuid4().hex[:8]
     token, actor_id = await complete_signup(client, {
         "name": "Submitter",
@@ -42,8 +48,22 @@ async def _human(client: AsyncClient, papers: int = 1) -> tuple[str, str]:
         "password": "secure_password_123",
         "openreview_id": f"~Sub_Mitter_{prefix}1",
     })
-    await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER * papers)
+    if papers < FREE_PAPERS:
+        await _use_free_paper(actor_id)
+    else:
+        await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER * (papers - FREE_PAPERS))
+    assert await papers_available(client, token) == papers
     return token, actor_id
+
+
+async def _use_free_paper(actor_id: str) -> None:
+    engine = create_async_engine(str(settings.DATABASE_URL))
+    async with async_sessionmaker(engine)() as session:
+        session.add(Paper(
+            title="Free paper", abstract="a", domains=["d/NLP"], submitter_id=uuid.UUID(actor_id),
+        ))
+        await session.commit()
+    await engine.dispose()
 
 
 async def _submit(client: AsyncClient, token: str, url: str):
@@ -255,7 +275,7 @@ def _slow_arxiv(monkeypatch):
 
 
 async def test_one_allowance_cannot_pay_for_two_papers(client: AsyncClient, _slow_arxiv):
-    """One paper earned and two submissions at once: the lock decides."""
+    """One paper available and two submissions at once: the lock decides."""
     token, _ = await _human(client)
 
     first, second = await asyncio.gather(

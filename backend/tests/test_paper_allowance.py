@@ -1,7 +1,8 @@
-"""Papers are earned: every 10 accepted arguments buy one arXiv submission.
+"""Every human gets one arXiv submission free, then one more per 10 accepted arguments.
 
-The allowance is derived, never stored: accepted arguments across all of a
-human's agents, divided by 10, less every paper that human has submitted.
+The allowance is derived, never stored: the free paper, plus accepted arguments
+across all of a human's agents divided by 10, less every paper that human has
+submitted.
 """
 import random
 import uuid
@@ -12,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
-from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS, PaperAllowance
 from app.models.identity import Agent, HumanAccount
 from app.models.platform import Argument, ArgumentState
 from tests.conftest import (
@@ -43,18 +44,32 @@ async def _submit(client: AsyncClient, token: str):
     )
 
 
-async def test_a_new_account_has_earned_nothing(client: AsyncClient):
+def test_every_account_gets_one_paper_free():
+    """A new human can submit straight away, before their agents have done any work.
+
+    Prose states this number and cannot follow the constant: the 403 in
+    papers.py ("Your first paper is free"), frontend/public/skill.md, the submit
+    page, and the home page pipeline. Change it and change them.
+    """
+    assert FREE_PAPERS == 1
+
+
+async def test_a_new_account_can_submit_one_paper_for_free(client: AsyncClient):
     token, _ = await _human(client)
+    assert await papers_available(client, token) == 1
+
+    assert (await _submit(client, token)).status_code == 201
     assert await papers_available(client, token) == 0
 
     resp = await _submit(client, token)
     assert resp.status_code == 403
     detail = resp.json()["detail"]
+    assert "first paper is free" in detail
     assert "10 accepted arguments" in detail
     assert "0 accepted" in detail
 
 
-@pytest.mark.parametrize("accepted,expected", [(9, 0), (10, 1), (19, 1), (20, 2), (35, 3)])
+@pytest.mark.parametrize("accepted,expected", [(9, 1), (10, 2), (19, 2), (20, 3), (35, 4)])
 async def test_every_ten_accepted_arguments_earn_one_paper(
     client: AsyncClient, accepted: int, expected: int
 ):
@@ -63,10 +78,11 @@ async def test_every_ten_accepted_arguments_earn_one_paper(
     assert await papers_available(client, token) == expected
 
 
-async def test_ten_earn_exactly_one_submission(client: AsyncClient):
+async def test_ten_earn_exactly_one_submission_on_top_of_the_free_one(client: AsyncClient):
     token, _ = await _human(client)
     await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER)
 
+    assert (await _submit(client, token)).status_code == 201
     assert (await _submit(client, token)).status_code == 201
     assert (await _submit(client, token)).status_code == 403
     assert await papers_available(client, token) == 0
@@ -74,8 +90,8 @@ async def test_ten_earn_exactly_one_submission(client: AsyncClient):
 
 async def test_more_accepted_arguments_reopen_submission(client: AsyncClient):
     token, _ = await _human(client)
-    await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER)
     assert (await _submit(client, token)).status_code == 201
+    assert await papers_available(client, token) == 0
 
     await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER)
     assert await papers_available(client, token) == 1
@@ -98,14 +114,14 @@ async def test_only_accepted_arguments_count(client: AsyncClient, state):
         )
     await engine.dispose()
 
-    assert await papers_available(client, token) == 0
+    assert await papers_available(client, token) == FREE_PAPERS
 
 
 async def test_accepted_arguments_pool_across_agents(client: AsyncClient):
     token, _ = await _human(client)
     await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER // 2)
     await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER // 2)
-    assert await papers_available(client, token) == 1
+    assert await papers_available(client, token) == FREE_PAPERS + 1
 
 
 async def test_another_humans_arguments_do_not_count(client: AsyncClient):
@@ -113,8 +129,8 @@ async def test_another_humans_arguments_do_not_count(client: AsyncClient):
     other_token, _ = await _human(client)
     await grant_accepted_arguments(client, other_token, ARGUMENTS_PER_PAPER)
 
-    assert await papers_available(client, token) == 0
-    assert await papers_available(client, other_token) == 1
+    assert await papers_available(client, token) == FREE_PAPERS
+    assert await papers_available(client, other_token) == FREE_PAPERS + 1
 
 
 async def test_every_paper_submitted_counts_against_the_allowance(client: AsyncClient):
@@ -129,7 +145,7 @@ async def test_every_paper_submitted_counts_against_the_allowance(client: AsyncC
         headers={"Authorization": f"Bearer {token}"},
     )
     assert by_hand.status_code == 201, by_hand.text
-    assert await papers_available(client, token) == 1
+    assert await papers_available(client, token) == FREE_PAPERS + 1
 
 
 async def test_an_allowance_cannot_go_negative(client: AsyncClient):
@@ -143,7 +159,6 @@ async def test_an_allowance_cannot_go_negative(client: AsyncClient):
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 201, resp.text
-    await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER)
 
     assert await papers_available(client, token) == 0
     assert (await _submit(client, token)).status_code == 403
@@ -179,7 +194,7 @@ async def test_an_agent_profile_reports_no_paper_allowance(client: AsyncClient):
 
 
 @pytest.mark.parametrize("accepted,submitted,to_next", [
-    (0, 0, 10), (7, 0, 3), (20, 0, 10), (23, 0, 7), (23, 2, 7), (5, 3, 35),
+    (0, 0, 10), (0, 1, 10), (7, 0, 3), (20, 0, 10), (23, 0, 7), (23, 2, 7), (5, 3, 25),
 ])
 def test_arguments_to_next_paper(accepted: int, submitted: int, to_next: int):
     """Counted to the paper that would actually become submittable, so someone
@@ -201,16 +216,18 @@ async def test_the_profile_reports_what_the_dashboard_shows(client: AsyncClient)
     profile = await _profile(client, token)
     assert profile["budget"] == 50
     assert profile["accepted_arguments"] == 23
-    assert profile["papers_available"] == 2
+    assert profile["papers_available"] == 3
     assert profile["arguments_to_next_paper"] == 7
 
 
-async def test_a_new_profile_is_a_whole_paper_away(client: AsyncClient):
+async def test_a_new_profile_has_its_free_paper_and_is_a_whole_paper_from_the_next(
+    client: AsyncClient,
+):
     token, _ = await _human(client)
 
     profile = await _profile(client, token)
     assert profile["accepted_arguments"] == 0
-    assert profile["papers_available"] == 0
+    assert profile["papers_available"] == 1
     assert profile["arguments_to_next_paper"] == ARGUMENTS_PER_PAPER
 
 

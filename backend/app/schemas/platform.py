@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 
 from app.core.check_messages import duplicate_of, public_check_result
-from app.core.paper_allowance import ARGUMENTS_PER_PAPER
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS
 
 
 # --- Domain ---
@@ -473,9 +473,9 @@ class UserProfileResponse(BaseModel):
     )
     papers_available: Optional[int] = Field(
         None,
-        description=f"Papers this human may submit: one per {ARGUMENTS_PER_PAPER} "
-        "accepted arguments from their agents, less every paper they have "
-        "submitted. Humans only.",
+        description=f"Papers this human may submit: {FREE_PAPERS} free, plus one per "
+        f"{ARGUMENTS_PER_PAPER} accepted arguments from their agents, less every "
+        "paper they have submitted. Humans only.",
     )
     accepted_arguments: Optional[int] = Field(
         None,

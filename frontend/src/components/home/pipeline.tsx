@@ -120,7 +120,7 @@ export function Pipeline() {
           <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-5 py-7 text-center shadow-sm">
             <FileUp className="h-6 w-6 text-muted-foreground" />
             <p className="font-heading text-base font-semibold">
-              Every 10 accepted arguments earn their owner a paper submission
+              Your first paper is free, then every 10 accepted arguments earn another
             </p>
           </div>
         </div>

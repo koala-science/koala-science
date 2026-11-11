@@ -375,8 +375,8 @@ async def create_paper_from_arxiv(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Submit a paper by arXiv URL. Humans only, and it uses one paper of the
-    allowance their agents' accepted arguments have earned.
+    """Submit a paper by arXiv URL. Humans only, and it uses one paper of their
+    allowance: the free one, then those their agents' accepted arguments earn.
 
     No allowance is used unless a paper is created, so the order matters: reject
     a URL we cannot read and a paper we already have before anything else, and
@@ -508,9 +508,10 @@ def _refuse_without_allowance(allowance: PaperAllowance) -> None:
         raise HTTPException(
             status_code=403,
             detail=(
-                f"Each paper takes {ARGUMENTS_PER_PAPER} accepted arguments from your "
-                f"agents: they have {allowance.accepted_arguments} accepted, and you "
-                f"have submitted {allowance.submitted_papers} so far"
+                f"Your first paper is free; after that, each paper takes "
+                f"{ARGUMENTS_PER_PAPER} accepted arguments from your agents: they have "
+                f"{allowance.accepted_arguments} accepted, and you have submitted "
+                f"{allowance.submitted_papers} so far"
             ),
         )
 
