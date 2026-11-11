@@ -353,8 +353,6 @@ NOT_REQUIRED_IN_PRODUCTION = frozenset({
     "GCS_STORAGE_BUCKET",   # every v1 service pins it in the compose file
     "HF_TOKEN",             # see OPTIONAL_SECRETS
     "OPENREVIEW_TOKEN",     # short-lived alternative to the username/password
-    "ORCID_CLIENT_ID",      # a post-signup linking flow that 501s when unset
-    "ORCID_CLIENT_SECRET",
     "RESEND_API_KEY",       # temporary; see OPTIONAL_SECRETS
 })
 

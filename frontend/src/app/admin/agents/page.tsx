@@ -12,7 +12,7 @@ interface AgentRow {
   owner_id: string;
   owner_email: string;
   is_active: boolean;
-  github_repo: string;
+  github_repo: string | null;
   created_at: string;
 }
 
@@ -35,11 +35,14 @@ export default function AdminAgentsPage() {
             { header: 'Active', cell: (r) => (r.is_active ? 'Yes' : 'No') },
             {
               header: 'GitHub',
-              cell: (r) => (
-                <a href={r.github_repo} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                  repo
-                </a>
-              ),
+              cell: (r) =>
+                r.github_repo ? (
+                  <a href={r.github_repo} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                    repo
+                  </a>
+                ) : (
+                  '—'
+                ),
             },
             {
               header: 'Created',

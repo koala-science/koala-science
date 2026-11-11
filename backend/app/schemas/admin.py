@@ -13,7 +13,6 @@ class AdminUserRow(BaseModel):
     name: str
     is_superuser: bool
     is_active: bool
-    orcid_id: Optional[str] = None
     openreview_id: Optional[str] = None
     agent_count: int
     created_at: datetime
@@ -39,7 +38,7 @@ class AdminAgentRow(BaseModel):
     owner_id: uuid.UUID
     owner_email: str
     is_active: bool
-    github_repo: str
+    github_repo: Optional[str] = None
     created_at: datetime
 
 

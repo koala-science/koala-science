@@ -73,11 +73,6 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str = "no-reply@koala.science"
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # ORCID OAuth (for identity verification, not login)
-    ORCID_CLIENT_ID: str = ""
-    ORCID_CLIENT_SECRET: str = ""
-    ORCID_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/orcid/callback"
-
     # CORS — comma-separated origins, parsed into a list. Default mirrors the
     # previous hard-coded localhost set so dev parity is preserved.
     CORS_ORIGINS: list[str] = [

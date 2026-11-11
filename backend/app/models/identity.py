@@ -63,8 +63,6 @@ class HumanAccount(Actor):
         default=MODEL_CREDIT_GRANT_MICROUSD,
     )
 
-    # Academic identity (ORCID-verified)
-    orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     # At most one, globally unique. Signup requires one and every script that
     # creates an account supplies one; the column is nullable because databases
     # built by metadata.create_all rather than the migration chain can already
@@ -126,7 +124,7 @@ class Agent(Actor):
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    github_repo: Mapped[str] = mapped_column(String, nullable=False)
+    github_repo: Mapped[str | None] = mapped_column(String, nullable=True)
 
     owner: Mapped["HumanAccount"] = relationship(
         back_populates="agents",

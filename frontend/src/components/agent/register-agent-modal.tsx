@@ -34,7 +34,7 @@ export function RegisterAgentModal() {
     try {
       const res = await apiFetch("/auth/agents", {
         method: "POST",
-        body: JSON.stringify({ name, github_repo }),
+        body: JSON.stringify(github_repo ? { name, github_repo } : { name }),
       });
 
       if (!res.ok) {
@@ -96,8 +96,8 @@ export function RegisterAgentModal() {
               <Input id="agentName" name="agentName" required placeholder="e.g. evidence-checker" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="githubRepo">Transparency repository</Label>
-              <Input id="githubRepo" name="githubRepo" required placeholder="https://github.com/your-org/your-agent" type="url" pattern="https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(\.git)?/?" />
+              <Label htmlFor="githubRepo">Transparency repository (optional)</Label>
+              <Input id="githubRepo" name="githubRepo" placeholder="https://github.com/your-org/your-agent" type="url" pattern="https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(\.git)?/?" />
               <p className="text-xs text-muted-foreground">Public GitHub repo containing your agent's prompts, logs, and arguments.</p>
             </div>
             {error && <ErrorText>{error}</ErrorText>}

@@ -99,10 +99,7 @@ export default function Dashboard() {
         </section>
 
         {/* Row 1, Col 3 — Academic Identity */}
-        <AcademicIdentitySection
-          orcidId={profile.orcid_id}
-          scholarId={profile.google_scholar_id}
-        />
+        <AcademicIdentitySection scholarId={profile.google_scholar_id} />
 
         {/* Row 2, Col 1 — Agents */}
         <section className={`${SECTION} lg:col-span-2`} aria-label="Agents">
@@ -171,28 +168,11 @@ function NextPaperProgress({ remaining }: { remaining: number }) {
   );
 }
 
-function AcademicIdentitySection({ orcidId, scholarId }: { orcidId?: string | null; scholarId?: string | null }) {
+function AcademicIdentitySection({ scholarId }: { scholarId?: string | null }) {
   const [scholarInput, setScholarInput] = React.useState('');
   const [linking, setLinking] = React.useState(false);
-  const [orcidError, setOrcidError] = React.useState<string | null>(null);
   const [scholarError, setScholarError] = React.useState<string | null>(null);
   const fetchProfile = useProfileStore((s) => s.fetchProfile);
-
-  const handleConnectOrcid = async () => {
-    setOrcidError(null);
-    try {
-      const res = await apiFetch('/auth/orcid/connect');
-      if (res.ok) {
-        const data = await res.json();
-        window.location.href = data.url;
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      setOrcidError(data.detail || 'Could not start ORCID verification.');
-    } catch {
-      setOrcidError('Could not start ORCID verification.');
-    }
-  };
 
   const handleLinkScholar = async () => {
     if (!scholarInput.trim()) return;
@@ -221,33 +201,6 @@ function AcademicIdentitySection({ orcidId, scholarId }: { orcidId?: string | nu
       <SectionTitle className="mb-4">Academic identity</SectionTitle>
 
       <div className="space-y-4 text-sm">
-        {/* ORCID */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <span className="font-medium">ORCID</span>
-              {orcidId && (
-                <a
-                  href={`https://orcid.org/${orcidId}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-2 text-primary hover:underline font-mono"
-                >
-                  {orcidId}
-                </a>
-              )}
-            </div>
-            {orcidId ? (
-              <span className="text-xs px-2 py-1 rounded bg-green-50 text-green-700 font-medium">Verified</span>
-            ) : (
-              <Button variant="link" className="h-auto px-0" onClick={handleConnectOrcid}>
-                Verify with ORCID
-              </Button>
-            )}
-          </div>
-          {orcidError && <ErrorText>{orcidError}</ErrorText>}
-        </div>
-
         {/* Google Scholar */}
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
@@ -266,7 +219,7 @@ function AcademicIdentitySection({ orcidId, scholarId }: { orcidId?: string | nu
             </div>
             {scholarId ? (
               <span className="text-xs px-2 py-1 rounded bg-green-50 text-green-700 font-medium">Linked</span>
-            ) : orcidId ? (
+            ) : (
               <div className="flex items-center gap-2">
                 <Input
                   type="text"
@@ -285,8 +238,6 @@ function AcademicIdentitySection({ orcidId, scholarId }: { orcidId?: string | nu
                   {linking ? 'Linking…' : 'Link'}
                 </Button>
               </div>
-            ) : (
-              <span className="text-xs text-muted-foreground">Verify ORCID first</span>
             )}
           </div>
           {scholarError && <ErrorText>{scholarError}</ErrorText>}

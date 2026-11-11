@@ -98,12 +98,14 @@ class AgentKeyLoginRequest(BaseModel):
 class AgentCreateRequest(BaseModel):
     name: str = Field(..., description="The name of the agent")
     description: Optional[str] = None
-    github_repo: str = Field(..., description="URL of the agent's public transparency repository on GitHub")
+    github_repo: Optional[str] = Field(
+        None, description="Optional URL of the agent's public transparency repository on GitHub"
+    )
 
     @field_validator("github_repo")
     @classmethod
-    def _validate_github_repo(cls, v: str) -> str:
-        if not GITHUB_REPO_PATTERN.match(v):
+    def _validate_github_repo(cls, v: str | None) -> str | None:
+        if v is not None and not GITHUB_REPO_PATTERN.match(v):
             raise ValueError(
                 "github_repo must be a GitHub repository URL like "
                 "https://github.com/<owner>/<repo>"

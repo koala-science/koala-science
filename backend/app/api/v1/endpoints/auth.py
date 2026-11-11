@@ -3,20 +3,17 @@ Authentication endpoints:
 - Email/password signup and login (for humans)
 - Agent API key registration and management
 - Agent API key → JWT exchange (for computer-use agents in browsers)
-- ORCID OAuth verification (for academic identity, not login)
+- Google Scholar profile linking
 """
 import logging
 import html
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from jose import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status, Response
-from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
 
 from app.db.session import get_db
 from app.core.config import settings
@@ -49,7 +46,7 @@ from app.schemas.auth import (
     AgentListResponse,
     TokenResponse,
 )
-from app.schemas.platform import OrcidConnectResponse, OrcidCallbackResponse, ScholarLinkResponse
+from app.schemas.platform import ScholarLinkResponse
 
 logger = logging.getLogger(__name__)
 
@@ -740,109 +737,20 @@ async def list_agents(
     ]
 
 
-# --- ORCID Verification ---
-# Flow: frontend gets redirect URL with actor_id signed in state param →
-# user authenticates at ORCID → callback verifies state + exchanges code →
-# links ORCID iD to the user → redirects to frontend dashboard.
-
-
-@router.get("/orcid/connect", response_model=OrcidConnectResponse)
-async def orcid_connect(actor: Actor = Depends(get_current_actor)):
-    """Return ORCID OAuth URL. Actor ID is encoded in the state param."""
-    if actor.actor_type != ActorType.HUMAN:
-        raise HTTPException(status_code=403, detail="Only human accounts can link ORCID")
-
-    if not settings.ORCID_CLIENT_ID:
-        raise HTTPException(status_code=501, detail="ORCID OAuth not configured")
-
-    state_token = jwt.encode(
-        {"sub": str(actor.id), "purpose": "orcid_link"},
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
-    )
-
-    orcid_auth_url = (
-        f"https://orcid.org/oauth/authorize"
-        f"?client_id={settings.ORCID_CLIENT_ID}"
-        f"&response_type=code"
-        f"&scope=/authenticate"
-        f"&redirect_uri={settings.ORCID_REDIRECT_URI}"
-        f"&state={state_token}"
-    )
-    return {"url": orcid_auth_url}
-
-
-@router.get("/orcid/callback", response_model=OrcidCallbackResponse)
-async def orcid_callback(
-    code: str,
-    state: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    ORCID OAuth callback. Verifies state, exchanges code for ORCID iD,
-    and links it to the user identified in the state token.
-    """
-    try:
-        payload = jwt.decode(state, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        if payload.get("purpose") != "orcid_link":
-            raise ValueError("Invalid state purpose")
-        actor_id = payload["sub"]
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid or expired state token")
-
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            "https://orcid.org/oauth/token",
-            data={
-                "client_id": settings.ORCID_CLIENT_ID,
-                "client_secret": settings.ORCID_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": settings.ORCID_REDIRECT_URI,
-            },
-            headers={"Accept": "application/json"},
-        )
-
-    token_data = token_resp.json()
-    orcid_id = token_data.get("orcid")
-    if not orcid_id:
-        raise HTTPException(status_code=400, detail="Failed to get ORCID iD from token response")
-
-    existing = await db.execute(
-        select(HumanAccount).where(HumanAccount.orcid_id == orcid_id)
-    )
-    if existing.scalar_one_or_none():
-        return RedirectResponse(url="/dashboard?orcid_error=already_linked")
-
-    import uuid as _uuid
-    result = await db.execute(select(HumanAccount).where(HumanAccount.id == _uuid.UUID(actor_id)))
-    human = result.scalar_one_or_none()
-    if not human:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    human.orcid_id = orcid_id
-    await db.commit()
-
-    return RedirectResponse(url="/dashboard?orcid_linked=true")
-
-
 @router.post("/scholar/link", response_model=ScholarLinkResponse)
 async def link_google_scholar(
     scholar_id: str,
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Link a Google Scholar profile. Requires ORCID to be verified first."""
+    """Link a Google Scholar profile. Humans only."""
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(status_code=403, detail="Only human accounts can link Scholar")
 
     result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
     human = result.scalar_one()
 
-    if not human.orcid_id:
-        raise HTTPException(status_code=403, detail="You must verify your ORCID before linking Google Scholar")
-
     human.google_scholar_id = scholar_id
     await db.commit()
 
-    return {"success": True, "google_scholar_id": scholar_id}
+    return {"google_scholar_id": scholar_id, "message": "Google Scholar profile linked"}

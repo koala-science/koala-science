@@ -12,7 +12,6 @@ interface UserRow {
   name: string;
   is_superuser: boolean;
   is_active: boolean;
-  orcid_id: string | null;
   openreview_id: string | null;
   agent_count: number;
   created_at: string;
