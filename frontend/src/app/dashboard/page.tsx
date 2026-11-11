@@ -11,7 +11,7 @@ import { PageShell, PageTitle, SectionTitle } from '@/components/shared/page';
 import { EmptyState, ErrorState, ErrorText } from '@/components/shared/state';
 import { apiFetch } from '@/lib/api';
 
-const SECTION = 'rounded-xl border bg-card p-6';
+const SECTION = 'min-w-0 rounded-xl border bg-card p-6';
 const ARGUMENTS_PER_PAPER = 10;
 
 export default function Dashboard() {
@@ -59,11 +59,11 @@ export default function Dashboard() {
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between items-center gap-2">
               <dt className="text-muted-foreground">Account</dt>
-              <dd className="text-foreground">{profile.name}</dd>
+              <dd className="min-w-0 break-words text-right text-foreground">{profile.name}</dd>
             </div>
             <div className="flex justify-between items-center gap-2">
               <dt className="text-muted-foreground">Auth method</dt>
-              <dd className="text-foreground">{profile.auth_method}</dd>
+              <dd className="min-w-0 break-words text-right text-foreground">{profile.auth_method}</dd>
             </div>
           </dl>
           <dl className="mt-4 space-y-3 border-t pt-4 text-sm">
@@ -120,8 +120,8 @@ export default function Dashboard() {
               {profile.agents.map((agent) => (
                 <div key={agent.id} className="rounded-lg border bg-muted p-4" aria-label={`Agent: ${agent.name}`}>
                   <div className="flex justify-between items-center gap-2 mb-2">
-                    <a href={`/a/${agent.id}`} className="font-semibold hover:text-primary hover:underline">{agent.name}</a>
-                    <span className={`text-xs px-2 py-1 rounded ${agent.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    <a href={`/a/${agent.id}`} className="min-w-0 truncate font-semibold hover:text-primary hover:underline" title={agent.name}>{agent.name}</a>
+                    <span className={`shrink-0 text-xs px-2 py-1 rounded ${agent.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
                       {agent.status}
                     </span>
                   </div>
@@ -204,42 +204,40 @@ function AcademicIdentitySection({ scholarId }: { scholarId?: string | null }) {
         {/* Google Scholar */}
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <div>
-              <span className="font-medium">Google Scholar</span>
-              {scholarId && (
-                <a
-                  href={`https://scholar.google.com/citations?user=${scholarId}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-2 text-primary hover:underline font-mono"
-                >
-                  {scholarId}
-                </a>
-              )}
-            </div>
-            {scholarId ? (
-              <span className="text-xs px-2 py-1 rounded bg-green-50 text-green-700 font-medium">Linked</span>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  aria-label="Google Scholar ID"
-                  value={scholarInput}
-                  onChange={(e) => setScholarInput(e.target.value)}
-                  placeholder="Scholar ID (e.g. dkAFaXoAAAAJ)"
-                  className="w-48"
-                />
-                <Button
-                  variant="link"
-                  className="h-auto px-0"
-                  onClick={handleLinkScholar}
-                  disabled={linking || !scholarInput.trim()}
-                >
-                  {linking ? 'Linking…' : 'Link'}
-                </Button>
-              </div>
+            <span className="font-medium">Google Scholar</span>
+            {scholarId && (
+              <span className="shrink-0 text-xs px-2 py-1 rounded bg-green-50 text-green-700 font-medium">Linked</span>
             )}
           </div>
+          {scholarId ? (
+            <a
+              href={`https://scholar.google.com/citations?user=${scholarId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block break-all font-mono text-primary hover:underline"
+            >
+              {scholarId}
+            </a>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input
+                type="text"
+                aria-label="Google Scholar ID"
+                value={scholarInput}
+                onChange={(e) => setScholarInput(e.target.value)}
+                placeholder="Scholar ID (e.g. dkAFaXoAAAAJ)"
+                className="min-w-0 flex-1"
+              />
+              <Button
+                variant="link"
+                className="h-auto shrink-0 px-0"
+                onClick={handleLinkScholar}
+                disabled={linking || !scholarInput.trim()}
+              >
+                {linking ? 'Linking…' : 'Link'}
+              </Button>
+            </div>
+          )}
           {scholarError && <ErrorText>{scholarError}</ErrorText>}
         </div>
       </div>
