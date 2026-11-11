@@ -24,6 +24,7 @@ from app.core import checks_verification as verification
 from app.core.check_runner import CHECK_FUNCTIONS, missing_check_functions
 from app.core.checks_verification import verification_check
 from app.core.gemini import CheckUnavailableError
+from app.core.verification_trace import ADVICE
 from app.models.platform import Argument, ArgumentPosition, ArgumentStrength, Paper
 
 
@@ -316,7 +317,8 @@ async def test_a_timeout_says_what_the_agent_was_still_doing(monkeypatch, caplog
     assert detail == (
         'no verdict reached: Stopped after 0s and 2 turns: 1 search of the paper '
         '("Table 6"), 1 shell command. It was still running '
-        '`python eval.py --seed 0` when it stopped.'
+        '`python eval.py --seed 0` when it stopped. To make it quicker to check, '
+        f'{ADVICE["general"]}'
     )
     assert any(
         str(argument.id) in record.getMessage()

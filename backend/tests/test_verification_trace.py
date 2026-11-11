@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from app.core.verification_trace import COMMAND_CHARS, SUMMARY_LIMIT, VerificationTrace
+from app.core.verification_trace import ADVICE, COMMAND_CHARS, SUMMARY_LIMIT, VerificationTrace
 
 SENTINEL = "SENTINEL-must-never-appear"
 
@@ -86,7 +86,7 @@ def test_fetches_name_domains_never_full_urls():
 def test_an_unfinished_step_is_what_it_was_still_doing():
     summary = _busy_trace().summary("after 500s and 7 turns")
 
-    assert summary.endswith("It was still running `python eval.py --seed 0` when it stopped.")
+    assert "It was still running `python eval.py --seed 0` when it stopped." in summary
 
 
 def test_with_every_step_finished_it_names_the_last_one():
@@ -96,7 +96,7 @@ def test_with_every_step_finished_it_names_the_last_one():
     summary = trace.summary("after 25 turns")
 
     assert "still" not in summary
-    assert summary.endswith("Its last step was running `python eval.py --seed 0`.")
+    assert "Its last step was running `python eval.py --seed 0`." in summary
 
 
 def test_a_run_that_used_no_tools_says_so():
@@ -208,3 +208,80 @@ def test_turns_count_distinct_assistant_messages():
     _call(trace, "m2", "t3", "Bash", command="whoami")
 
     assert trace.turns == 2
+
+
+def _trace_of(*names: str) -> VerificationTrace:
+    trace = VerificationTrace()
+    for i, name in enumerate(names):
+        inputs = {"url": "https://github.com/org/repo"} if name == "WebFetch" else {}
+        _call(trace, f"m{i}", f"t{i}", name, **inputs)
+        _done(trace, f"t{i}")
+    return trace
+
+
+def _ends_with_advice(summary: str, kind: str) -> bool:
+    return summary.endswith(f" To make it quicker to check, {ADVICE[kind]}")
+
+
+def test_mostly_running_code_advises_citing_reported_numbers():
+    summary = _busy_trace().summary("after 500s and 7 turns")
+
+    assert _ends_with_advice(summary, "code")
+
+
+def test_mostly_searching_the_paper_advises_quoting_the_passages():
+    trace = _trace_of(*["mcp__paper__search_paper"] * 5, "Bash")
+
+    assert _ends_with_advice(trace.summary("after 25 turns"), "search")
+
+
+def test_mostly_reading_the_paper_advises_narrowing_the_evidence():
+    trace = _trace_of(*["mcp__paper__read_paper"] * 4, "mcp__paper__search_paper")
+
+    assert _ends_with_advice(trace.summary("after 25 turns"), "read")
+
+
+def test_no_dominant_pattern_gives_the_general_advice():
+    trace = _trace_of(
+        "mcp__paper__search_paper", "mcp__paper__search_paper",
+        "mcp__paper__read_paper", "mcp__paper__read_paper", "Bash", "Bash",
+    )
+
+    assert _ends_with_advice(trace.summary("after 25 turns"), "general")
+
+
+def test_fetching_cited_papers_is_not_running_code():
+    trace = VerificationTrace()
+    for i in range(3):
+        _call(trace, f"m{i}", f"t{i}", "WebFetch", url="https://arxiv.org/abs/2401.00001")
+        _done(trace, f"t{i}")
+
+    assert _ends_with_advice(trace.summary("after 25 turns"), "general")
+
+
+def test_a_run_that_used_no_tools_gets_no_advice():
+    """Nothing the argument did slowed it down; that is an outage, not advice."""
+    assert "quicker" not in VerificationTrace().summary("after 500s and 0 turns")
+
+
+@pytest.mark.parametrize("kind", ["code", "search", "read", "general"])
+def test_advice_survives_a_crowded_summary(kind):
+    names = {
+        "code": ["Bash"] * 100,
+        "search": ["mcp__paper__search_paper"] * 100,
+        "read": ["mcp__paper__read_paper"] * 100,
+        "general": [f"Tool{i}" for i in range(100)],
+    }[kind]
+    trace = _trace_of(*names)
+
+    summary = trace.summary("after spending its $0.50 budget in 100 turns")
+
+    assert len(summary) <= SUMMARY_LIMIT
+    assert _ends_with_advice(summary, kind)
+
+
+def test_an_even_split_is_not_a_pattern():
+    """"Mostly" means more than half: two searches and two commands say nothing about either."""
+    trace = _trace_of("mcp__paper__search_paper", "mcp__paper__search_paper", "Bash", "Bash")
+
+    assert _ends_with_advice(trace.summary("after 25 turns"), "general")

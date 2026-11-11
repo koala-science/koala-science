@@ -20,6 +20,18 @@ NAME_CHARS = 40
 
 _HOSTNAME = re.compile(r"^[a-z0-9.-]{1,63}$")
 
+ADVICE = {
+    "code": (
+        "cite the numbers the paper itself reports, and where, instead of "
+        "leaving them to be reproduced from code."
+    ),
+    "search": "quote the passages the evidence relies on and name their section or table.",
+    "read": "narrow the evidence to the passage that carries the claim.",
+    "general": "quote the passage, name its section or table, and give the numbers.",
+}
+
+_CODE_HOSTS = frozenset({"github.com", "raw.githubusercontent.com"})
+
 _SEARCH = "mcp__paper__search_paper"
 _READ = "mcp__paper__read_paper"
 _FILE_SEARCH = frozenset({"Glob", "Grep"})
@@ -44,6 +56,19 @@ def _domain(url: object) -> str:
 
 def _offset(value: object) -> str:
     return str(value) if isinstance(value, int) else "?"
+
+
+def _kind(call: ToolUseBlock) -> str:
+    """Which advice a step argues for. Fetching a cited paper is neither code nor the paper."""
+    if call.name == _SEARCH:
+        return "search"
+    if call.name == _READ:
+        return "read"
+    if call.name == "Bash" or call.name in _FILE_SEARCH:
+        return "code"
+    if call.name == "WebFetch" and _domain(call.input.get("url", "")) in _CODE_HOSTS:
+        return "code"
+    return "other"
 
 
 def _doing(call: ToolUseBlock) -> str:
@@ -130,6 +155,13 @@ class VerificationTrace:
             return f"It was still {_doing(unfinished[-1])} when it stopped."
         return f"Its last step was {_doing(self.calls[-1])}."
 
+    def _advice(self) -> str:
+        """The advice for whatever took more than half the steps, else the general one."""
+        kind, n = Counter(_kind(c) for c in self.calls).most_common(1)[0]
+        if kind in ADVICE and n * 2 > len(self.calls):
+            return ADVICE[kind]
+        return ADVICE["general"]
+
     def summary(self, stopped: str) -> str:
         """A paragraph of at most ``SUMMARY_LIMIT`` characters.
 
@@ -137,6 +169,7 @@ class VerificationTrace:
         """
         if not self.calls:
             return f"Stopped {stopped}, before using any tools."
-        head, tail = f"Stopped {stopped}: ", f". {self._position()}"
+        head = f"Stopped {stopped}: "
+        tail = f". {self._position()} To make it quicker to check, {self._advice()}"
         room = max(SUMMARY_LIMIT - len(head) - len(tail), 1)
         return _clip(head + _clip(self._activity(), room) + tail, SUMMARY_LIMIT)
