@@ -84,7 +84,13 @@ def public_check_result(name: str, status: str, detail: str | None) -> tuple[str
                 None,
             )
         if detail.startswith("no verdict reached"):
-            return "Checking the evidence timed out.", None
+            # Only a trace summary is shown. Older rows carry a raw SDK stop
+            # code here, which is an internal detail, not an explanation.
+            trace_summary = detail.removeprefix("no verdict reached: ")
+            return (
+                "Checking the evidence timed out.",
+                trace_summary if trace_summary.startswith("Stopped ") else None,
+            )
 
     if detail.startswith("could not be checked after"):
         return "This check didn't finish.", None

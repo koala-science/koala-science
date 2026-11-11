@@ -53,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.gemini import CheckUnavailableError
 from app.core.pdf_text import FULL_TEXT_CAP
+from app.core.verification_trace import VerificationTrace, plural
 from app.models.platform import Argument, ArgumentPosition, ArgumentStrength, Paper
 
 logger = logging.getLogger(__name__)
@@ -420,7 +421,7 @@ def _parse(result: ResultMessage) -> VerificationResult:
     if result.is_error and result.api_error_status is not None:
         raise CheckUnavailableError(f"agent API error {result.api_error_status}")
     if result.structured_output is None:
-        raise _NoVerdict(result.terminal_reason or result.subtype or "no verdict")
+        raise _NoVerdict(_why_it_stopped(result))
     try:
         verdict = Verdict(result.structured_output["verdict"])
         reason = result.structured_output["reason"]
@@ -504,13 +505,38 @@ async def _label_strength(argument: Argument, options: ClaudeAgentOptions, sessi
 
 
 class _NoVerdict(Exception):
-    """The agent ran and stopped without deciding. Fails the argument."""
+    """The agent ran and stopped without deciding. Fails the argument.
+
+    Carries how the run stopped, phrased for the trace summary.
+    """
 
 
-async def _run(argument: Argument, options: ClaudeAgentOptions) -> VerificationResult:
+def _why_it_stopped(result: ResultMessage) -> str:
+    """How a run that ended without a verdict ended, for the trace summary.
+
+    A limit shows up as an error subtype when the CLI stops the run, and as a
+    terminal reason when the run reports it on a successful result.
+    """
+    if result.subtype == "error_max_turns" or result.terminal_reason == "max_turns_exceeded":
+        return f"after {MAX_TURNS} turns"
+    if (
+        result.subtype == "error_max_budget_usd"
+        or result.terminal_reason == "max_budget_exceeded"
+    ):
+        turns = plural(result.num_turns, "turn", "turns")
+        return f"after spending its ${MAX_BUDGET_USD:.2f} budget in {turns}"
+    return f"without a verdict after {plural(result.num_turns, 'turn', 'turns')}"
+
+
+async def _run(
+    argument: Argument, options: ClaudeAgentOptions, trace: VerificationTrace
+) -> VerificationResult:
+    """One verification run. Every message also goes to ``trace``, which the
+    caller owns, so what the agent did is still known if the run is cancelled."""
     result = None
     try:
         async for message in query(prompt=_user_prompt(argument), options=options):
+            trace.observe(message)
             if isinstance(message, ResultMessage):
                 result = message
     except ResultError:
@@ -524,6 +550,11 @@ async def _run(argument: Argument, options: ClaudeAgentOptions) -> VerificationR
     if result is None:
         raise CheckUnavailableError("the agent produced no result message")
     return _parse(result)
+
+
+def _no_verdict(argument: Argument, summary: str) -> tuple[bool, str]:
+    logger.info("verification no verdict argument=%s: %s", argument.id, summary)
+    return False, f"no verdict reached: {summary}"
 
 
 async def verification_check(db: AsyncSession, argument: Argument) -> tuple[bool, str]:
@@ -540,6 +571,7 @@ async def verification_check(db: AsyncSession, argument: Argument) -> tuple[bool
         return False, "manuscript unavailable: the paper's text could not be read"
 
     truncated = len(paper.full_text) >= FULL_TEXT_CAP
+    trace = VerificationTrace()
     workspace = tempfile.mkdtemp(prefix="verification-")
     try:
         _prepare_workspace(workspace)
@@ -547,17 +579,18 @@ async def verification_check(db: AsyncSession, argument: Argument) -> tuple[bool
         # this worker runs one check at a time: an agent that hangs would stop
         # every later argument being verified at all.
         options = _options(paper, workspace)
-        result = await asyncio.wait_for(_run(argument, options), TIMEOUT_SECONDS)
+        result = await asyncio.wait_for(_run(argument, options, trace), TIMEOUT_SECONDS)
         # Before the workspace goes: the session it resumes is stored there.
         if result.verdict is Verdict.VERIFIED:
             await _label_strength(argument, options, result.session_id)
     except asyncio.TimeoutError:
-        return False, (
-            f"no verdict reached: the evidence took longer than {TIMEOUT_SECONDS:.0f}s "
-            "to check"
+        return _no_verdict(
+            argument, trace.summary(
+                f"after {TIMEOUT_SECONDS:.0f}s and {plural(trace.turns, 'turn', 'turns')}"
+            )
         )
     except _NoVerdict as exc:
-        return False, f"no verdict reached: {exc}"
+        return _no_verdict(argument, trace.summary(str(exc)))
     except CheckUnavailableError:
         raise
     except (ClaudeSDKError, OSError) as exc:
