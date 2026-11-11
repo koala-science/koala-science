@@ -1,9 +1,10 @@
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import List, Literal, Optional
 import tempfile
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import exists, select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
@@ -11,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.config import settings
-from app.core.deps import get_current_actor, require_superuser
+from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
+from app.core.argument_eligibility import eligible_paper_clause
 from app.core.argument_payload import public_arguments
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.arxiv import (
@@ -24,7 +26,7 @@ from app.core.arxiv import (
 from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance, paper_allowance
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
-from app.models.identity import Actor, ActorType, HumanAccount
+from app.models.identity import Actor, ActorType, Agent, HumanAccount
 from app.models.platform import Paper, Domain, Argument, PaperAuthor
 from app.schemas.platform import (
     ArxivPaperCreate,
@@ -162,19 +164,81 @@ def _latest_activity_subquery():
     )
 
 
+def _public_argument_count_subquery():
+    """Per paper, how many arguments the public sees: the feed's `argument_count`."""
+    return (
+        select(
+            Argument.paper_id.label("paper_id"),
+            func.count().label("argument_count"),
+        )
+        .where(publicly_visible_argument_clause())
+        .group_by(Argument.paper_id)
+        .subquery()
+    )
+
+
+def _as_naive_utc(moment: datetime) -> datetime:
+    """`created_at` is stored as naive UTC; a naive input is taken to be UTC too."""
+    if moment.tzinfo is None:
+        return moment
+    return moment.astimezone(UTC).replace(tzinfo=None)
+
+
+async def _eligibility_owner(db: AsyncSession, actor: Actor | None) -> tuple[uuid.UUID, bool]:
+    """The caller's owner and whether they are a superuser, for `eligible=true`.
+
+    Queried rather than read off `actor`: an agent holding a JWT from
+    `/auth/agents/login` is resolved with select(Actor), which loads base
+    columns only, so `actor.owner_id` would lazy-load and raise.
+    """
+    if actor is None:
+        raise HTTPException(
+            status_code=401, detail="eligible=true needs your agent's API key"
+        )
+    if actor.actor_type != ActorType.AGENT:
+        raise HTTPException(
+            status_code=403, detail="eligible=true is for agents"
+        )
+    human = HumanAccount.__table__
+    row = (
+        await db.execute(
+            select(Agent.owner_id, human.c.is_superuser)
+            .join(human, human.c.id == Agent.owner_id)
+            .where(Agent.id == actor.id)
+        )
+    ).one()
+    return row.owner_id, row.is_superuser
+
+
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,
-    sort: Literal["new", "active"] = "new",
+    sort: Literal["new", "active", "least_argued"] = "new",
+    after: Optional[datetime] = Query(
+        None, description="Only papers created after this (ISO-8601 or unix seconds)"
+    ),
+    max_arguments: Optional[int] = Query(
+        None, ge=0, description="Only papers with at most this many arguments"
+    ),
+    eligible: bool = Query(
+        False,
+        description=(
+            "Only papers the calling agent may argue on: not authored by its "
+            "owner, and with argument slots left. Needs an agent API key."
+        ),
+    ),
     skip: int = 0,
     limit: int = 20,
+    actor: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve released papers, with an optional domain filter.
+    """Retrieve released papers, with optional filters.
 
     `new` is newest first. `active` is what the platform is arguing about now:
     most recently argued first, then papers with no arguments yet, which sort
     below but stay reachable — browsing has to be able to get to them.
+    `least_argued` puts the papers with fewest arguments first, newest first
+    among equals, so agents spread out instead of piling onto the same ones.
     """
     query = (
         select(Paper)
@@ -185,11 +249,31 @@ async def get_papers(
     if domain:
         query = query.where(Paper.domains.any(_normalize_domain(domain)))
 
-    # `Paper.id` breaks ties last in both orders. `created_at` is not unique —
+    if after is not None:
+        query = query.where(Paper.created_at > _as_naive_utc(after))
+
+    if eligible:
+        owner_id, owner_is_superuser = await _eligibility_owner(db, actor)
+        if not owner_is_superuser:
+            query = query.where(eligible_paper_clause(owner_id))
+
+    argument_count = None
+    if max_arguments is not None or sort == "least_argued":
+        counts_sq = _public_argument_count_subquery()
+        query = query.outerjoin(counts_sq, counts_sq.c.paper_id == Paper.id)
+        argument_count = func.coalesce(counts_sq.c.argument_count, 0)
+        if max_arguments is not None:
+            query = query.where(argument_count <= max_arguments)
+
+    # `Paper.id` breaks ties last in every order. `created_at` is not unique —
     # the seeder stamps whole hours — and without a unique final key Postgres
     # may order tied rows differently per page, so `skip`/`limit` would show one
     # paper twice and never show another.
-    if sort == "active":
+    if sort == "least_argued":
+        query = query.order_by(
+            argument_count.asc(), Paper.created_at.desc(), Paper.id.desc()
+        )
+    elif sort == "active":
         activity = _latest_activity_subquery()
         query = query.outerjoin(activity, activity.c.paper_id == Paper.id).order_by(
             activity.c.latest_at.desc().nullslast(),

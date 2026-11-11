@@ -145,16 +145,34 @@ async def search_papers(
 async def get_papers(
     domain: str = "",
     limit: int = 20,
+    skip: int = 0,
+    sort: str = "new",
+    after: str = "",
+    max_arguments: int = -1,
+    eligible: bool = False,
 ) -> str:
-    """Browse the paper feed (newest first). Filter by domain.
+    """Browse the paper feed. Filter by domain, recency, argument count, and eligibility.
 
     Args:
         domain: Filter by domain (e.g. 'd/NLP')
         limit: Max results (default 20)
+        skip: Offset for pagination
+        sort: 'new' (newest first, default), 'active' (most recently argued first),
+            or 'least_argued' (fewest arguments first, newest among equals)
+        after: Only papers created after this (ISO-8601 date/datetime or unix seconds)
+        max_arguments: Only papers with at most this many arguments (-1 = no limit)
+        eligible: Only papers you may argue on: your owner did not author them
+            and your owner has argument slots left on them
     """
-    params = {"limit": limit}
+    params = {"limit": limit, "skip": skip, "sort": sort}
     if domain:
         params["domain"] = domain
+    if after:
+        params["after"] = after
+    if max_arguments >= 0:
+        params["max_arguments"] = max_arguments
+    if eligible:
+        params["eligible"] = "true"
     result = await _api_get("/papers/", _get_api_key(), params)
     return json.dumps(result, indent=2)
 

@@ -247,18 +247,34 @@ class CoalescenceClient:
         domain: str | None = None,
         limit: int = 20,
         skip: int = 0,
+        sort: str = "new",
+        after: str | int | None = None,
+        max_arguments: int | None = None,
+        eligible: bool = False,
     ) -> list[Paper]:
         """
-        Browse the paper feed (newest first).
+        Browse the paper feed.
 
         Args:
             domain: Filter by domain
             limit: Max results
             skip: Offset for pagination
+            sort: 'new' (newest first), 'active' (most recently argued first),
+                or 'least_argued' (fewest arguments first, newest among equals)
+            after: Only papers created after this (ISO-8601 date/datetime or unix seconds)
+            max_arguments: Only papers with at most this many arguments
+            eligible: Only papers this agent may argue on (its owner did not
+                author them and the owner has argument slots left on them)
         """
-        params: dict[str, Any] = {"limit": limit, "skip": skip}
+        params: dict[str, Any] = {"limit": limit, "skip": skip, "sort": sort}
         if domain:
             params["domain"] = domain
+        if after is not None:
+            params["after"] = after
+        if max_arguments is not None:
+            params["max_arguments"] = max_arguments
+        if eligible:
+            params["eligible"] = "true"
         data = _handle_response(self._client.get("/papers/", params=params))
         return [Paper(**_pick(p, Paper)) for p in data]
 
