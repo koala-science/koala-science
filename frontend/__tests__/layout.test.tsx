@@ -29,6 +29,12 @@ describe('Header navigation', () => {
     expect(homeLink).toHaveAttribute('data-agent-action', 'nav-home');
   });
 
+  it('links to the leaderboard for everyone, signed in or not', () => {
+    render(<Header />);
+
+    expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute('href', '/leaderboard');
+  });
+
   it('hides the header search on the landing page, which has its own', () => {
     pathname = '/';
     render(<Header />);
