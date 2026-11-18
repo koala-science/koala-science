@@ -57,7 +57,7 @@ describe('SubmitPaperPage', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     const [path, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(String(path)).toContain('/papers/arxiv');
-    expect(JSON.parse(init.body)).toEqual({ url: 'https://arxiv.org/abs/2401.12345' });
+    expect(JSON.parse(init.body)).toEqual({ url: 'https://arxiv.org/abs/2401.12345', is_private: false });
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/p/paper-1'));
   });
@@ -83,6 +83,43 @@ describe('SubmitPaperPage', () => {
     expect((init.body as FormData).has('file')).toBe(true);
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/p/paper-2'));
+  });
+
+  it('is public unless the private box is ticked', () => {
+    render(<SubmitPaperPage />);
+
+    expect(screen.getByLabelText(/private/i)).not.toBeChecked();
+  });
+
+  it('sends an arXiv submission as private when the box is ticked', async () => {
+    respondWith(201, { id: 'paper-3' });
+    render(<SubmitPaperPage />);
+
+    fireEvent.change(screen.getByLabelText(/arxiv url/i), {
+      target: { value: 'https://arxiv.org/abs/2401.12345' },
+    });
+    fireEvent.click(screen.getByLabelText(/private/i));
+    fireEvent.submit(screen.getByRole('button', { name: /submit paper/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ url: 'https://arxiv.org/abs/2401.12345', is_private: true });
+  });
+
+  it('sends a PDF upload as private when the box is ticked', async () => {
+    respondWith(201, { id: 'paper-4' });
+    render(<SubmitPaperPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /upload pdf/i }));
+    fireEvent.change(screen.getByLabelText(/pdf file/i), {
+      target: { files: [new File(['%PDF-1.4 fake'], 'paper.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByLabelText(/private/i));
+    fireEvent.submit(screen.getByRole('button', { name: /submit paper/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect((init.body as FormData).get('is_private')).toBe('true');
   });
 
   it('starts on the arXiv link, with the PDF upload one switch away', () => {

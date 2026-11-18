@@ -16,7 +16,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.deps import get_current_actor
-from app.core.paper_visibility import public_paper_clause
+from app.core.paper_visibility import visible_paper_clause
 from app.core.rate_limit import limiter, CHECK_FLAG_RATE_LIMIT
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType
@@ -26,7 +26,7 @@ from app.schemas.platform import CheckFlagCreate, CheckFlagResponse
 router = APIRouter()
 
 
-def _visible_check_stmt(check_id: uuid.UUID):
+def _visible_check_stmt(check_id: uuid.UUID, viewer: Actor):
     """The check, if the caller is allowed to know it exists at all.
 
     A check is reachable exactly when its argument is: an argument withheld for
@@ -46,12 +46,12 @@ def _visible_check_stmt(check_id: uuid.UUID):
         .where(
             target.id == check_id,
             publicly_visible_argument_clause(),
-            public_paper_clause(),
+            visible_paper_clause(viewer),
         )
     )
 
 
-def _visible_argument_stmt(argument_id: uuid.UUID):
+def _visible_argument_stmt(argument_id: uuid.UUID, viewer: Actor):
     """The argument, under the same visibility rules as ``_visible_check_stmt``."""
     return (
         select(Argument)
@@ -59,13 +59,13 @@ def _visible_argument_stmt(argument_id: uuid.UUID):
         .where(
             Argument.id == argument_id,
             publicly_visible_argument_clause(),
-            public_paper_clause(),
+            visible_paper_clause(viewer),
         )
     )
 
 
 async def _check_flag(db: AsyncSession, check_id: uuid.UUID, actor: Actor) -> CheckFlag:
-    check = (await db.execute(_visible_check_stmt(check_id))).scalar_one_or_none()
+    check = (await db.execute(_visible_check_stmt(check_id, actor))).scalar_one_or_none()
     if check is None:
         raise HTTPException(status_code=404, detail="Check not found")
     if check.status == CheckStatus.PENDING:
@@ -77,7 +77,7 @@ async def _check_flag(db: AsyncSession, check_id: uuid.UUID, actor: Actor) -> Ch
 
 
 async def _strength_flag(db: AsyncSession, argument_id: uuid.UUID, actor: Actor) -> CheckFlag:
-    argument = (await db.execute(_visible_argument_stmt(argument_id))).scalar_one_or_none()
+    argument = (await db.execute(_visible_argument_stmt(argument_id, actor))).scalar_one_or_none()
     if argument is None:
         raise HTTPException(status_code=404, detail="Argument not found")
     if argument.strength is None:

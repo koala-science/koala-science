@@ -69,6 +69,7 @@ class DataExportActivities:
         from datetime import datetime, timezone
         from sqlalchemy import select
         from app.db.session import AsyncSessionLocal
+        from app.core.paper_visibility import public_event_clause
         from app.models.platform import InteractionEvent
         from app.core.storage import storage
 
@@ -79,7 +80,11 @@ class DataExportActivities:
         last_id = last_id_bytes.decode().strip() if last_id_bytes else None
 
         async with AsyncSessionLocal() as session:
-            query = select(InteractionEvent).order_by(InteractionEvent.created_at.asc())
+            query = (
+                select(InteractionEvent)
+                .where(public_event_clause())
+                .order_by(InteractionEvent.created_at.asc())
+            )
 
             if last_id:
                 import uuid
@@ -107,17 +112,18 @@ class DataExportActivities:
 
     @activity.defn
     async def export_full_papers(self, dump_id: str) -> dict:
-        """Export all papers with embeddings."""
+        """Export all public papers."""
         activity.logger.info(f"Exporting papers for dump {dump_id}")
 
         from sqlalchemy import select
         from sqlalchemy.orm import joinedload
         from app.db.session import AsyncSessionLocal
+        from app.core.paper_visibility import public_paper_clause
         from app.models.platform import Paper
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(Paper).options(joinedload(Paper.submitter))
+                select(Paper).options(joinedload(Paper.submitter)).where(public_paper_clause())
             )
             papers = result.scalars().unique().all()
 
@@ -134,7 +140,6 @@ class DataExportActivities:
                 "submitter_id": str(p.submitter_id),
                 "submitter_type": p.submitter.actor_type.value if p.submitter else None,
                 "submitter_name": p.submitter.name if p.submitter else None,
-                "embedding": list(p.embedding) if p.embedding else None,
                 "created_at": p.created_at,
                 "updated_at": p.updated_at,
             } for p in papers]
@@ -145,22 +150,25 @@ class DataExportActivities:
 
     @activity.defn
     async def export_full_arguments(self, dump_id: str) -> dict:
-        """Export all arguments with their check results."""
+        """Export all arguments on public papers, with their check results."""
         activity.logger.info(f"Exporting arguments for dump {dump_id}")
 
         from sqlalchemy import select
         from sqlalchemy.orm import joinedload, selectinload
         from app.db.session import AsyncSessionLocal
+        from app.core.paper_visibility import public_paper_clause
         from app.models.platform import Argument
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(Argument)
+                .join(Argument.paper)
                 .options(
                     joinedload(Argument.author),
                     joinedload(Argument.paper),
                     selectinload(Argument.checks),
                 )
+                .where(public_paper_clause())
             )
             arguments = result.scalars().unique().all()
 
@@ -187,11 +195,12 @@ class DataExportActivities:
 
     @activity.defn
     async def export_full_events(self, dump_id: str) -> dict:
-        """Export all interaction events."""
+        """Export all interaction events except those about non-public papers."""
         activity.logger.info(f"Exporting events for dump {dump_id}")
 
         from sqlalchemy import select
         from app.db.session import AsyncSessionLocal
+        from app.core.paper_visibility import public_event_clause
         from app.models.platform import InteractionEvent
 
         async with AsyncSessionLocal() as session:
@@ -202,6 +211,7 @@ class DataExportActivities:
             while True:
                 result = await session.execute(
                     select(InteractionEvent)
+                    .where(public_event_clause())
                     .order_by(InteractionEvent.created_at.asc())
                     .offset(offset)
                     .limit(batch_size)
@@ -255,6 +265,7 @@ class DataExportActivities:
 
         from sqlalchemy import select, func
         from app.db.session import AsyncSessionLocal
+        from app.core.paper_visibility import public_paper_clause
         from app.models.platform import Domain, Paper
 
         async with AsyncSessionLocal() as session:
@@ -265,7 +276,7 @@ class DataExportActivities:
             for d in domains:
                 paper_count = (await session.execute(
                     select(func.count()).select_from(Paper)
-                    .where(Paper.domains.any(d.name))
+                    .where(Paper.domains.any(d.name), public_paper_clause())
                 )).scalar() or 0
 
                 records.append({

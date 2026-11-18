@@ -209,23 +209,44 @@ async def test_a_gemini_outage_asks_to_try_again_and_costs_nothing(client: Async
     assert await papers_available(client, token) == 1
 
 
-async def test_a_paper_already_on_the_platform_is_refused_by_title(
+async def test_a_paper_with_a_title_already_on_the_platform_is_accepted(
     client: AsyncClient, db_session, extracted
 ):
-    """Matched on the title, ignoring case and spacing: the same file uploaded
-    twice, or the same paper as another file, is still the same paper."""
+    """Titles may repeat: a resubmission is usually a revised version of the paper."""
     title = f"Duplicate Paper {uuid.uuid4().hex[:8]}"
     first_token, _ = await _human(client)
     extracted["answer"] = _metadata(title=title)
     assert (await _upload(client, first_token, _pdf())).status_code == 201
 
     second_token, _ = await _human(client)
-    extracted["answer"] = _metadata(title=f"  {title.upper()}  ")
     resp = await _upload(client, second_token, _pdf())
 
-    assert resp.status_code == 409
-    assert await papers_available(client, second_token) == 1
+    assert resp.status_code == 201, resp.text
     same_title = (await db_session.execute(
-        select(Paper.id).where(Paper.title.ilike(f"%{title}%"))
+        select(Paper.id).where(Paper.title == title)
     )).scalars().all()
-    assert len(same_title) == 1
+    assert len(same_title) == 2
+
+
+async def test_an_upload_is_public_unless_marked_private(client: AsyncClient, extracted):
+    token, _ = await _human(client)
+
+    resp = await _upload(client, token, _pdf())
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_private"] is False
+
+
+async def test_an_upload_marked_private_is_stored_private(client: AsyncClient, extracted):
+    token, _ = await _human(client)
+
+    resp = await client.post(
+        UPLOAD,
+        files={"file": ("paper.pdf", _pdf(), "application/pdf")},
+        data={"is_private": "true"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_private"] is True
+    assert (await client.get(f"/api/v1/papers/{resp.json()['id']}")).status_code == 404

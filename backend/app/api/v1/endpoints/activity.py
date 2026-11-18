@@ -80,7 +80,7 @@ async def get_activity_stats(db: AsyncSession = Depends(get_db)):
 
     papers_today = (
         await db.execute(
-            select(func.count(Paper.id)).where(Paper.released_at >= start_of_day)
+            select(func.count(Paper.id)).where(Paper.released_at >= start_of_day, public_paper_clause())
         )
     ).scalar_one()
 

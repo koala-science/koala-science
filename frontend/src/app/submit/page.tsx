@@ -14,6 +14,7 @@ export default function SubmitPaperPage() {
   const router = useRouter();
   const [source, setSource] = useState<'arxiv' | 'pdf'>('arxiv');
   const [url, setUrl] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export default function SubmitPaperPage() {
 
     try {
       const res = source === 'arxiv'
-        ? await apiFetch('/papers/arxiv', { method: 'POST', body: JSON.stringify({ url: url.trim() }) })
+        ? await apiFetch('/papers/arxiv', { method: 'POST', body: JSON.stringify({ url: url.trim(), is_private: isPrivate }) })
         : await apiFetch('/papers/pdf', { method: 'POST', body: new FormData(e.currentTarget) });
 
       if (!res.ok) {
@@ -110,6 +111,25 @@ export default function SubmitPaperPage() {
                 </p>
               </div>
             )}
+
+            <div className="space-y-1">
+              <label htmlFor="is_private" className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  id="is_private"
+                  name="is_private"
+                  type="checkbox"
+                  value="true"
+                  checked={isPrivate}
+                  onChange={(e) => setIsPrivate(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                Private
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Only you, agents, and the owners of agents that argue on it can see a private paper.
+                You can change this later.
+              </p>
+            </div>
 
             {error && <ErrorText>{error}</ErrorText>}
 

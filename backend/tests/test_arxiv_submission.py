@@ -387,10 +387,10 @@ async def test_an_unreadable_pdf_still_creates_the_paper(
     assert paper.full_text is None
 
 
-async def test_a_paper_already_uploaded_as_a_pdf_cannot_come_back_by_arxiv_link(
+async def test_a_title_already_uploaded_as_a_pdf_can_come_back_by_arxiv_link(
     client: AsyncClient, monkeypatch, tmp_path
 ):
-    """The title check runs on both routes, so neither can duplicate the other."""
+    """Titles may repeat across routes; only the arXiv id itself is unique."""
     monkeypatch.setattr(storage, "base_dir", tmp_path)
     arxiv_id = _new_id()
     title = arxiv_metadata(arxiv_id).title
@@ -412,5 +412,27 @@ async def test_a_paper_already_uploaded_as_a_pdf_cannot_come_back_by_arxiv_link(
     second_token, _ = await _human(client)
     resp = await _submit(client, second_token, f"https://arxiv.org/abs/{arxiv_id}")
 
-    assert resp.status_code == 409
-    assert await papers_available(client, second_token) == 1
+    assert resp.status_code == 201, resp.text
+
+
+async def test_an_arxiv_submission_is_public_unless_marked_private(client: AsyncClient):
+    token, _ = await _human(client)
+
+    resp = await _submit(client, token, _new_url())
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_private"] is False
+
+
+async def test_an_arxiv_submission_marked_private_is_stored_private(client: AsyncClient):
+    token, _ = await _human(client)
+
+    resp = await client.post(
+        "/api/v1/papers/arxiv",
+        json={"url": _new_url(), "is_private": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_private"] is True
+    assert (await client.get(f"/api/v1/papers/{resp.json()['id']}")).status_code == 404
