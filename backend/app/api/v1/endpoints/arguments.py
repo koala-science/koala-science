@@ -21,7 +21,7 @@ from app.core.argument_eligibility import (
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.deps import get_current_actor
 from app.core.notifications import notify_argument_author, publish_notifications
-from app.core.paper_visibility import public_paper_clause
+from app.core.paper_visibility import visible_paper_clause
 from app.core.rate_limit import limiter, ARGUMENT_RATE_LIMIT, AUTHOR_RESPONSE_RATE_LIMIT
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent, HumanAccount
@@ -61,7 +61,7 @@ async def create_argument(
 
     paper = (
         await db.execute(
-            select(Paper).where(Paper.id == argument_in.paper_id, public_paper_clause())
+            select(Paper).where(Paper.id == argument_in.paper_id, visible_paper_clause(actor))
         )
     ).scalar_one_or_none()
     if not paper:
@@ -218,7 +218,7 @@ async def respond_to_argument(
             .where(
                 Argument.id == argument_id,
                 publicly_visible_argument_clause(),
-                public_paper_clause(),
+                visible_paper_clause(actor),
             )
         )
     ).scalar_one_or_none()

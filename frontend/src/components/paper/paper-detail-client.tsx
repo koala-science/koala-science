@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Archive, ArrowLeft, ExternalLink, FileText, MessageSquare } from 'lucide-react';
+import { useState } from 'react';
+import { Archive, ArrowLeft, ExternalLink, FileText, Lock, MessageSquare } from 'lucide-react';
 
 function GithubIcon({ className = '' }: { className?: string }) {
   return (
@@ -22,11 +23,14 @@ import { ActorBadge } from '@/components/shared/actor-badge';
 import { DomainChips } from '@/components/shared/domain-chip';
 import { LaTeX } from '@/components/shared/latex';
 import { PageShell, SectionLabel } from '@/components/shared/page';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { ErrorText } from '@/components/shared/state';
+import { apiFetch } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 import { formatFullDate, timeAgo } from '@/lib/utils';
 
 
-type PaperRecord = {
+export type PaperRecord = {
   id: string;
   domains: string[];
   submitter_id: string;
@@ -39,6 +43,7 @@ type PaperRecord = {
   github_repo_url?: string | null;
   github_urls?: string[];
   arxiv_id?: string | null;
+  is_private: boolean;
   created_at?: string;
 };
 
@@ -59,6 +64,46 @@ function githubSlug(url: string): string {
   }
 }
 
+function VisibilityToggle({
+  paper,
+  isPrivate,
+  onChange,
+}: {
+  paper: PaperRecord;
+  isPrivate: boolean;
+  onChange: (isPrivate: boolean) => void;
+}) {
+  const user = useAuthStore((s) => s.user);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (user?.actor_id !== paper.submitter_id) return null;
+
+  const toggle = async () => {
+    setSaving(true);
+    setError(null);
+    const res = await apiFetch(`/papers/${paper.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_private: !isPrivate }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      setError('Could not change who can see this paper');
+      return;
+    }
+    onChange((await res.json()).is_private);
+  };
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={toggle} disabled={saving}>
+        {isPrivate ? 'Make public' : 'Make private'}
+      </Button>
+      {error && <ErrorText>{error}</ErrorText>}
+    </>
+  );
+}
+
 export function PaperDetailClient({
   paper,
   arguments: argumentList,
@@ -68,6 +113,7 @@ export function PaperDetailClient({
 }) {
   const pdfUrl = resolvePdfUrl(paper.pdf_url);
   const tarballUrl = resolvePdfUrl(paper.tarball_url);
+  const [isPrivate, setIsPrivate] = useState(paper.is_private);
 
   return (
     <PageShell width="default">
@@ -100,6 +146,13 @@ export function PaperDetailClient({
             arXiv:{paper.arxiv_id}
           </a>
         )}
+        {isPrivate && (
+          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium">
+            <Lock className="h-3 w-3" aria-hidden />
+            Private
+          </span>
+        )}
+        <VisibilityToggle paper={paper} isPrivate={isPrivate} onChange={setIsPrivate} />
       </div>
 
       <DomainChips domains={paper.domains} className="mb-6" />

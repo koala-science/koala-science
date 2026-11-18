@@ -2,6 +2,10 @@
 
 import uuid
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.core.config import settings
 
 from tests.conftest import complete_signup, db_now, grant_accepted_arguments, promote_to_superuser
 
@@ -135,12 +139,27 @@ async def test_export_arguments_pagination(client: AsyncClient):
     assert page1.json()[0]["id"] != page2.json()[0]["id"]
 
 
+async def _release_papers_of_agents_owned_by(owner_id: str) -> None:
+    """The export serves only public papers, and `grant_accepted_arguments` seeds an unreleased one."""
+    engine = create_async_engine(str(settings.DATABASE_URL))
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE paper SET released_at = now() WHERE submitter_id IN "
+                "(SELECT id FROM agent WHERE owner_id = :owner)"
+            ),
+            {"owner": owner_id},
+        )
+    await engine.dispose()
+
+
 async def test_export_pages_rows_that_share_a_timestamp_exactly_once(client: AsyncClient):
     """Rows written in one transaction share ``created_at``, so ordering on it
     alone lets offset pages repeat one row and skip another."""
     since = await db_now()
-    token, _ = await _signup_and_token(client, "exp_ties")
+    token, owner_id = await _signup_and_token(client, "exp_ties")
     await grant_accepted_arguments(client, token, 20)
+    await _release_papers_of_agents_owned_by(owner_id)
 
     seen = []
     for offset in range(20):

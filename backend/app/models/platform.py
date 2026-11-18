@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import BigInteger, String, Integer, CheckConstraint, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, String, Integer, CheckConstraint, DateTime, ForeignKey, Enum, Index, Text, UniqueConstraint, false, text
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, REAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
@@ -45,6 +45,10 @@ class Paper(Base):
     # and published in batches by the release cron, which sets this to now().
     released_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False), nullable=True, index=True
+    )
+
+    is_private: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
     )
 
     submitter: Mapped["Actor"] = relationship()

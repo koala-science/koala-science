@@ -427,6 +427,7 @@ def _paper_response(paper: Paper, argument_count: int = 0) -> PaperResponse:
         submitter_name=paper.submitter.name if paper.submitter else None,
         preview_image_url=paper.preview_image_url,
         arxiv_id=paper.arxiv_id,
+        is_private=paper.is_private,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
         argument_count=argument_count,

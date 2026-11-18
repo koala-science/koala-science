@@ -12,7 +12,6 @@ import fitz
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.arxiv import (
     ArxivIdInvalid,
@@ -21,7 +20,6 @@ from app.core.arxiv import (
     ArxivUnavailable,
     extract_arxiv_id,
 )
-from app.core.config import settings
 from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS
 from app.core.paper_metadata import PaperMetadata
 from app.core.storage import storage
@@ -32,6 +30,7 @@ from tests.conftest import (
     grant_accepted_arguments,
     papers_available,
     promote_to_superuser,
+    use_up_papers,
 )
 
 
@@ -41,8 +40,8 @@ pytestmark = pytest.mark.usefixtures("stub_arxiv")
 async def _human(client: AsyncClient, papers: int = 1) -> tuple[str, str]:
     """A human with exactly ``papers`` submissions available.
 
-    Every account starts with its free paper, so the rest are earned, and none
-    left means the free one was already used.
+    Every account starts with ``FREE_PAPERS``; fewer than that are reached by
+    using some up, more by earning them.
     """
     prefix = uuid.uuid4().hex[:8]
     token, actor_id = await complete_signup(client, {
@@ -52,21 +51,11 @@ async def _human(client: AsyncClient, papers: int = 1) -> tuple[str, str]:
         "openreview_id": f"~Sub_Mitter_{prefix}1",
     })
     if papers < FREE_PAPERS:
-        await _use_free_paper(actor_id)
+        await use_up_papers(actor_id, FREE_PAPERS - papers)
     else:
         await grant_accepted_arguments(client, token, ARGUMENTS_PER_PAPER * (papers - FREE_PAPERS))
     assert await papers_available(client, token) == papers
     return token, actor_id
-
-
-async def _use_free_paper(actor_id: str) -> None:
-    engine = create_async_engine(str(settings.DATABASE_URL))
-    async with async_sessionmaker(engine)() as session:
-        session.add(Paper(
-            title="Free paper", abstract="a", domains=["d/NLP"], submitter_id=uuid.UUID(actor_id),
-        ))
-        await session.commit()
-    await engine.dispose()
 
 
 async def _submit(client: AsyncClient, token: str, url: str):
@@ -387,10 +376,10 @@ async def test_an_unreadable_pdf_still_creates_the_paper(
     assert paper.full_text is None
 
 
-async def test_a_paper_already_uploaded_as_a_pdf_cannot_come_back_by_arxiv_link(
+async def test_a_title_already_uploaded_as_a_pdf_can_come_back_by_arxiv_link(
     client: AsyncClient, monkeypatch, tmp_path
 ):
-    """The title check runs on both routes, so neither can duplicate the other."""
+    """Titles may repeat across routes; only the arXiv id itself is unique."""
     monkeypatch.setattr(storage, "base_dir", tmp_path)
     arxiv_id = _new_id()
     title = arxiv_metadata(arxiv_id).title
@@ -412,5 +401,27 @@ async def test_a_paper_already_uploaded_as_a_pdf_cannot_come_back_by_arxiv_link(
     second_token, _ = await _human(client)
     resp = await _submit(client, second_token, f"https://arxiv.org/abs/{arxiv_id}")
 
-    assert resp.status_code == 409
-    assert await papers_available(client, second_token) == 1
+    assert resp.status_code == 201, resp.text
+
+
+async def test_an_arxiv_submission_is_public_unless_marked_private(client: AsyncClient):
+    token, _ = await _human(client)
+
+    resp = await _submit(client, token, _new_url())
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_private"] is False
+
+
+async def test_an_arxiv_submission_marked_private_is_stored_private(client: AsyncClient):
+    token, _ = await _human(client)
+
+    resp = await client.post(
+        "/api/v1/papers/arxiv",
+        json={"url": _new_url(), "is_private": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_private"] is True
+    assert (await client.get(f"/api/v1/papers/{resp.json()['id']}")).status_code == 404

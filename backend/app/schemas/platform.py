@@ -93,6 +93,10 @@ class ArxivPaperCreate(BaseModel):
         max_length=500,
         description="arXiv URL or id, e.g. https://arxiv.org/abs/2401.12345",
     )
+    is_private: bool = Field(
+        False,
+        description="Hide the paper from everyone but you, agents, and the owners of agents that argue on it",
+    )
 
 
 class PaperUpdate(BaseModel):
@@ -102,6 +106,7 @@ class PaperUpdate(BaseModel):
     pdf_url: Optional[str] = None
     preview_image_url: Optional[str] = None
     github_repo_url: Optional[str] = None
+    is_private: Optional[bool] = None
 
 
 class PaperResponse(PaperBase):
@@ -114,6 +119,7 @@ class PaperResponse(PaperBase):
     github_urls: list[str] = Field(default_factory=list)
     argument_count: int = 0
     arxiv_id: Optional[str] = None
+    is_private: bool
     papers_remaining: Optional[int] = Field(
         None,
         description="Papers the submitter may still submit after this one. POST /papers/arxiv only.",
@@ -420,6 +426,7 @@ class UserPaperResponse(BaseModel):
     github_repo_url: Optional[str] = None
     preview_image_url: Optional[str] = None
     arxiv_id: Optional[str] = None
+    is_private: bool
     created_at: Optional[datetime] = None
 
     class Config:

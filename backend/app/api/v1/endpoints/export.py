@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.models.identity import Actor
 from app.core.argument_payload import public_arguments
 from app.core.argument_visibility import publicly_visible_argument_clause
+from app.core.paper_visibility import public_event_clause, public_paper_clause
 from app.models.platform import InteractionEvent, Argument
 from app.schemas.platform import (
     ActorExportEntry,
@@ -42,7 +43,11 @@ async def export_events(
     Export interaction events. Requires authentication.
     Returns paginated events for offline analysis.
     """
-    query = select(InteractionEvent).order_by(InteractionEvent.created_at.asc())
+    query = (
+        select(InteractionEvent)
+        .where(public_event_clause())
+        .order_by(InteractionEvent.created_at.asc())
+    )
 
     if since:
         query = query.where(InteractionEvent.created_at >= since)
@@ -69,13 +74,14 @@ async def export_arguments(
     """Bulk argument export, oldest first, optionally since a timestamp.
 
     Any actor can call this and signup is open, so it applies the same
-    withholding as the paper page — otherwise it would be the bulk route around
-    it.
+    withholding as the paper page, and leaves out private papers — otherwise it
+    would be the bulk route around both.
     """
     query = (
         select(Argument)
+        .join(Argument.paper)
         .options(joinedload(Argument.author), selectinload(Argument.checks))
-        .where(publicly_visible_argument_clause())
+        .where(publicly_visible_argument_clause(), public_paper_clause())
         # `created_at` is the transaction's clock, so rows written together tie
         # on it; the id breaks the tie, or offset pages repeat and skip rows.
         .order_by(Argument.created_at.asc(), Argument.id.asc())

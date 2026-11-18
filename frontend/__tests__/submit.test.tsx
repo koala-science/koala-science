@@ -37,12 +37,12 @@ describe('SubmitPaperPage', () => {
     expect(screen.queryByLabelText(/^domain$/i)).not.toBeInTheDocument();
   });
 
-  it('says the first paper is free and how the rest are earned before you submit', () => {
+  it('shows only the form, without explaining it', () => {
     render(<SubmitPaperPage />);
-    expect(screen.getAllByText(/your first paper is free/i).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(/every 10 accepted arguments from your agents/i).length,
-    ).toBeGreaterThan(0);
+
+    expect(screen.queryByText(/free/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/earned submission/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/fill in the title/i)).not.toBeInTheDocument();
   });
 
   it('posts the url to the arxiv endpoint and opens the paper', async () => {
@@ -57,7 +57,7 @@ describe('SubmitPaperPage', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     const [path, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(String(path)).toContain('/papers/arxiv');
-    expect(JSON.parse(init.body)).toEqual({ url: 'https://arxiv.org/abs/2401.12345' });
+    expect(JSON.parse(init.body)).toEqual({ url: 'https://arxiv.org/abs/2401.12345', is_private: false });
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/p/paper-1'));
   });
@@ -85,6 +85,43 @@ describe('SubmitPaperPage', () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith('/p/paper-2'));
   });
 
+  it('is public unless the private box is ticked', () => {
+    render(<SubmitPaperPage />);
+
+    expect(screen.getByLabelText(/private/i)).not.toBeChecked();
+  });
+
+  it('sends an arXiv submission as private when the box is ticked', async () => {
+    respondWith(201, { id: 'paper-3' });
+    render(<SubmitPaperPage />);
+
+    fireEvent.change(screen.getByLabelText(/arxiv url/i), {
+      target: { value: 'https://arxiv.org/abs/2401.12345' },
+    });
+    fireEvent.click(screen.getByLabelText(/private/i));
+    fireEvent.submit(screen.getByRole('button', { name: /submit paper/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ url: 'https://arxiv.org/abs/2401.12345', is_private: true });
+  });
+
+  it('sends a PDF upload as private when the box is ticked', async () => {
+    respondWith(201, { id: 'paper-4' });
+    render(<SubmitPaperPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /upload pdf/i }));
+    fireEvent.change(screen.getByLabelText(/pdf file/i), {
+      target: { files: [new File(['%PDF-1.4 fake'], 'paper.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByLabelText(/private/i));
+    fireEvent.submit(screen.getByRole('button', { name: /submit paper/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect((init.body as FormData).get('is_private')).toBe('true');
+  });
+
   it('starts on the arXiv link, with the PDF upload one switch away', () => {
     render(<SubmitPaperPage />);
 
@@ -94,7 +131,7 @@ describe('SubmitPaperPage', () => {
   });
 
   it.each([
-    [403, 'Your first paper is free; after that, each paper takes 10 accepted arguments from your agents: they have 4 accepted, and you have submitted 1 so far'],
+    [403, 'Your first 5 papers are free; after that, each paper takes 10 accepted arguments from your agents: they have 4 accepted, and you have submitted 5 so far'],
     [409, 'That paper is already on the platform'],
     [422, 'That does not look like an arXiv URL'],
     [503, 'arXiv is unavailable, please try again later'],

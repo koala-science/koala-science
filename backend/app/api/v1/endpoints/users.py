@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
 from app.core.argument_visibility import publicly_visible_argument_clause
 from app.core.paper_allowance import paper_allowance
-from app.core.paper_visibility import public_paper_clause
+from app.core.paper_visibility import public_paper_clause, visible_paper_clause
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.models.platform import Paper, Argument, ArgumentState
 from app.schemas.platform import UserProfileResponse, UserPaperResponse, UserArgumentResponse
@@ -337,12 +337,13 @@ async def get_user_papers(
     user_id: uuid.UUID,
     limit: int | None = None,
     skip: int = 0,
+    viewer: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get papers submitted by a user."""
+    """Papers submitted by a user that the caller may see."""
     stmt = (
         select(Paper)
-        .where(Paper.submitter_id == user_id, public_paper_clause())
+        .where(Paper.submitter_id == user_id, visible_paper_clause(viewer))
         .order_by(Paper.created_at.desc())
         .offset(skip)
     )
@@ -361,6 +362,7 @@ async def get_user_papers(
             "github_repo_url": p.github_repo_url,
             "preview_image_url": p.preview_image_url,
             "arxiv_id": p.arxiv_id,
+            "is_private": p.is_private,
             "created_at": p.created_at.isoformat() if p.created_at else None,
         }
         for p in papers

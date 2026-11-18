@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 import tempfile
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import exists, select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
@@ -25,9 +25,9 @@ from app.core.arxiv import (
     fetch_metadata,
 )
 from app.core.gemini import CheckUnavailableError
-from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance, paper_allowance
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS, PaperAllowance, paper_allowance
 from app.core.paper_metadata import MetadataUnreadable, extract_paper_metadata
-from app.core.paper_visibility import public_paper_clause
+from app.core.paper_visibility import public_paper_clause, visible_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, Agent, HumanAccount
 from app.models.platform import Paper, Domain, Argument, PaperAuthor
@@ -80,6 +80,7 @@ def _paper_to_response(
         github_urls=list(paper.github_urls or []),
         argument_count=argument_count,
         arxiv_id=paper.arxiv_id,
+        is_private=paper.is_private,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )
@@ -227,7 +228,7 @@ async def get_papers(
     actor: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve released papers, with optional filters.
+    """Retrieve the released papers the caller may see, with optional filters.
 
     `new` is newest first. `active` is what the platform is arguing about now:
     most recently argued first, then papers with no arguments yet, which sort
@@ -238,7 +239,7 @@ async def get_papers(
     query = (
         select(Paper)
         .options(joinedload(Paper.submitter))
-        .where(public_paper_clause())
+        .where(visible_paper_clause(actor))
     )
 
     if domain:
@@ -370,7 +371,7 @@ async def create_paper_from_arxiv(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a paper by arXiv URL. Humans only, and it uses one paper of their
-    allowance: the free one, then those their agents' accepted arguments earn.
+    allowance: the ``FREE_PAPERS`` free ones, then those their agents' accepted arguments earn.
 
     No allowance is used unless a paper is created, so the order matters: reject
     a URL we cannot read and a paper we already have before anything else, and
@@ -418,7 +419,6 @@ async def create_paper_from_arxiv(
             status_code=503, detail="arXiv is unavailable, please try again later"
         )
 
-    await _refuse_a_taken_title(db, metadata.title)
     preview_image_url, full_text = await _extract_pdf_assets(metadata.pdf_url)
     domains = [_normalize_domain(category) for category in metadata.categories]
 
@@ -432,6 +432,7 @@ async def create_paper_from_arxiv(
         preview_image_url=preview_image_url,
         full_text=full_text,
         released_at=func.now(),
+        is_private=payload.is_private,
     )
     allowance = await _publish(db, paper, actor_id=actor_id, actor_type=actor_type)
     return await _submitted_response(db, paper, allowance, actor_type, actor_name)
@@ -512,30 +513,12 @@ async def _submitted_response(
     return response
 
 
-async def _refuse_a_taken_title(db: AsyncSession, title: str) -> None:
-    """Refuse a paper already on the platform under the same title, ignoring case
-    and spacing, whichever way either copy was submitted.
-
-    Releases the connection again before returning: both callers go on to slow
-    work (a download, a render, a storage write) and must not hold it idle.
-    """
-    normalized = " ".join(title.lower().split())
-    taken = await db.scalar(
-        select(Paper.id).where(
-            func.lower(func.regexp_replace(func.trim(Paper.title), r"\s+", " ", "g")) == normalized
-        )
-    )
-    await db.rollback()
-    if taken is not None:
-        raise HTTPException(status_code=409, detail="That paper is already on the platform")
-
-
 def _refuse_without_allowance(allowance: PaperAllowance) -> None:
     if allowance.available < 1:
         raise HTTPException(
             status_code=403,
             detail=(
-                f"Your first paper is free; after that, each paper takes "
+                f"Your first {FREE_PAPERS} papers are free; after that, each paper takes "
                 f"{ARGUMENTS_PER_PAPER} accepted arguments from your agents: they have "
                 f"{allowance.accepted_arguments} accepted, and you have submitted "
                 f"{allowance.submitted_papers} so far"
@@ -548,6 +531,7 @@ async def list_paper_arguments(
     paper_id: uuid.UUID,
     skip: int = 0,
     limit: int = 100,
+    actor: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
     """Arguments on a paper, each with its check results.
@@ -555,7 +539,7 @@ async def list_paper_arguments(
     Excludes arguments that failed moderation — see ``argument_visibility``.
     """
     visible = await db.execute(
-        select(Paper.id).where(Paper.id == paper_id, public_paper_clause())
+        select(Paper.id).where(Paper.id == paper_id, visible_paper_clause(actor))
     )
     if visible.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -593,12 +577,16 @@ async def my_authorship(
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)
-async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Get a specific paper by ID."""
+async def get_paper(
+    paper_id: uuid.UUID,
+    actor: Actor | None = Depends(get_current_actor_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific paper by ID, if the caller may see it."""
     result = await db.execute(
         select(Paper)
         .options(joinedload(Paper.submitter))
-        .where(Paper.id == paper_id, public_paper_clause())
+        .where(Paper.id == paper_id, visible_paper_clause(actor))
     )
     paper = result.scalars().unique().one_or_none()
 
@@ -626,9 +614,15 @@ async def update_paper(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a paper's metadata. Only the original submitter can update."""
+    """Update a paper's metadata or visibility. Only the original submitter can update.
+
+    A paper the caller cannot see is a 404, as on `GET`, so that a refusal does
+    not confirm a private paper exists.
+    """
     result = await db.execute(
-        select(Paper).options(joinedload(Paper.submitter)).where(Paper.id == paper_id)
+        select(Paper)
+        .options(joinedload(Paper.submitter))
+        .where(Paper.id == paper_id, visible_paper_clause(actor))
     )
     paper = result.scalar_one_or_none()
     if not paper:
@@ -687,6 +681,7 @@ async def _read_pdf_upload(file: UploadFile) -> bytes:
 async def create_paper_from_pdf(
     request: Request,
     file: UploadFile,
+    is_private: bool = Form(False),
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
@@ -725,8 +720,6 @@ async def create_paper_from_pdf(
             status_code=503, detail="Reading the paper failed, please try again later"
         )
 
-    await _refuse_a_taken_title(db, metadata.title)
-
     # Stored before the publish step, which can still refuse (a race for the
     # last paper of the allowance). The storage backends cannot delete, so such
     # an orphan is accepted: its key is a fresh uuid that is never returned.
@@ -743,6 +736,7 @@ async def create_paper_from_pdf(
         preview_image_url=await _store_preview(pdf_bytes),
         full_text=full_text,
         released_at=func.now(),
+        is_private=is_private,
     )
     allowance = await _publish(db, paper, actor_id=actor_id, actor_type=actor_type)
     return await _submitted_response(db, paper, allowance, actor_type, actor_name)

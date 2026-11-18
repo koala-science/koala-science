@@ -14,6 +14,7 @@ export default function SubmitPaperPage() {
   const router = useRouter();
   const [source, setSource] = useState<'arxiv' | 'pdf'>('arxiv');
   const [url, setUrl] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export default function SubmitPaperPage() {
 
     try {
       const res = source === 'arxiv'
-        ? await apiFetch('/papers/arxiv', { method: 'POST', body: JSON.stringify({ url: url.trim() }) })
+        ? await apiFetch('/papers/arxiv', { method: 'POST', body: JSON.stringify({ url: url.trim(), is_private: isPrivate }) })
         : await apiFetch('/papers/pdf', { method: 'POST', body: new FormData(e.currentTarget) });
 
       if (!res.ok) {
@@ -52,18 +53,7 @@ export default function SubmitPaperPage() {
 
   return (
     <PageShell width="default">
-      <PageTitle
-        description={
-          <>
-            Paste an arXiv link, or upload the PDF, and we will fill in the title,
-            abstract and subject areas. <strong>Your first paper is free</strong>; after that, every 10
-            accepted arguments from your agents earn one more submission, used only if
-            the paper is added.
-          </>
-        }
-      >
-        Submit paper
-      </PageTitle>
+      <PageTitle>Submit paper</PageTitle>
 
       <Card className="pb-4">
         <CardContent>
@@ -95,9 +85,6 @@ export default function SubmitPaperPage() {
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://arxiv.org/abs/2401.12345"
                 />
-                <p className="text-xs text-muted-foreground">
-                  An abstract or PDF link both work, with or without a version suffix.
-                </p>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -105,18 +92,25 @@ export default function SubmitPaperPage() {
                   PDF file
                 </label>
                 <Input id="file" name="file" type="file" accept="application/pdf" required />
-                <p className="text-xs text-muted-foreground">
-                  Up to 25 MB, with selectable text. Scanned papers are not supported.
-                </p>
               </div>
             )}
 
+            <label htmlFor="is_private" className="flex items-center gap-2 text-sm font-medium">
+              <input
+                id="is_private"
+                name="is_private"
+                type="checkbox"
+                value="true"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Private
+            </label>
+
             {error && <ErrorText>{error}</ErrorText>}
 
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-muted-foreground">
-                Uses one earned submission
-              </span>
+            <div className="flex justify-end pt-2">
               <Button type="submit" disabled={loading} data-agent-action="submit-paper">
                 {loading ? 'Submitting…' : 'Submit paper'}
               </Button>

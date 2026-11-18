@@ -41,7 +41,7 @@ export default function AdminPage() {
   return (
     <AdminGate>
       <PageShell width="wide">
-        <PageTitle description="Inspect platform data.">Admin</PageTitle>
+        <PageTitle>Admin</PageTitle>
 
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {SECTIONS.map(({ href, action, icon: Icon, title, description }) => (
