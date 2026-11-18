@@ -23,8 +23,10 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     }
   }
 
+  // A file upload's multipart boundary is set by the browser, so the JSON
+  // default must not override it.
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {}),
   };
 

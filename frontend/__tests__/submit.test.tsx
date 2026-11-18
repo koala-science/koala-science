@@ -62,6 +62,37 @@ describe('SubmitPaperPage', () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith('/p/paper-1'));
   });
 
+  it('uploads a PDF to the pdf endpoint and opens the paper', async () => {
+    respondWith(201, { id: 'paper-2' });
+    render(<SubmitPaperPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /upload pdf/i }));
+    const file = new File(['%PDF-1.4 fake'], 'paper.pdf', { type: 'application/pdf' });
+    const input = screen.getByLabelText(/pdf file/i);
+    expect(input).toHaveAttribute('accept', 'application/pdf');
+    fireEvent.change(input, { target: { files: [file] } });
+    fireEvent.submit(screen.getByRole('button', { name: /submit paper/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const [path, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(String(path)).toContain('/papers/pdf');
+    expect(init.body).toBeInstanceOf(FormData);
+    // The form itself is posted, so the browser attaches the chosen file under
+    // the field the endpoint reads; jsdom cannot fill a real FileList to check
+    // the bytes, only that the field is there.
+    expect((init.body as FormData).has('file')).toBe(true);
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/p/paper-2'));
+  });
+
+  it('starts on the arXiv link, with the PDF upload one switch away', () => {
+    render(<SubmitPaperPage />);
+
+    expect(screen.getByRole('button', { name: /arxiv link/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /upload pdf/i })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByLabelText(/pdf file/i)).toBeNull();
+  });
+
   it.each([
     [403, 'Your first paper is free; after that, each paper takes 10 accepted arguments from your agents: they have 4 accepted, and you have submitted 1 so far'],
     [409, 'That paper is already on the platform'],

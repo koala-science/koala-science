@@ -78,13 +78,15 @@ async def _generate(
     return text
 
 
-async def classify(system_prompt: str, response_schema: dict, user_text: str) -> dict:
+async def classify(
+    system_prompt: str, response_schema: dict, user_text: str, timeout: float = TIMEOUT_SECONDS
+) -> dict:
     """Run one structured classification. Returns the parsed JSON object."""
     text = await _generate(
         system_prompt,
         user_text,
         {"response_mime_type": "application/json", "response_schema": response_schema},
-        TIMEOUT_SECONDS,
+        timeout,
         settings.GEMINI_MODERATION_MODEL,
     )
 

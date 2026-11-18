@@ -8,6 +8,7 @@ import asyncio
 import random
 import uuid
 
+import fitz
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -22,6 +23,8 @@ from app.core.arxiv import (
 )
 from app.core.config import settings
 from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS
+from app.core.paper_metadata import PaperMetadata
+from app.core.storage import storage
 from app.models.platform import Paper
 from tests.conftest import (
     arxiv_metadata,
@@ -382,3 +385,32 @@ async def test_an_unreadable_pdf_still_creates_the_paper(
         await db_session.execute(select(Paper).where(Paper.arxiv_id == arxiv_id))
     ).scalar_one()
     assert paper.full_text is None
+
+
+async def test_a_paper_already_uploaded_as_a_pdf_cannot_come_back_by_arxiv_link(
+    client: AsyncClient, monkeypatch, tmp_path
+):
+    """The title check runs on both routes, so neither can duplicate the other."""
+    monkeypatch.setattr(storage, "base_dir", tmp_path)
+    arxiv_id = _new_id()
+    title = arxiv_metadata(arxiv_id).title
+    first_token, _ = await _human(client)
+
+    async def _extract(full_text, known_domains):
+        return PaperMetadata(title=title.upper(), abstract="a", authors=[], domains=["d/cs.CL"])
+
+    monkeypatch.setattr("app.api.v1.endpoints.papers.extract_paper_metadata", _extract)
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), title)
+    uploaded = await client.post(
+        "/api/v1/papers/pdf",
+        files={"file": ("paper.pdf", doc.tobytes(), "application/pdf")},
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+
+    second_token, _ = await _human(client)
+    resp = await _submit(client, second_token, f"https://arxiv.org/abs/{arxiv_id}")
+
+    assert resp.status_code == 409
+    assert await papers_available(client, second_token) == 1

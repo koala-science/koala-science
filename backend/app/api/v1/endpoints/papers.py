@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +24,9 @@ from app.core.arxiv import (
     extract_arxiv_id,
     fetch_metadata,
 )
+from app.core.gemini import CheckUnavailableError
 from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance, paper_allowance
+from app.core.paper_metadata import MetadataUnreadable, extract_paper_metadata
 from app.core.paper_visibility import public_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, Agent, HumanAccount
@@ -106,15 +109,7 @@ async def _extract_pdf_assets(pdf_url: str | None) -> tuple[str | None, str | No
     if not pdf_bytes:
         return None, None
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(pdf_bytes)
-        tmp_path = tmp.name
-    try:
-        preview_url = await extract_and_store_preview(tmp_path)
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-    return preview_url, extract_full_text(pdf_bytes)
+    return await _store_preview(pdf_bytes), await asyncio.to_thread(extract_full_text, pdf_bytes)
 
 
 async def _trigger_paper_embedding_refresh(paper_id: uuid.UUID, text: str) -> None:
@@ -423,18 +418,9 @@ async def create_paper_from_arxiv(
             status_code=503, detail="arXiv is unavailable, please try again later"
         )
 
+    await _refuse_a_taken_title(db, metadata.title)
     preview_image_url, full_text = await _extract_pdf_assets(metadata.pdf_url)
     domains = [_normalize_domain(category) for category in metadata.categories]
-
-    # The lock serialises one human's submissions, so two of them cannot both
-    # count the same last paper of the allowance before either inserts it.
-    await db.execute(
-        select(HumanAccount.id)
-        .where(HumanAccount.id == actor_id)
-        .with_for_update(of=HumanAccount.__table__)
-    )
-    allowance = await paper_allowance(db, actor_id)
-    _refuse_without_allowance(allowance)
 
     paper = Paper(
         title=metadata.title,
@@ -447,34 +433,54 @@ async def create_paper_from_arxiv(
         full_text=full_text,
         released_at=func.now(),
     )
-    db.add(paper)
+    allowance = await _publish(db, paper, actor_id=actor_id, actor_type=actor_type)
+    return await _submitted_response(db, paper, allowance, actor_type, actor_name)
 
+
+async def _publish(
+    db: AsyncSession, paper: Paper, *, actor_id: uuid.UUID, actor_type: str
+) -> PaperAllowance:
+    """Insert a submitted paper against the submitter's allowance, and commit.
+
+    Shared by every way of submitting, so the allowance and its lock cannot
+    drift between them. Returns the allowance as it stood before this paper.
+    """
+    # The lock serialises one human's submissions, so two of them cannot both
+    # count the same last paper of the allowance before either inserts it.
+    await db.execute(
+        select(HumanAccount.id)
+        .where(HumanAccount.id == actor_id)
+        .with_for_update(of=HumanAccount.__table__)
+    )
+    allowance = await paper_allowance(db, actor_id)
+    _refuse_without_allowance(allowance)
+
+    db.add(paper)
     try:
         await db.flush()
     except IntegrityError:
-        # Another submission of the same id won the race between the check above
-        # and this insert.
+        # Another submission of the same arXiv id won the race between the
+        # check before the slow work and this insert.
         await db.rollback()
         raise HTTPException(
             status_code=409, detail="That paper is already on the platform"
         )
 
-    # arXiv's taxonomy is not the platform's, so a category almost never has a
-    # Domain row yet. Without one the badge on the paper card links to a 404 and
-    # the domain filter cannot find the paper; the row is what makes a domain
-    # name mean anything.
+    # A category almost never has a Domain row yet. Without one the badge on the
+    # paper card links to a 404 and the domain filter cannot find the paper; the
+    # row is what makes a domain name mean anything.
     known = set(
         (
-            await db.execute(select(Domain.name).where(Domain.name.in_(domains)))
+            await db.execute(select(Domain.name).where(Domain.name.in_(paper.domains)))
         ).scalars().all()
     )
-    for name in domains:
+    for name in paper.domains:
         if name not in known:
             db.add(Domain(name=name, description=f"arXiv category {name.removeprefix('d/')}"))
     await db.flush()
 
     domain_obj = (
-        await db.execute(select(Domain).where(Domain.name == domains[0]))
+        await db.execute(select(Domain).where(Domain.name == paper.domains[0]))
     ).scalar_one()
 
     await emit_event(
@@ -488,17 +494,40 @@ async def create_paper_from_arxiv(
             "title": paper.title,
             "domains": paper.domains,
             "actor_type": actor_type,
-            "arxiv_id": arxiv_id,
+            "arxiv_id": paper.arxiv_id,
             "abstract_length": len(paper.abstract),
         },
     )
     await db.commit()
+    return allowance
 
+
+async def _submitted_response(
+    db: AsyncSession, paper: Paper, allowance: PaperAllowance, actor_type: str, actor_name: str
+) -> PaperResponse:
     response_paper = await _load_paper_for_response(db, paper.id)
-    await _trigger_paper_embedding_refresh(paper.id, metadata.abstract)
+    await _trigger_paper_embedding_refresh(paper.id, paper.abstract)
     response = _paper_to_response(response_paper, actor_type, actor_name)
     response.papers_remaining = allowance.available - 1
     return response
+
+
+async def _refuse_a_taken_title(db: AsyncSession, title: str) -> None:
+    """Refuse a paper already on the platform under the same title, ignoring case
+    and spacing, whichever way either copy was submitted.
+
+    Releases the connection again before returning: both callers go on to slow
+    work (a download, a render, a storage write) and must not hold it idle.
+    """
+    normalized = " ".join(title.lower().split())
+    taken = await db.scalar(
+        select(Paper.id).where(
+            func.lower(func.regexp_replace(func.trim(Paper.title), r"\s+", " ", "g")) == normalized
+        )
+    )
+    await db.rollback()
+    if taken is not None:
+        raise HTTPException(status_code=409, detail="That paper is already on the platform")
 
 
 def _refuse_without_allowance(allowance: PaperAllowance) -> None:
@@ -627,6 +656,108 @@ async def update_paper(
     )
 
 
+async def _read_pdf_upload(file: UploadFile) -> bytes:
+    """The uploaded file's bytes, refusing anything too large or not a PDF.
+
+    Read in bounded chunks so a multi-GB body cannot exhaust memory, and checked
+    for the PDF magic bytes so a non-PDF is never stored at a key served as
+    application/pdf.
+    """
+    size = 0
+    chunks: list[bytes] = []
+    while True:
+        chunk = await file.read(_PDF_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > settings.MAX_PDF_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"PDF exceeds {settings.MAX_PDF_SIZE_BYTES // (1024 * 1024)} MB limit",
+            )
+        chunks.append(chunk)
+    pdf_bytes = b"".join(chunks)
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=415, detail="Uploaded file is not a valid PDF")
+    return pdf_bytes
+
+
+@router.post("/pdf", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(PAPER_SUBMIT_RATE_LIMIT)
+async def create_paper_from_pdf(
+    request: Request,
+    file: UploadFile,
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit a paper by uploading its PDF. Humans only, against the same
+    allowance as an arXiv submission.
+
+    Gemini reads the title, abstract, authors and domains from the text, and the
+    paper is published at once. As with arXiv, nothing is used up unless a paper
+    is created: every refusal comes before the publish step.
+    """
+    if actor.actor_type != ActorType.HUMAN:
+        raise HTTPException(status_code=403, detail="Only humans can submit papers")
+
+    pdf_bytes = await _read_pdf_upload(file)
+    _refuse_without_allowance(await paper_allowance(db, actor.id))
+    known_domains = list((await db.execute(select(Domain.name))).scalars().all())
+
+    # As for arXiv: hoist what is needed and release the connection before the
+    # slow part, here Gemini and rendering the preview.
+    actor_id, actor_name = actor.id, actor.name
+    actor_type = actor.actor_type.value
+    await db.rollback()
+
+    full_text = await asyncio.to_thread(extract_full_text, pdf_bytes)
+    if not full_text:
+        raise HTTPException(
+            status_code=422,
+            detail="No text could be read from this PDF. Scanned papers without a text layer are not supported.",
+        )
+    try:
+        metadata = await extract_paper_metadata(full_text, known_domains)
+    except MetadataUnreadable as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read this paper: {exc}")
+    except CheckUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="Reading the paper failed, please try again later"
+        )
+
+    await _refuse_a_taken_title(db, metadata.title)
+
+    # Stored before the publish step, which can still refuse (a race for the
+    # last paper of the allowance). The storage backends cannot delete, so such
+    # an orphan is accepted: its key is a fresh uuid that is never returned.
+    paper_id = uuid.uuid4()
+    pdf_url = await storage.save(f"pdfs/{paper_id}.pdf", pdf_bytes, content_type="application/pdf")
+    paper = Paper(
+        id=paper_id,
+        title=metadata.title,
+        abstract=metadata.abstract,
+        authors=metadata.authors,
+        domains=metadata.domains,
+        pdf_url=pdf_url,
+        submitter_id=actor_id,
+        preview_image_url=await _store_preview(pdf_bytes),
+        full_text=full_text,
+        released_at=func.now(),
+    )
+    allowance = await _publish(db, paper, actor_id=actor_id, actor_type=actor_type)
+    return await _submitted_response(db, paper, allowance, actor_type, actor_name)
+
+
+async def _store_preview(pdf_bytes: bytes) -> str | None:
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+    try:
+        return await extract_and_store_preview(tmp_path)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
 @router.post("/{paper_id}/upload-pdf", response_model=PaperResponse)
 async def upload_paper_pdf(
     paper_id: uuid.UUID,
@@ -644,25 +775,7 @@ async def upload_paper_pdf(
     if paper.submitter_id != actor.id:
         raise HTTPException(status_code=403, detail="Only the submitter can upload PDFs")
 
-    # Stream upload in bounded chunks so an attacker can't OOM the server with a
-    # multi-GB body. Validate magic bytes before persisting so we never store a
-    # non-PDF at a key that main.py will then serve as application/pdf.
-    size = 0
-    chunks: list[bytes] = []
-    while True:
-        chunk = await file.read(_PDF_UPLOAD_CHUNK)
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > settings.MAX_PDF_SIZE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"PDF exceeds {settings.MAX_PDF_SIZE_BYTES // (1024 * 1024)} MB limit",
-            )
-        chunks.append(chunk)
-    pdf_bytes = b"".join(chunks)
-    if not pdf_bytes.startswith(b"%PDF"):
-        raise HTTPException(status_code=415, detail="Uploaded file is not a valid PDF")
+    pdf_bytes = await _read_pdf_upload(file)
 
     # Store PDF
     pdf_key = f"pdfs/{paper_id}.pdf"

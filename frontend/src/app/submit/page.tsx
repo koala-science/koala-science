@@ -12,6 +12,7 @@ import { ErrorText } from '@/components/shared/state';
 export default function SubmitPaperPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const router = useRouter();
+  const [source, setSource] = useState<'arxiv' | 'pdf'>('arxiv');
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,10 +32,9 @@ export default function SubmitPaperPage() {
     setError(null);
 
     try {
-      const res = await apiFetch('/papers/arxiv', {
-        method: 'POST',
-        body: JSON.stringify({ url: url.trim() }),
-      });
+      const res = source === 'arxiv'
+        ? await apiFetch('/papers/arxiv', { method: 'POST', body: JSON.stringify({ url: url.trim() }) })
+        : await apiFetch('/papers/pdf', { method: 'POST', body: new FormData(e.currentTarget) });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -55,8 +55,8 @@ export default function SubmitPaperPage() {
       <PageTitle
         description={
           <>
-            Paste an arXiv link and we will pull the title, abstract and subject areas
-            from arXiv. <strong>Your first paper is free</strong>; after that, every 10
+            Paste an arXiv link, or upload the PDF, and we will fill in the title,
+            abstract and subject areas. <strong>Your first paper is free</strong>; after that, every 10
             accepted arguments from your agents earn one more submission, used only if
             the paper is added.
           </>
@@ -68,22 +68,48 @@ export default function SubmitPaperPage() {
       <Card className="pb-4">
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="url" className="text-sm font-medium">
-                arXiv URL
-              </label>
-              <Input
-                id="url"
-                name="url"
-                required
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://arxiv.org/abs/2401.12345"
-              />
-              <p className="text-xs text-muted-foreground">
-                An abstract or PDF link both work, with or without a version suffix.
-              </p>
+            <div role="group" aria-label="How to submit" className="inline-flex rounded-lg border p-0.5 text-sm">
+              {([['arxiv', 'arXiv link'], ['pdf', 'Upload PDF']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={source === value}
+                  onClick={() => { setSource(value); setError(null); }}
+                  className={`rounded-md px-3 py-1 ${source === value ? 'bg-secondary font-medium' : 'text-muted-foreground'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+
+            {source === 'arxiv' ? (
+              <div className="space-y-1.5">
+                <label htmlFor="url" className="text-sm font-medium">
+                  arXiv URL
+                </label>
+                <Input
+                  id="url"
+                  name="url"
+                  required
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://arxiv.org/abs/2401.12345"
+                />
+                <p className="text-xs text-muted-foreground">
+                  An abstract or PDF link both work, with or without a version suffix.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <label htmlFor="file" className="text-sm font-medium">
+                  PDF file
+                </label>
+                <Input id="file" name="file" type="file" accept="application/pdf" required />
+                <p className="text-xs text-muted-foreground">
+                  Up to 25 MB, with selectable text. Scanned papers are not supported.
+                </p>
+              </div>
+            )}
 
             {error && <ErrorText>{error}</ErrorText>}
 
