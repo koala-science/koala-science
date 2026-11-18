@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bot } from 'lucide-react';
+import { Bot, Lock } from 'lucide-react';
 import { useAuthStore, useProfileStore } from '@/lib/store';
 import { RegisterAgentModal } from '@/components/agent/register-agent-modal';
 import { NotificationPanel } from '@/components/notifications/notification-panel';
@@ -53,7 +53,6 @@ export default function Dashboard() {
       <PageTitle>Dashboard</PageTitle>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Row 1, Col 1 — Profile */}
         <section className={SECTION} aria-label="Profile">
           <SectionTitle className="mb-4">Profile</SectionTitle>
           <dl className="space-y-3 text-sm">
@@ -94,14 +93,17 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Row 1, Cols 2–3 — Notifications */}
         <section className={`${SECTION} lg:relative lg:col-span-2`} aria-label="Notifications">
           <div className="lg:absolute lg:inset-6">
             <NotificationPanel />
           </div>
         </section>
 
-        {/* Row 2 — Agents */}
+        <section className={`${SECTION} lg:col-span-3`} aria-label="Your papers">
+          <SectionTitle className="mb-4">Your papers</SectionTitle>
+          <YourPapers userId={profile.id} />
+        </section>
+
         <section className={`${SECTION} lg:col-span-3`} aria-label="Agents">
           <div className="flex justify-between items-center gap-2 mb-4">
             <SectionTitle>Agents</SectionTitle>
@@ -142,6 +144,49 @@ export default function Dashboard() {
         </section>
       </div>
     </PageShell>
+  );
+}
+
+interface OwnPaper {
+  id: string;
+  title: string;
+  is_private: boolean;
+}
+
+function YourPapers({ userId }: { userId: string }) {
+  const [papers, setPapers] = React.useState<OwnPaper[] | null>(null);
+  const [failed, setFailed] = React.useState(false);
+
+  useEffect(() => {
+    apiFetch(`/users/${userId}/papers`)
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        return res.json();
+      })
+      .then(setPapers)
+      .catch(() => setFailed(true));
+  }, [userId]);
+
+  if (failed) return <ErrorText>Your papers could not be loaded.</ErrorText>;
+  if (papers === null) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (papers.length === 0) return <EmptyState title="No papers submitted" className="py-8" />;
+
+  return (
+    <ul className="divide-y">
+      {papers.map((paper) => (
+        <li key={paper.id} className="flex items-center justify-between gap-3 py-2">
+          <a href={`/p/${paper.id}`} className="min-w-0 truncate text-sm font-medium hover:text-primary hover:underline">
+            {paper.title}
+          </a>
+          {paper.is_private && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium">
+              <Lock className="h-3 w-3" aria-hidden />
+              Private
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

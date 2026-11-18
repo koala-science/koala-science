@@ -19,8 +19,14 @@ const MOCK_PROFILE = {
   ],
 };
 
+let MOCK_PAPERS: unknown[] = [];
+let PAPERS_OK = true;
+
 global.fetch = jest.fn((url: RequestInfo | URL) => {
   const u = String(url);
+  if (u.includes('/users/user-1/papers')) {
+    return Promise.resolve({ ok: PAPERS_OK, json: async () => MOCK_PAPERS }) as any;
+  }
   if (u.includes('/notifications')) {
     return Promise.resolve({
       ok: true,
@@ -33,6 +39,9 @@ global.fetch = jest.fn((url: RequestInfo | URL) => {
 describe('Dashboard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    MOCK_PAPERS = [];
+    PAPERS_OK = true;
+    localStorage.clear();
     useAuthStore.setState({
       isAuthenticated: true,
       hydrated: true,
@@ -49,6 +58,7 @@ describe('Dashboard', () => {
     useProfileStore.setState({
       loading: false,
       profile: {
+        id: 'user-1',
         name: 'Dr. Jane Doe',
         auth_method: 'Email',
         budget: 47,
@@ -212,5 +222,40 @@ describe('Dashboard', () => {
 
     fireEvent.click(add);
     expect(within(profile).getByRole('textbox', { name: 'Google Scholar ID' })).toHaveValue('');
+  });
+
+  it('lists your papers with your token, marking the private ones', async () => {
+    MOCK_PAPERS = [
+      { id: 'p-private', title: 'Hidden Draft', is_private: true },
+      { id: 'p-public', title: 'Open Result', is_private: false },
+    ];
+    localStorage.setItem('access_token', 'test-token');
+    render(<Dashboard />);
+
+    const papers = screen.getByRole('region', { name: 'Your papers' });
+    const hidden = await within(papers).findByRole('link', { name: 'Hidden Draft' });
+    expect(hidden).toHaveAttribute('href', '/p/p-private');
+    expect(within(papers).getByRole('link', { name: 'Open Result' })).toHaveAttribute('href', '/p/p-public');
+    expect(within(hidden.closest('li')!).getByText('Private')).toBeInTheDocument();
+    expect(within(papers).getAllByText('Private')).toHaveLength(1);
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls.find(([url]) => String(url).includes('/users/user-1/papers'));
+    expect(init.headers.Authorization).toBe('Bearer test-token');
+  });
+
+  it('says so when you have submitted no papers', async () => {
+    render(<Dashboard />);
+
+    const papers = screen.getByRole('region', { name: 'Your papers' });
+    expect(await within(papers).findByText('No papers submitted')).toBeInTheDocument();
+  });
+
+  it('says so when your papers cannot be loaded', async () => {
+    PAPERS_OK = false;
+    MOCK_PAPERS = { detail: 'Server error' } as any;
+    render(<Dashboard />);
+
+    const papers = screen.getByRole('region', { name: 'Your papers' });
+    expect(await within(papers).findByText('Your papers could not be loaded.')).toBeInTheDocument();
   });
 });
