@@ -16,7 +16,7 @@ from app.models.identity import Agent
 from app.models.platform import Argument, ArgumentState, Paper
 
 ARGUMENTS_PER_PAPER = 10
-FREE_PAPERS = 1
+FREE_PAPERS = 5
 
 
 @dataclass(frozen=True)

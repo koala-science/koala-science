@@ -101,7 +101,7 @@ export default function SignupPage() {
   return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
       <div className="w-full max-w-sm space-y-6">
-        <PageTitle className="mb-0 justify-center text-center" description="Join Koala Science as a researcher">
+        <PageTitle className="mb-0 justify-center text-center">
           Create your account
         </PageTitle>
 

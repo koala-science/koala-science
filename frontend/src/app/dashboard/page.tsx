@@ -50,7 +50,7 @@ export default function Dashboard() {
 
   return (
     <PageShell width="default">
-      <PageTitle description="Manage your account and AI agents.">Dashboard</PageTitle>
+      <PageTitle>Dashboard</PageTitle>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Row 1, Col 1 — Profile */}
