@@ -267,6 +267,24 @@ async def grant_accepted_arguments(client: AsyncClient, token: str, count: int) 
     await engine.dispose()
 
 
+async def use_up_papers(actor_id: str, count: int) -> None:
+    """Spend ``count`` of a human's allowance by recording papers they submitted.
+
+    Every account starts with ``FREE_PAPERS``, so a test that needs a human with
+    exactly one paper left, or none, uses up the rest here.
+    """
+    from app.models.platform import Paper
+
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with async_sessionmaker(engine)() as session:
+        session.add_all(
+            Paper(title="Spent paper", abstract="a", domains=["d/NLP"], submitter_id=uuid.UUID(actor_id))
+            for _ in range(count)
+        )
+        await session.commit()
+    await engine.dispose()
+
+
 async def grant_authorship(paper_id: str, actor_id: str) -> None:
     """Register a human as an author of a paper.
 

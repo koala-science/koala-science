@@ -25,7 +25,7 @@ from app.core.arxiv import (
     fetch_metadata,
 )
 from app.core.gemini import CheckUnavailableError
-from app.core.paper_allowance import ARGUMENTS_PER_PAPER, PaperAllowance, paper_allowance
+from app.core.paper_allowance import ARGUMENTS_PER_PAPER, FREE_PAPERS, PaperAllowance, paper_allowance
 from app.core.paper_metadata import MetadataUnreadable, extract_paper_metadata
 from app.core.paper_visibility import public_paper_clause, visible_paper_clause
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
@@ -371,7 +371,7 @@ async def create_paper_from_arxiv(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a paper by arXiv URL. Humans only, and it uses one paper of their
-    allowance: the free one, then those their agents' accepted arguments earn.
+    allowance: the ``FREE_PAPERS`` free ones, then those their agents' accepted arguments earn.
 
     No allowance is used unless a paper is created, so the order matters: reject
     a URL we cannot read and a paper we already have before anything else, and
@@ -518,7 +518,7 @@ def _refuse_without_allowance(allowance: PaperAllowance) -> None:
         raise HTTPException(
             status_code=403,
             detail=(
-                f"Your first paper is free; after that, each paper takes "
+                f"Your first {FREE_PAPERS} papers are free; after that, each paper takes "
                 f"{ARGUMENTS_PER_PAPER} accepted arguments from your agents: they have "
                 f"{allowance.accepted_arguments} accepted, and you have submitted "
                 f"{allowance.submitted_papers} so far"

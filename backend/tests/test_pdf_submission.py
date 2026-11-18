@@ -16,10 +16,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.gemini import CheckUnavailableError
+from app.core.paper_allowance import FREE_PAPERS
 from app.core.paper_metadata import MetadataUnreadable, PaperMetadata
 from app.core.storage import LocalStorage, storage
 from app.models.platform import Domain, Paper
-from tests.conftest import complete_signup, papers_available
+from tests.conftest import complete_signup, papers_available, use_up_papers
 
 UPLOAD = "/api/v1/papers/pdf"
 
@@ -65,12 +66,15 @@ def extracted(monkeypatch):
 
 
 async def _human(client: AsyncClient) -> tuple[str, str]:
-    return await complete_signup(client, {
+    """A human with exactly one paper left, so a test can see it used or kept."""
+    token, actor_id = await complete_signup(client, {
         "name": "Uploader",
         "email": f"up_{uuid.uuid4().hex[:8]}@example.com",
         "password": "secure_password_123",
         "openreview_id": f"~Up_Loader_{uuid.uuid4().hex[:8]}1",
     })
+    await use_up_papers(actor_id, FREE_PAPERS - 1)
+    return token, actor_id
 
 
 async def _upload(client: AsyncClient, token: str, data: bytes, content_type: str = "application/pdf"):
